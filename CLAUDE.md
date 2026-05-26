@@ -1,0 +1,356 @@
+# CLAUDE.md — AI-Native OS Project
+
+> This file is read automatically by Claude Code at session start.  
+> It encodes the architectural invariants, security constraints, and anti-patterns for this codebase.  
+> **Read this before writing a single line of code or proposing any change.**
+
+---
+
+## What This Project Is
+
+An AI-Native Ubuntu fork in which a locally-running LLM is a first-class OS citizen. Users express intent in natural language; the AI translates it into safe, auditable system operations executed against the Linux kernel.
+
+**Core documents:**
+- [`AI_Native_OS_Whitepaper.md`](./AI_Native_OS_Whitepaper.md) — architecture, design decisions, KPIs (the source of truth)
+- [`docs/IMPLEMENTATION_PLAN.md`](./docs/IMPLEMENTATION_PLAN.md) — build order, phase gates, failure mode register, risk mitigations
+
+Read both before making any architectural change.
+
+---
+
+## Directory Map
+
+```
+/
+├── AI_Native_OS_Whitepaper.md     # Definitive architecture reference
+├── CLAUDE.md                      # This file
+├── docs/
+│   └── IMPLEMENTATION_PLAN.md     # Detailed build plan + failure register
+├── privileged-brain/              # Fine-tuning pipeline for the Privileged Brain
+│   ├── scripts/                   # Python training scripts (sft_train.py, dpo_train.py, etc.)
+│   ├── inference/grammar/         # GBNF grammar for constrained decoding
+│   ├── data/                      # Training data (synthetic + processed)
+│   └── *.sh                       # Shell wrappers for the training pipeline
+├── src/
+│   ├── mcpd/                      # Rust MCP daemon (NOT YET BUILT — Phase 1)
+│   ├── controller/                # Dual-Brain Controller (NOT YET BUILT — Phase 2)
+│   └── inference/                 # llama.cpp integration layer
+├── cx-distro/                     # ISO build pipeline (NOT YET BUILT — Phase 6)
+└── models/
+    └── checksums.sha256           # SHA-256 of all GGUF model weight files
+```
+
+## Phase Status
+
+| Phase | Status | Module |
+|---|---|---|
+| Phase 0 | Complete | Env setup, models, MCP handshake |
+| Phase 1 | Not started | mcpd Rust daemon |
+| Phase 2 | Not started | Dual-Brain Controller |
+| Phase 3 | Not started | Landlock + Seccomp-BPF + COW sandbox |
+| Phase 4 | In progress | Fine-tuning pipeline (`privileged-brain/`) |
+| Phase 5 | Not started | UX + Graduated Determinism |
+| Phase 6 | Not started | ISO distribution |
+| Phase 7 | Not started | Hardening + release |
+
+**Never start a phase before its predecessors have passed their exit criteria.** See `docs/IMPLEMENTATION_PLAN.md § Go/No-Go Gate Checklist`.
+
+---
+
+## Absolute Architectural Invariants
+
+These are non-negotiable. Violating any of them breaks the security model. **Do not propose changes that contradict them without first updating the whitepaper and getting explicit human sign-off.**
+
+### INV-1: Brain Isolation
+```
+Quarantined Brain:  ZERO MCP tool connections. ZERO execution capability.
+Privileged Brain:   ZERO access to raw user input. ZERO access to external document content.
+```
+The only information that flows from Quarantined Brain toward Privileged Brain is a structured Intent Object (validated by the Controller) → then reduced to an opaque UUID reference. **Never** let raw text from the Quarantined Brain reach the Privileged Brain.
+
+### INV-2: Controller Schema Enforcement
+```
+The Controller MUST:
+  - Reject any Intent Object with fields outside the defined schema
+  - Reject any Intent Object with string values containing shell metacharacters
+  - NEVER pass raw text payload between the two brains
+  - Pass ONLY opaque reference IDs to the Privileged Brain
+```
+
+### INV-3: mcpd Network Isolation
+```
+mcpd MUST communicate exclusively over stdio pipes.
+mcpd MUST NOT open any TCP, UDP, or UNIX socket listener.
+CI MUST assert `ss -tlnp` shows zero mcpd processes with open ports.
+```
+
+### INV-4: Parameter Validation Before Execution
+```
+Every MCP tool call parameter MUST be validated against the tool's JSON Schema
+before the tool executes. No parameter may contain unescaped shell metacharacters.
+Use schema validators, not ad-hoc string checks.
+```
+
+### INV-5: No Execution Without Sandboxing
+```
+Landlock MUST be applied to the execution child process BEFORE it is forked.
+Seccomp-BPF MUST be applied in the child process before execve.
+If Landlock is unavailable (kernel < 5.13), mcpd MUST exit with a clear error — never run without it.
+```
+
+### INV-6: COW Before Destructive Operations
+```
+Any fs.delete or fs.write OUTSIDE the user's home directory MUST go through
+a COW dry-run first. The user must see the dry-run report before the commit.
+The Approve button must be disabled for at least 3 seconds after the report is shown.
+```
+
+### INV-7: Model Weight Integrity
+```
+mcpd MUST verify the SHA-256 of each GGUF model file against models/checksums.sha256
+at daemon startup. If any checksum fails, mcpd MUST refuse to start.
+build.sh MUST verify all checksums before running mksquashfs.
+```
+
+### INV-8: Audit Log Integrity
+```
+The audit log MUST be opened with O_APPEND. It MUST record every intent,
+including rejected ones, with timestamp, intent ID, risk level, user, and outcome.
+The audit log MUST NOT be writable by the AI models or their inference processes.
+```
+
+---
+
+## Security-Critical Files
+
+The following files implement core security mechanisms. **Any PR touching these files requires human review from the module owner — do not approve without reading the change carefully.**
+
+| File | Why It's Sensitive |
+|---|---|
+| `src/controller/schema_validation.*` | Schema bypass here = prompt injection succeeds |
+| `src/controller/intent_store.*` | Opaque ID store — any leak of raw text here breaks INV-1 |
+| `src/mcpd/tools/fs.rs` | Path traversal, arbitrary write — most dangerous mcpd module |
+| `src/mcpd/server.rs` | Network listener check — INV-3 |
+| `src/mcpd/sandbox/landlock.rs` | Ruleset definition — too-permissive rules = sandbox escape |
+| `src/mcpd/sandbox/seccomp.rs` | Syscall whitelist — missing syscall = escape vector |
+| `src/mcpd/sandbox/cow.rs` | Commit atomicity — non-atomic commit = data corruption |
+| `inference/grammar/mcp_tool_call.gbnf` | Grammar definition — must stay in sync with mcpd schemas |
+| `models/checksums.sha256` | Authoritative hash manifest — tampering = wrong model loaded |
+| `cx-distro/build.sh` | ISO builder — checksum verification lives here |
+
+---
+
+## Forbidden Patterns
+
+**Never write code that does any of the following:**
+
+```python
+# FORBIDDEN: shell=True in any subprocess call within mcpd or controller
+subprocess.run(user_input, shell=True)  # ❌
+
+# FORBIDDEN: raw user text as a parameter to any MCP tool call
+mcp_call("fs.write", {"path": user_message})  # ❌
+
+# FORBIDDEN: skipping COW for destructive operations outside home dir
+execute_immediately("fs.delete", "/etc/config")  # ❌
+
+# FORBIDDEN: hardcoded model path without hash verification
+load_model("/opt/ainative/models/qwen.gguf")  # ❌ — must verify SHA-256 first
+
+# FORBIDDEN: connecting Quarantined Brain to any MCP tool
+quarantined_brain.connect_mcp(mcpd)  # ❌
+
+# FORBIDDEN: passing Quarantined Brain output text directly to Privileged Brain
+privileged_brain.execute(quarantined_brain.last_response)  # ❌
+
+# FORBIDDEN: Landlock/Seccomp applied after fork in child process
+child_process.apply_seccomp()  # ❌ — must be applied in parent before fork
+
+# FORBIDDEN: TCP listener in mcpd
+TcpListener::bind("0.0.0.0:8080")  // ❌ in mcpd
+```
+
+```rust
+// FORBIDDEN: unwrap() on security-critical paths — always handle errors explicitly
+let path = validate_path(input).unwrap(); // ❌
+
+// FORBIDDEN: string interpolation into shell commands
+let cmd = format!("rm -rf {}", user_path); // ❌
+
+// FORBIDDEN: using std::process::Command with shell=true equivalent
+Command::new("sh").arg("-c").arg(user_input) // ❌
+```
+
+---
+
+## Agent Workflow Rules
+
+These rules apply to any AI coding agent (Claude Code, Codex, Gemini CLI, etc.) working on this codebase.
+
+### WF-1: Branch Isolation
+Always work in a feature branch. **Never commit directly to `main`.**
+```bash
+git checkout -b feature/phase1-mcpd-fs-module
+```
+
+### WF-2: Narrow Scope Per Task
+Each agent task must have exactly one module scope. Do not ask an agent to:
+- "Implement Phase 3" (too broad)
+- "Build mcpd and the Controller" (two modules)
+
+Do ask an agent to:
+- "Implement `src/mcpd/tools/fs.rs` with path validation and unit tests"
+- "Write the JSON Schema for the Intent Object in `controller/schemas/intent.json`"
+
+### WF-3: Run Tests Before Done
+Before marking any task complete, run:
+```bash
+cargo test                          # Rust unit + integration tests
+pytest tests/                       # Python tests
+python tests/check_invariants.py    # Architecture invariant assertions
+```
+If tests fail, fix them — do not mark the task done.
+
+### WF-4: Architecture Is the Source of Truth
+If your generated code disagrees with `AI_Native_OS_Whitepaper.md` or `docs/IMPLEMENTATION_PLAN.md`, **fix the code**, not the documents. If you genuinely believe a document is wrong, flag it for human review — do not silently deviate.
+
+### WF-5: One Human Owner Per Module
+| Module | Owner |
+|---|---|
+| `src/mcpd/` | Rust engineer |
+| `src/controller/` | Backend engineer |
+| `privileged-brain/` | ML engineer |
+| `cx-distro/` | DevOps engineer |
+| `inference/grammar/` | ML engineer |
+
+Every PR must be reviewed by the module owner before merging.
+
+### WF-6: Security File Review
+Any change touching the files listed in **Security-Critical Files** above requires explicit `LGTM` from the module owner AND a second human reviewer. No exceptions.
+
+### WF-7: No Cross-Module Changes in One PR
+A single PR must not span mcpd + Controller + fine-tuning pipeline. Each module has its own PR. This makes review tractable and limits blast radius.
+
+---
+
+## Running the Fine-Tuning Pipeline (Phase 4)
+
+The training pipeline is the most mature part of the codebase. The run order is:
+
+```bash
+cd privileged-brain/
+
+# 1. Environment setup (~10 min)
+bash 01_setup.sh
+
+# 2. Download baseline datasets
+bash 02_get_data.sh
+
+# 3. Generate synthetic training data (requires ANTHROPIC_API_KEY)
+export ANTHROPIC_API_KEY=sk-ant-...
+bash 03_generate_synthetic.sh
+
+# 4. Train — run overnight (5–9 hours on Apple M4 / GPU)
+bash 04_train.sh
+
+# 5. Fuse LoRA adapter, quantize to GGUF, import to Ollama
+bash 05_convert_and_import.sh
+
+# 6. Start inference server
+bash 06_start_inference.sh
+
+# 7. Evaluate against baseline
+bash 07_evaluate.sh
+```
+
+**Before the overnight training run, verify:**
+- [ ] Checkpoint output directory exists and is writable: `ls -la training/adapters/sft/`
+- [ ] At least 20GB free disk space for checkpoints: `df -h .`
+- [ ] Run one test step to confirm no OOM: `python3 scripts/sft_train.py --epochs 1 --low-memory` (stop after first checkpoint)
+
+**If training OOMs:**
+```bash
+python3 scripts/sft_train.py --low-memory --lr 1e-4 --resume
+```
+
+**If you need to resume from a checkpoint:**
+```bash
+bash 04_train.sh  # Already includes --resume logic in the script
+```
+
+---
+
+## Key Invariant: Model Checksums
+
+Every time a model file is created, modified, or moved, update `models/checksums.sha256`:
+
+```bash
+sha256sum models/*.gguf >> models/checksums.sha256
+```
+
+The CI pipeline verifies these checksums. A missing or mismatched checksum will fail the build and block the PR.
+
+---
+
+## Latency Budget (Non-Negotiable)
+
+| Layer | Budget |
+|---|---|
+| Landlock ruleset application | <1ms |
+| Seccomp-BPF filter installation | <1ms |
+| COW overlay mount | <5ms |
+| MCP JSON-RPC round-trip | <5ms |
+| **Total security overhead** | **<10ms** |
+| **Full pipeline (Tier 0/1)** | **<100ms p95** |
+
+If a change you make causes any of these to exceed budget, resolve the regression before merging.
+
+---
+
+## Common Mistakes and How to Avoid Them
+
+| Mistake | Prevention |
+|---|---|
+| Adding a TCP listener to mcpd for "easier debugging" | Use a Unix socket with strict file permissions for dev tooling only; never TCP |
+| Passing user text to Privileged Brain "just for logging" | Logs are read by humans, not the model. Keep the separation strict. |
+| Using `shell=True` because it's easier | Always use `Command::new()` with explicit arg list. If you need a pipeline, compose tools in Rust. |
+| Skipping the data validation pass before training | Dangerous commands in training data = dangerous model. The pass is in the Phase 4 checklist for a reason. |
+| Testing only in QEMU before claiming the ISO works | QEMU masks hardware compatibility bugs. Always test on physical hardware before marking Phase 6 done. |
+| Widening Landlock rulesets "temporarily" | There is no temporary in a shipped OS. Start minimal; widen only after documented justification. |
+| Approving a PR that touches sandbox code without reading it | Security-critical files require two human reviewers. This is enforced by branch protection rules. |
+| Training SFT and DPO from different base model versions | Pin the model hash. `fuse_lora.py` asserts it at load time. |
+
+---
+
+## Quick Reference: Critical Commands
+
+```bash
+# Verify both models load
+llama-server --model models/phi4-mini-q4.gguf --port 8080 &
+llama-server --model models/qwen2.5-coder-1.5b-q4.gguf --port 8081 &
+
+# Test MCP handshake
+echo '{"jsonrpc":"2.0","method":"tools/list","id":1}' | ./mcpd
+
+# Verify mcpd has no network listeners (must return empty)
+ss -tlnp | grep mcpd
+
+# Run all tests
+cargo test && pytest tests/
+
+# Check model checksums
+sha256sum --check models/checksums.sha256
+
+# Evaluate fine-tuned model
+cd privileged-brain && bash 07_evaluate.sh
+
+# Build ISO (Phase 6 only — all prior phases must be complete)
+cd cx-distro && bash build.sh
+
+# Boot ISO in QEMU for testing
+qemu-system-x86_64 -m 8G -boot d -cdrom ainative.iso -enable-kvm
+```
+
+---
+
+*Last updated: May 2026. Update this file whenever an architectural decision changes, a new invariant is established, or a phase gate passes.*
