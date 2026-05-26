@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://icebreaker.local/schemas/intent/v1",
+  "title": "IntentObject",
+  "description": "Validated intent passed from the Controller to the Privileged Brain. Never contains raw user text — only structured, schema-validated fields.",
+  "type": "object",
+  "required": ["intent_id", "action", "target", "params", "reason", "risk_level"],
+  "additionalProperties": false,
+  "properties": {
+    "intent_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Opaque UUID reference. This is the ONLY thing the Privileged Brain receives — never raw user text."
+    },
+    "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+      "maxLength": 64,
+      "description": "MCP tool name in the form 'module.method'. Must match an entry in mcpd's tools/list catalogue."
+    },
+    "target": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^[^;&|`$<>\\x00-\\x1f]*$",
+      "description": "Primary target of the action (e.g. path, service name, PID). Shell metacharacters are forbidden."
+    },
+    "params": {
+      "type": "object",
+      "description": "Tool-specific parameters. Validated against the tool's JSON Schema from mcpd.",
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string",  "maxLength": 1024, "pattern": "^[^;&|`$<>\\x00-\\x1f]*$" },
+          { "type": "number" },
+          { "type": "boolean" },
+          { "type": "null" }
+        ]
+      }
+    },
+    "reason": {
+      "type": "string",
+      "enum": ["user_requested", "ai_autonomous", "scheduled"],
+      "description": "Why this intent was generated. Affects audit log and HITL display."
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": ["read_only", "low", "medium", "high", "critical"],
+      "description": "Risk tier. Determines HITL behavior: read_only/low=auto, medium=notify, high/critical=block+prompt."
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Version of the mcpd schema catalogue this intent was validated against."
+    },
+    "timestamp": {
+      "type": "number",
+      "description": "Unix timestamp (seconds) when the intent was created."
+    }
+  }
+}
