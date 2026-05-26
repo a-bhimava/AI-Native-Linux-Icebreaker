@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.env
+
+# HuggingFace model cache (large binary files)
+privileged-brain/training/adapters/
+privileged-brain/data/raw/
+privileged-brain/inference/draft_models/
+
+# Large generated data files (regenerate by running 02_get_data.sh + 03_generate_synthetic.sh)
+privileged-brain/data/processed/
+privileged-brain/colab/train.jsonl
+privileged-brain/colab/valid.jsonl
+privileged-brain/gcloud/train.jsonl
+privileged-brain/gcloud/valid.jsonl
+
+# GGUF models (large binaries — kept locally)
+*.gguf
+*.bin
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# Logs (generated at runtime)
+privileged-brain/training/logs/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
