@@ -32,3 +32,6 @@ privileged-brain/training/logs/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
+
+# Rust build artifacts
+src/mcpd/target/
