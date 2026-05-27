@@ -91,6 +91,16 @@ def flag(bash: str) -> str:
     _words = bash.split()
     if len(_words) >= 10 and _words[:len(_words) // 2] == _words[len(_words) // 2:]:
         return "  ⚠  DUPLICATED COMMAND"
+    if re.search(r'[–—−]', bash):
+        return "  ⚠  UNICODE DASH (em/en-dash instead of hyphen)"
+    if re.search(r'&\s*done\b', bash):
+        return "  ⚠  & BEFORE done (syntax error in loop)"
+    if re.search(r'\bxargs\b[^|&;]*\becho\s+(mv|cp|rm|ln|chmod|chown|mkdir|find|sudo|git)\b', bash, re.I):
+        return "  ⚠  ECHO INSIDE XARGS (no-op: prints instead of executes)"
+    if re.search(r'\bdu\b[^|]*-[a-zA-Z]*h[^|]*\|[^|]*\bsort\b[^|]*-[a-zA-Z]*n\b', bash):
+        return "  ⚠  du -h | sort -n MISMATCH (use sort -h for human sizes)"
+    if any(d in bash for d in ["-exec rm ", "xargs rm -rf", "xargs rm -fr"]):
+        return "  ⚠  FIND/XARGS DELETE ALL (rm on entire filesystem)"
     if bash.startswith('$ ') or bash.startswith('% '):
         return "  ⚠  TERMINAL PROMPT PREFIX ($ or %)"
     if re.search(r'(?:^|\s)-i?name\s+(?![\'"])[^\s\'";]*[*?]', bash):

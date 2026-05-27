@@ -74,8 +74,29 @@ def is_valid(nl: str, bash: str) -> bool:
         return False
     if bash.lower().startswith(_PROSE_STARTS):
         return False
+    # Unicode dashes masquerading as hyphens (em-dash, en-dash, minus sign U+2212)
+    if re.search(r'[–—−]', bash):
+        return False
+    # & immediately before done — bash syntax error in loops
+    if re.search(r'&\s*done\b', bash):
+        return False
+    # echo inside xargs — xargs just prints the command string, doesn't execute it
+    if re.search(
+        r'\bxargs\b[^|&;]*\becho\s+(mv|cp|rm|ln|chmod|chown|mkdir|find|sudo|git)\b',
+        bash, re.I,
+    ):
+        return False
+    # du -h piped to sort -n: human-readable sizes sorted as plain numbers (wrong order)
+    if re.search(r'\bdu\b[^|]*-[a-zA-Z]*h[^|]*\|[^|]*\bsort\b[^|]*-[a-zA-Z]*n\b', bash):
+        return False
     # Skip destructive commands that would train dangerous behaviour
-    for danger in ["rm -rf /", "mkfs", "dd if=/dev/zero", "> /dev/sda", "chmod -R 777 /"]:
+    for danger in [
+        "rm -rf /", "mkfs", "dd if=/dev/zero", "> /dev/sda", "chmod -R 777 /",
+        # find executing rm (functionally equivalent to rm -rf /)
+        "-exec rm ", "-exec rm\t",
+        # xargs piped delete
+        "xargs rm -rf", "xargs rm -fr",
+    ]:
         if danger in bash:
             return False
     # Ellipsis anywhere — pseudo-code placeholder (catches middle + trailing)
