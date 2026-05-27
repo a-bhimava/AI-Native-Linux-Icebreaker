@@ -2,6 +2,7 @@
 """Convert raw NL->Bash pairs to ChatML JSONL format for TRL SFTTrainer."""
 
 import json
+import re
 import random
 from pathlib import Path
 
@@ -74,6 +75,20 @@ def is_valid(nl: str, bash: str) -> bool:
     for danger in ["rm -rf /", "mkfs", "dd if=/dev/zero", "> /dev/sda", "chmod -R 777 /"]:
         if danger in bash:
             return False
+    # Man-page OR syntax: -flag1|-flag2 or --flag1|--flag2 scraped from docs
+    if re.search(r'-[\w-]+\|-[\w-]+', bash):
+        return False
+    # Trailing ellipsis — pseudo-code placeholder, not a real command
+    if bash.rstrip().endswith(('...', '…')):
+        return False
+    # echo-wrapped command — prints instead of executes
+    _ECHO_CMDS = (
+        'find', 'ln', 'cp', 'mv', 'rm', 'chmod', 'chown', 'mkdir', 'touch',
+        'curl', 'wget', 'git', 'sudo', 'systemctl', 'service', 'docker',
+        'kubectl', 'python', 'pip', 'npm', 'yarn', 'apt', 'yum', 'brew',
+    )
+    if re.match(r'^echo\s+(' + '|'.join(_ECHO_CMDS) + r')\b', bash, re.IGNORECASE):
+        return False
     return True
 
 
