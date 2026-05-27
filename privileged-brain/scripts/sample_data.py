@@ -91,6 +91,12 @@ def flag(bash: str) -> str:
     _words = bash.split()
     if len(_words) >= 10 and _words[:len(_words) // 2] == _words[len(_words) // 2:]:
         return "  ⚠  DUPLICATED COMMAND"
+    if bash.startswith('$ ') or bash.startswith('% '):
+        return "  ⚠  TERMINAL PROMPT PREFIX ($ or %)"
+    if re.search(r'(?:^|\s)-i?name\s+(?![\'"])[^\s\'";]*[*?]', bash):
+        return "  ⚠  UNQUOTED GLOB IN -name (bash expands before find)"
+    if re.search(r"'[^']*\$\([^']*\)[^']*'", bash):
+        return "  ⚠  SUBSHELL $() INSIDE SINGLE QUOTES (won't evaluate)"
     return ""
 
 

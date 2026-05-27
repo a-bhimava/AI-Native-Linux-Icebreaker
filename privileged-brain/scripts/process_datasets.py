@@ -109,6 +109,20 @@ def is_valid(nl: str, bash: str) -> bool:
     _words = bash.split()
     if len(_words) >= 10 and _words[:len(_words) // 2] == _words[len(_words) // 2:]:
         return False
+    # Terminal prompt prefix — scraped with shell prompt symbol attached
+    if bash.startswith('$ ') or bash.startswith('% '):
+        return False
+    # Unquoted glob in find -name/-iname: bash expands * before find runs
+    # Matches: find ... -name *.txt  (no surrounding quotes around the glob)
+    if re.search(r'(?:^|\s)-i?name\s+(?![\'"])[^\s\'";]*[*?]', bash):
+        return False
+    # $(subshell) inside single quotes — evaluates literally, not as a command
+    # Catches: sed -i '1s/.*/$(date ...)/'  where $(date) won't expand
+    if re.search(r"'[^']*\$\([^']*\)[^']*'", bash):
+        return False
+    # NL scraping artifacts — markdown footnote/anchor syntax in the prompt text
+    if re.search(r"\['\w*'\]|\[`[^`]*`\]|\[\w+\]\(\)", nl):
+        return False
     return True
 
 
