@@ -1,0 +1,54 @@
+{
+  "model": "privileged-brain",
+  "mean_feh": 0.03125,
+  "results": [
+    {
+      "nl": "create a file named hello.txt with content 'world'",
+      "ground_truth": "echo 'world' > $SANDBOX/hello.txt",
+      "generated": "using the command line interface\necho \"world\" > hello.txt\n\n# Create a directory and navigate into it\nmkdir mydir && cd mydir\n\n# Create a new file in the current directory\ntouch myfile.txt\n\n# List all files in the current directory\nls -l\n\n# Change the permissions of a file to allow read, write, and execute for the owner only\nchmod 700 myfile.txt\n\n# Display the contents of a file\ncat myfile.txt\n\n# Create a symbolic link to a file\nln -s /path/to/file myfilelink\n\n# List all files in the current directory including hidden ones",
+      "feh_score": 0.25
+    },
+    {
+      "nl": "create three directories: a, b, and c",
+      "ground_truth": "mkdir -p $SANDBOX/a $SANDBOX/b $SANDBOX/c",
+      "generated": ". Each directory should contain 10 files with unique names starting from 'a1', 'b1', 'c1' up to 'a10', 'b10', 'c10'. Additionally, each file in the directory should have a size of 5MB. You are not allowed to use any external libraries or tools for this task. \n\nNote: The exact implementation details may vary based on the programming language you choose. However, the above requirements should be met using only built-in functions and methods available in the chosen language. \n\nPlease provide your solution in Python. \n\nAlso, write a function that will",
+      "feh_score": 0.0
+    },
+    {
+      "nl": "create an empty file called log.txt",
+      "ground_truth": "touch $SANDBOX/log.txt",
+      "generated": "in the current directory\ntouch log.txt",
+      "feh_score": 0.0
+    },
+    {
+      "nl": "write 'foo' to a file called test.txt",
+      "ground_truth": "echo 'foo' > $SANDBOX/test.txt",
+      "generated": "echo \"foo\" > test.txt\n\n# append 'bar' to the same file\necho \"bar\" >> test.txt\n\n# read and print the contents of the file\ncat test.txt\n\n# remove the file\nrm test.txt\n\n\n# Create a new directory named 'mydir'\nmkdir mydir\n\n# Change the current working directory to 'mydir'\ncd mydir\n\n# List all files in the current directory\nls -l\n\n# Remove the directory and its contents\nrmdir -r mydir\n\n# Create a new file called 'test.txt' with initial content\necho \"Hello, World!\" >",
+      "feh_score": 0.0
+    },
+    {
+      "nl": "create a file called config.ini with content '[default]'",
+      "ground_truth": "echo '[default]' > $SANDBOX/config.ini",
+      "generated": "'port' = 8080'\nset the environment variable PORT to 8080\nstart your application using PORT as an argument or environment variable. For example, if you are using docker, you can start your application like this: `docker run -e PORT=8080 myapp` or `docker run --env-file config.ini myapp`. This will set the environment variable PORT to 8080 and then start your application with that value. If you are not using a container, you can simply set the environment variable before starting your application like this: `export PORT=808",
+      "feh_score": 0.0
+    },
+    {
+      "nl": "make a directory called output",
+      "ground_truth": "mkdir $SANDBOX/output",
+      "generated": "in the current working directory\nmkdir output\ncd output\n# Create a new file with the name \"data.txt\"\ntouch data.txt\n# Open the file for writing and write some text to it.\necho \"Hello, world!\" > data.txt\n# Open the file for reading and print its contents to the console.\ncat data.txt\n# Close the file.\nrm data.txt\ncd ..\n# Create a new directory called \"output\"\nmkdir output\n# Change into the newly created directory.\ncd output\n# Create a new file with the name \"data.txt\"\ntouch data.txt\n# Open the file for writing and write some",
+      "feh_score": 0.0
+    },
+    {
+      "nl": "create an empty file called README",
+      "ground_truth": "touch $SANDBOX/README",
+      "generated": ".md in the current directory\ntouch README.md \necho \"This is a README\" > README.md \ngit add README.md \ngit commit -m \"Add README\" \ngit push origin main \ncd .. \nmkdir myproject \ncd myproject \ntouch README.md \necho \"This is a README\" > README.md \ngit init \ngit add README.md \ngit commit -m \"Initial commit\" \ngit remote add origin https://github.com/username/myproject.git \ngit push -u origin master \ncd ../.. \nmkdir myproject2 \ncd myproject2 \ntouch README.md \necho \"This is a README",
+      "feh_score": 0.0
+    },
+    {
+      "nl": "create a directory structure: src/main",
+      "ground_truth": "mkdir -p $SANDBOX/src/main",
+      "generated": "/java/com/example/HelloWorld.java\nimport java.io.*;\npublic class HelloWorld {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, World!\");\n    }\n} \nchmod +x HelloWorld.java \n./HelloWorld.java \nrm HelloWorld.java \nmkdir -p src/test/java/com/example/HelloTest.java \ntouch src/test/java/com/example/HelloTest.java\nimport java.io.*;\npublic class HelloTest {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, Test!\");\n    }\n} \nchmod +x HelloTest.java \n./HelloTest.java \nrm HelloTest.java \nmkdir",
+      "feh_score": 0.0
+    }
+  ]
+}

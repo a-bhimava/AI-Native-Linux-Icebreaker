@@ -1,0 +1,54 @@
+{
+  "model": "qwen2.5-coder:1.5b",
+  "mean_feh": 1.0,
+  "results": [
+    {
+      "nl": "create a file named hello.txt with content 'world'",
+      "ground_truth": "echo 'world' > $SANDBOX/hello.txt",
+      "generated": "```bash\necho \"world\" > hello.txt\n```",
+      "feh_score": 1.0
+    },
+    {
+      "nl": "create three directories: a, b, and c",
+      "ground_truth": "mkdir -p $SANDBOX/a $SANDBOX/b $SANDBOX/c",
+      "generated": "```bash\nmkdir a b c\n```",
+      "feh_score": 1.0
+    },
+    {
+      "nl": "create an empty file called log.txt",
+      "ground_truth": "touch $SANDBOX/log.txt",
+      "generated": "```bash\ntouch log.txt\n```",
+      "feh_score": 1.0
+    },
+    {
+      "nl": "write 'foo' to a file called test.txt",
+      "ground_truth": "echo 'foo' > $SANDBOX/test.txt",
+      "generated": "```bash\necho \"foo\" > test.txt\n```",
+      "feh_score": 1.0
+    },
+    {
+      "nl": "create a file called config.ini with content '[default]'",
+      "ground_truth": "echo '[default]' > $SANDBOX/config.ini",
+      "generated": "```bash\necho \"[default]\" > config.ini\n```",
+      "feh_score": 1.0
+    },
+    {
+      "nl": "make a directory called output",
+      "ground_truth": "mkdir $SANDBOX/output",
+      "generated": "mkdir output",
+      "feh_score": 1.0
+    },
+    {
+      "nl": "create an empty file called README",
+      "ground_truth": "touch $SANDBOX/README",
+      "generated": "```bash\ntouch README\n```",
+      "feh_score": 1.0
+    },
+    {
+      "nl": "create a directory structure: src/main",
+      "ground_truth": "mkdir -p $SANDBOX/src/main",
+      "generated": "```bash\nmkdir -p src/main\n```",
+      "feh_score": 1.0
+    }
+  ]
+}

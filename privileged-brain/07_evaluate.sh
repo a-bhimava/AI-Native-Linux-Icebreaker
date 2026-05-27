@@ -41,6 +41,19 @@ echo "========================================"
 echo " Results saved to eval/results/"
 echo "========================================"
 echo ""
-echo "To compare:"
+echo "To compare summary:"
 echo "  cat eval/results/feh_*.json | python3 -c \\"
 echo "    \"import json,sys; [print(d['model'],f\\\"{d['mean_feh']*100:.1f}%\\\") for d in [json.load(open(f)) for f in __import__('glob').glob('eval/results/feh_*.json')]]\""
+echo ""
+echo "========================================"
+echo " Extended eval: NL2SH-ALFA test set"
+echo " (300 manually verified pairs)"
+echo "========================================"
+echo ""
+if [ -f "eval/nl2sh_alfa_test.jsonl" ]; then
+  echo "Running fine-tuned model on NL2SH-ALFA test set..."
+  python3 scripts/eval_feh.py --model privileged-brain --eval-file eval/nl2sh_alfa_test.jsonl
+else
+  echo "SKIP: eval/nl2sh_alfa_test.jsonl not found."
+  echo "      Run bash 02_get_data.sh to download it."
+fi

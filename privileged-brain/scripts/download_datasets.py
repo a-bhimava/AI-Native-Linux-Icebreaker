@@ -1,127 +1,105 @@
 #!/usr/bin/env python3
 """
-Download bash/shell command datasets from HuggingFace.
+Download verified NL->bash datasets from HuggingFace.
 
-Sources (all confirmed available):
-  - sahil2801/CodeAlpaca-20k  — 20k code instructions, ~1,400 bash-related
-  - HuggingFaceH4/CodeAlpaca_20K — 18k code instructions, additional bash content
-  - theblackcat102/evol-codealpaca-v1 — 111k evolved instructions, largest source
+Sources (all confirmed NL->bash only, no general coding Q&A):
+  - westenfelder/NL2SH-ALFA  -- 40,639 train + 600 manually-verified test (NAACL 2025)
+  - neulab/tldr               -- 6,414 train pairs from tldr-pages (MIT)
+  - mecha-org/linux-command-dataset -- 8,669 tested Linux commands (Apache 2.0)
 """
 
 import json
-import re
 from pathlib import Path
 
 from datasets import load_dataset
 
 RAW_DIR = Path("data/raw")
+EVAL_DIR = Path("eval")
 RAW_DIR.mkdir(parents=True, exist_ok=True)
-
-# Keywords that strongly indicate a bash/shell command pair
-BASH_KEYWORDS = [
-    "#!/bin/bash", "#!/bin/sh",
-    "sudo ", "apt-get", "apt ", "systemctl", "journalctl",
-    "chmod ", "chown ", "grep ", "awk ", "sed ",
-    "find /", "find .", "ls -", "ps aux", "ps -",
-    "curl ", "wget ", "ssh ", "scp ",
-    "tar ", "gzip", "gunzip",
-    "iptables", "ufw ", "netstat", "ss -",
-    "df -", "du -", "free -",
-    "kill ", "killall", "pkill",
-    "crontab", "nohup ", "screen ",
-    "mkdir ", "rmdir ", "rm -",
-    "cat /etc", "cat /var", "tail -", "head -",
-]
+EVAL_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def is_bash_pair(instruction: str, output: str) -> bool:
-    """True if the output looks like a bash command/script."""
-    combined = (instruction + " " + output).lower()
-    output_lower = output.lower().strip()
+def download_nl2sh_alfa():
+    print("Downloading westenfelder/NL2SH-ALFA (train + test)...")
+    # This dataset uses named configs ('train', 'test') not dataset splits
+    ds_train = load_dataset("westenfelder/NL2SH-ALFA", "train", split="train")
+    ds_test  = load_dataset("westenfelder/NL2SH-ALFA", "test",  split="train")
 
-    # Must match at least one keyword
-    if not any(kw.lower() in combined for kw in BASH_KEYWORDS):
-        return False
+    train_pairs = []
+    for row in ds_train:
+        nl = (row.get("nl") or "").strip()
+        bash = (row.get("bash") or "").strip()
+        if nl and bash:
+            train_pairs.append({"nl": nl, "bash": bash})
 
-    # Output should not be primarily Python/JS/SQL
-    bad_starts = ["def ", "class ", "import ", "from ", "const ", "var ", "let ", "select ", "create table"]
-    if any(output_lower.startswith(s) for s in bad_starts):
-        return False
+    train_path = RAW_DIR / "nl2sh_alfa_train.jsonl"
+    with open(train_path, "w") as f:
+        for p in train_pairs:
+            f.write(json.dumps(p) + "\n")
+    print(f"  Train: {len(train_pairs)} pairs -> {train_path}")
 
-    # Skip very long outputs (multi-hundred line programs — not what we want)
-    if output.count("\n") > 30:
-        return False
+    test_pairs = []
+    for row in ds_test:
+        nl = (row.get("nl") or "").strip()
+        bash = (row.get("bash") or row.get("bash2") or "").strip()
+        if nl and bash:
+            test_pairs.append({"nl": nl, "bash": bash})
 
-    return True
+    test_path = EVAL_DIR / "nl2sh_alfa_test.jsonl"
+    with open(test_path, "w") as f:
+        for p in test_pairs:
+            f.write(json.dumps(p) + "\n")
+    print(f"  Test (eval only, NOT for training): {len(test_pairs)} pairs -> {test_path}")
+
+    return len(train_pairs)
 
 
-def clean_output(output: str) -> str:
-    """Strip markdown code fences if present."""
-    output = output.strip()
-    # Remove ```bash ... ``` or ```sh ... ``` wrappers
-    output = re.sub(r"^```(?:bash|sh|shell|zsh)?\n", "", output)
-    output = re.sub(r"\n?```$", "", output)
-    return output.strip()
-
-
-def download_codealpha_20k():
-    print("Downloading sahil2801/CodeAlpaca-20k...")
-    ds = load_dataset("sahil2801/CodeAlpaca-20k", split="train")
+def download_tldr():
+    print("Downloading neulab/tldr (train split)...")
+    try:
+        ds = load_dataset("neulab/tldr", split="train", trust_remote_code=True)
+    except Exception as e:
+        print(f"  SKIP: neulab/tldr unavailable ({type(e).__name__}: {e})")
+        print("  This dataset uses a legacy script; skipping — NL2SH-ALFA is sufficient.")
+        return 0
     pairs = []
     for row in ds:
-        inst = (row.get("instruction") or "").strip()
-        out = clean_output(row.get("output") or "")
-        if inst and out and is_bash_pair(inst, out):
-            pairs.append({"nl": inst, "bash": out})
+        nl = (row.get("nl") or "").strip()
+        bash = (row.get("cmd") or "").strip()
+        if nl and bash:
+            pairs.append({"nl": nl, "bash": bash})
 
-    out_path = RAW_DIR / "codealpha_20k.jsonl"
+    out_path = RAW_DIR / "tldr_train.jsonl"
     with open(out_path, "w") as f:
         for p in pairs:
             f.write(json.dumps(p) + "\n")
-    print(f"  Saved {len(pairs)} bash pairs -> {out_path}")
+    print(f"  {len(pairs)} pairs -> {out_path}")
     return len(pairs)
 
 
-def download_hf_codealpha():
-    print("Downloading HuggingFaceH4/CodeAlpaca_20K...")
-    ds = load_dataset("HuggingFaceH4/CodeAlpaca_20K", split="train")
+def download_linux_commands():
+    print("Downloading mecha-org/linux-command-dataset...")
+    ds = load_dataset("mecha-org/linux-command-dataset", split="train")
     pairs = []
     for row in ds:
-        inst = (row.get("prompt") or "").strip()
-        out = clean_output(row.get("completion") or "")
-        if inst and out and is_bash_pair(inst, out):
-            pairs.append({"nl": inst, "bash": out})
+        nl = (row.get("input") or "").strip()
+        bash = (row.get("output") or "").strip()
+        if nl and bash:
+            pairs.append({"nl": nl, "bash": bash})
 
-    out_path = RAW_DIR / "hf_codealpha.jsonl"
+    out_path = RAW_DIR / "linux_commands.jsonl"
     with open(out_path, "w") as f:
         for p in pairs:
             f.write(json.dumps(p) + "\n")
-    print(f"  Saved {len(pairs)} bash pairs -> {out_path}")
-    return len(pairs)
-
-
-def download_evol_codealpaca():
-    print("Downloading theblackcat102/evol-codealpaca-v1 (111k rows — may take ~1 min)...")
-    ds = load_dataset("theblackcat102/evol-codealpaca-v1", split="train")
-    pairs = []
-    for row in ds:
-        inst = (row.get("instruction") or "").strip()
-        out = clean_output(row.get("output") or "")
-        if inst and out and is_bash_pair(inst, out):
-            pairs.append({"nl": inst, "bash": out})
-
-    out_path = RAW_DIR / "evol_codealpaca.jsonl"
-    with open(out_path, "w") as f:
-        for p in pairs:
-            f.write(json.dumps(p) + "\n")
-    print(f"  Saved {len(pairs)} bash pairs -> {out_path}")
+    print(f"  {len(pairs)} pairs -> {out_path}")
     return len(pairs)
 
 
 if __name__ == "__main__":
     total = 0
-    total += download_codealpha_20k()
-    total += download_hf_codealpha()
-    total += download_evol_codealpaca()
-    print(f"\nTotal bash pairs downloaded: {total}")
-    print(f"Raw data directory: {RAW_DIR.resolve()}")
+    total += download_nl2sh_alfa()
+    total += download_tldr()
+    total += download_linux_commands()
+    print(f"\nTotal raw pairs downloaded: {total}")
+    print(f"Eval set (held out): eval/nl2sh_alfa_test.jsonl")
+    print(f"Raw data directory:  {RAW_DIR.resolve()}")
