@@ -69,7 +69,7 @@ def flag(bash: str) -> str:
     )
     if bash.lower().startswith(prose_starts):
         return "  ⚠  LOOKS LIKE PROSE"
-    if "```" in bash:
+    if "```" in bash or bash.startswith("`") or bash.endswith("`"):
         return "  ⚠  CONTAINS BACKTICKS"
     if len(bash) > 500:
         return f"  ⚠  TOO LONG ({len(bash)} chars)"

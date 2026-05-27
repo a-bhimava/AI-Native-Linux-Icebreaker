@@ -67,6 +67,9 @@ def is_valid(nl: str, bash: str) -> bool:
         return False
     if "```" in bash:
         return False
+    # Single-backtick wrapping: scraped from markdown inline code
+    if bash.startswith("`") or bash.endswith("`"):
+        return False
     if "\n\n" in bash:
         return False
     if bash.lower().startswith(_PROSE_STARTS):
