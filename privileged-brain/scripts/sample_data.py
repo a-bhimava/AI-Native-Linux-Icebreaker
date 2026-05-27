@@ -75,12 +75,22 @@ def flag(bash: str) -> str:
         return f"  ⚠  TOO LONG ({len(bash)} chars)"
     if "\n\n" in bash:
         return "  ⚠  DOUBLE NEWLINE (paragraph)"
-    if re.search(r'-[\w-]+\|-[\w-]+', bash):
-        return "  ⚠  MAN-PAGE OR SYNTAX (|)"
-    if bash.rstrip().endswith(('...', '…')):
-        return "  ⚠  TRAILING ELLIPSIS (pseudo-code)"
+    if '...' in bash or '…' in bash:
+        return "  ⚠  ELLIPSIS IN COMMAND (pseudo-code placeholder)"
+    if re.search(r'(?<!\s)\|(?!\s)', bash):
+        return "  ⚠  NO-SPACE PIPE (man-page OR or missing spaces)"
     if _ECHO_CMDS_RE.match(bash):
         return "  ⚠  ECHO-WRAPPED CMD (no-op)"
+    if re.search(r'\bxargs\b.*\\\s*;', bash):
+        return "  ⚠  XARGS+EXEC MASHUP (\\; belongs to -exec)"
+    _BIN_EXTS = (r'jpg|jpeg|png|gif|bmp|ico|tiff|webp|mp3|mp4|avi|mov|wav'
+                 r'|zip|tar\.gz|7z|gz|bin|exe|dll|so|o')
+    if (re.search(r'\bcat\s+.*\.(' + _BIN_EXTS + r')\b', bash, re.I) or
+            re.search(r'\bfind\b.*\.(' + _BIN_EXTS + r')\b.*\bcat\b', bash, re.I)):
+        return "  ⚠  CAT ON BINARY FILE"
+    _words = bash.split()
+    if len(_words) >= 10 and _words[:len(_words) // 2] == _words[len(_words) // 2:]:
+        return "  ⚠  DUPLICATED COMMAND"
     return ""
 
 

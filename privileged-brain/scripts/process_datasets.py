@@ -78,11 +78,12 @@ def is_valid(nl: str, bash: str) -> bool:
     for danger in ["rm -rf /", "mkfs", "dd if=/dev/zero", "> /dev/sda", "chmod -R 777 /"]:
         if danger in bash:
             return False
-    # Man-page OR syntax: -flag1|-flag2 or --flag1|--flag2 scraped from docs
-    if re.search(r'-[\w-]+\|-[\w-]+', bash):
+    # Ellipsis anywhere — pseudo-code placeholder (catches middle + trailing)
+    if '...' in bash or '…' in bash:
         return False
-    # Trailing ellipsis — pseudo-code placeholder, not a real command
-    if bash.rstrip().endswith(('...', '…')):
+    # No-space pipe: man-page OR notation (hl|c|r) or missing spaces (www|split)
+    # Generalises the old dashed-flag pattern; real pipes always have surrounding spaces
+    if re.search(r'(?<!\s)\|(?!\s)', bash):
         return False
     # echo-wrapped command — prints instead of executes
     _ECHO_CMDS = (
@@ -91,6 +92,22 @@ def is_valid(nl: str, bash: str) -> bool:
         'kubectl', 'python', 'pip', 'npm', 'yarn', 'apt', 'yum', 'brew',
     )
     if re.match(r'^echo\s+(' + '|'.join(_ECHO_CMDS) + r')\b', bash, re.IGNORECASE):
+        return False
+    # xargs + find -exec mashup: \; belongs to -exec, not xargs
+    if re.search(r'\bxargs\b.*\\\s*;', bash):
+        return False
+    # cat on binary files — dumps raw bytes to terminal, corrupts session
+    _BIN_EXTS = (r'jpg|jpeg|png|gif|bmp|ico|tiff|webp|mp3|mp4|avi|mov|wav'
+                 r'|zip|tar\.gz|7z|gz|bin|exe|dll|so|o')
+    # Direct: cat file.jpg  OR  cat *.png
+    if re.search(r'\bcat\s+.*\.(' + _BIN_EXTS + r')\b', bash, re.I):
+        return False
+    # Indirect: find ... *.jpg ... -exec cat / | xargs cat
+    if re.search(r'\bfind\b.*\.(' + _BIN_EXTS + r')\b.*\bcat\b', bash, re.I):
+        return False
+    # Command duplication — same token sequence pasted twice on one line
+    _words = bash.split()
+    if len(_words) >= 10 and _words[:len(_words) // 2] == _words[len(_words) // 2:]:
         return False
     return True
 
