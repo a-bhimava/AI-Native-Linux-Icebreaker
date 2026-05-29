@@ -1,0 +1,20 @@
+# GBNF Grammar — Bash Command with Chain-of-Thought prefix
+# Constrains llama.cpp output to a REASONING block followed by a COMMAND line.
+# Used with: llama-server --grammar-file inference/grammar/bash_cot.gbnf
+#
+# Valid output example:
+#   REASONING: List all mounted filesystems in human-readable format; df -h shows size, used, available.
+#   COMMAND: df -h
+#
+# The REASONING block is stripped before execution and written to the audit log.
+# The COMMAND token is what reaches the execution engine.
+
+root          ::= reasoning-line newline command-line
+
+reasoning-line ::= "REASONING: " reasoning-text
+reasoning-text ::= [^\n]+ [^\n]*
+
+command-line  ::= "COMMAND: " command-text
+command-text  ::= [^\n]+
+
+newline       ::= "\n"

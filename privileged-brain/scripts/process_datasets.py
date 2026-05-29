@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Convert raw NL->Bash pairs to ChatML JSONL format for TRL SFTTrainer."""
 
+import argparse
 import json
 import re
 import random
@@ -21,6 +22,21 @@ SYSTEM_PROMPT = (
     "4. If a request is ambiguous or dangerous, output: REFUSE: <one-line reason>."
 )
 
+SYSTEM_PROMPT_COT = (
+    "You are the Privileged Brain — a system execution engine for an AI-native OS. "
+    "You receive natural language descriptions of system administration tasks. "
+    "Rules you must always follow:\n"
+    "1. First write one REASONING line: explain what the intent requires and which tool/path achieves it.\n"
+    "2. Then write one COMMAND line: the exact Bash command or shell pipeline — no markdown, no fences.\n"
+    "3. Prefer minimal-scope, reversible commands.\n"
+    "4. Never read or process external data (emails, documents, URLs).\n"
+    "5. If a request is ambiguous or dangerous, write: REASONING: Request is refused.\n"
+    "   COMMAND: REFUSE: <one-line reason>\n"
+    "Output format (always exactly two lines):\n"
+    "REASONING: <one sentence>\n"
+    "COMMAND: <bash command>"
+)
+
 # Prose indicators: if the bash field starts with any of these, it's not a command.
 _PROSE_STARTS = (
     "here ", "sure", "this will", "to do", "you can", "the ", "i would",
@@ -33,6 +49,26 @@ _MAX_CMD_LEN = 500   # no command is genuinely longer than this
 _MAX_NL_LEN  = 300   # reject paragraph-length NL descriptions
 
 
+def _key_tool(bash: str) -> str:
+    """Extract the primary command name from a bash string (skip sudo)."""
+    tokens = bash.strip().split()
+    for tok in tokens:
+        clean = tok.lstrip("-")
+        if clean and not clean.startswith("-") and clean not in ("sudo",):
+            return clean
+    return tokens[0] if tokens else bash
+
+
+def _make_reasoning(nl: str, bash: str) -> str:
+    """Generate a template reasoning trace from an nl+bash pair."""
+    tool = _key_tool(bash)
+    nl_lower = nl.strip().rstrip(".")
+    # For REFUSE responses, just note the refusal
+    if bash.startswith("REFUSE:"):
+        return f"Request '{nl_lower}' is outside safe operating parameters and must be refused."
+    return f"To {nl_lower}, use {tool} which handles this operation with minimal scope."
+
+
 def to_chatml(nl: str, bash: str) -> dict:
     return {
         "messages": [
@@ -41,6 +77,41 @@ def to_chatml(nl: str, bash: str) -> dict:
             {"role": "assistant", "content": bash},
         ]
     }
+
+
+def to_chatml_cot(nl: str, bash: str, reasoning: str = "") -> dict:
+    """Format a training example with Chain-of-Thought prefix.
+
+    If a pre-written reasoning string is supplied (e.g. from Claude-generated data)
+    it is used directly; otherwise a template trace is generated from nl+bash.
+    """
+    if not reasoning:
+        reasoning = _make_reasoning(nl, bash)
+    assistant_content = f"REASONING: {reasoning}\nCOMMAND: {bash}"
+    return {
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT_COT},
+            {"role": "user", "content": nl},
+            {"role": "assistant", "content": assistant_content},
+        ]
+    }
+
+
+def assert_cot_format(example: dict) -> None:
+    """Raise ValueError if the assistant turn does not follow REASONING/COMMAND format."""
+    messages = example.get("messages", [])
+    for msg in messages:
+        if msg.get("role") == "assistant":
+            content = msg.get("content", "")
+            lines = content.strip().splitlines()
+            if len(lines) < 2:
+                raise ValueError(f"CoT example has fewer than 2 lines: {content!r}")
+            if not lines[0].startswith("REASONING:"):
+                raise ValueError(f"CoT example missing REASONING prefix: {lines[0]!r}")
+            if not lines[1].startswith("COMMAND:"):
+                raise ValueError(f"CoT example missing COMMAND prefix: {lines[1]!r}")
+            return
+    raise ValueError("No assistant message found in example")
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -158,43 +229,64 @@ def _load_source(fname: str, nl_key: str, bash_key: str) -> list[tuple[str, str]
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--clean-only", action="store_true",
+                        help="Use only nl2bash_full + synthetic (clean baseline run 3)")
+    parser.add_argument("--cot", action="store_true",
+                        help="Format examples with Chain-of-Thought REASONING/COMMAND prefix")
+    args = parser.parse_args()
+
     counts = {}
-    all_pairs = []
+    # Each entry is (nl, bash, reasoning_or_empty_string)
+    all_pairs: list[tuple[str, str, str]] = []
 
-    # ── New verified datasets (downloaded by download_datasets.py) ────────────
-    for fname, nl_key, bash_key in [
-        ("nl2sh_alfa_train.jsonl", "nl",    "bash"),   # NL2SH-ALFA train
-        ("tldr_train.jsonl",       "nl",    "bash"),   # TLDR (neulab)
-        ("linux_commands.jsonl",   "nl",    "bash"),   # mecha-org/linux-command-dataset
-    ]:
-        pairs = _load_source(fname, nl_key, bash_key)
-        counts[fname] = len(pairs)
-        all_pairs.extend(pairs)
+    if args.clean_only:
+        out_dir = PROCESSED_DIR / "clean"
+        print("Mode: CLEAN BASELINE (nl2bash_full + synthetic only)")
+        # ── NL2Bash full (Lin et al. 2018) ────────────────────────────────────
+        pairs = _load_source("nl2bash_full.jsonl", "nl", "bash")
+        counts["nl2bash_full.jsonl"] = len(pairs)
+        all_pairs.extend((nl, bash, "") for nl, bash in pairs)
+    else:
+        out_dir = PROCESSED_DIR
+        # ── New verified datasets (downloaded by download_datasets.py) ────────
+        for fname, nl_key, bash_key in [
+            ("nl2sh_alfa_train.jsonl", "nl",    "bash"),   # NL2SH-ALFA train
+            ("tldr_train.jsonl",       "nl",    "bash"),   # TLDR (neulab)
+            ("linux_commands.jsonl",   "nl",    "bash"),   # mecha-org/linux-command-dataset
+        ]:
+            pairs = _load_source(fname, nl_key, bash_key)
+            counts[fname] = len(pairs)
+            all_pairs.extend((nl, bash, "") for nl, bash in pairs)
 
-    # ── Legacy NL2Bash (10 examples, kept for continuity) ────────────────────
-    pairs = _load_source("nl2bash.jsonl", "nl", "bash")
-    counts["nl2bash.jsonl"] = len(pairs)
-    all_pairs.extend(pairs)
+        # ── Legacy NL2Bash (10 examples, kept for continuity) ─────────────────
+        pairs = _load_source("nl2bash.jsonl", "nl", "bash")
+        counts["nl2bash.jsonl"] = len(pairs)
+        all_pairs.extend((nl, bash, "") for nl, bash in pairs)
 
-    # ── Synthetic pairs (project-specific + REFUSE examples) ─────────────────
+    # ── Synthetic pairs (project-specific + REFUSE examples) — always included
     for fpath, nl_key, bash_key in [
         (Path("data/synthetic/synthetic_pairs.jsonl"),   "nl", "bash"),
         (Path("data/synthetic/synthetic_advanced.jsonl"),"nl", "bash"),
     ]:
         rows = load_jsonl(fpath)
-        pairs = []
         for row in rows:
             nl = row.get(nl_key, "").strip()
             bash = row.get(bash_key, "").strip()
+            reasoning = row.get("reasoning", "").strip()
             if is_valid(nl, bash):
-                pairs.append((nl, bash))
-        counts[fpath.name] = len(pairs)
-        all_pairs.extend(pairs)
+                all_pairs.append((nl, bash, reasoning))
+        counts[fpath.name] = sum(
+            1 for row in load_jsonl(fpath)
+            if is_valid(row.get(nl_key, "").strip(), row.get(bash_key, "").strip())
+        )
 
     print("Source breakdown:")
     for src, n in counts.items():
         print(f"  {src:<35} {n:>6} pairs")
     print(f"  {'TOTAL':<35} {len(all_pairs):>6} pairs")
+    if args.cot:
+        print("  Mode: CoT (REASONING/COMMAND format)")
 
     random.seed(42)
     random.shuffle(all_pairs)
@@ -203,14 +295,30 @@ def main():
     train_pairs = all_pairs[:split_idx]
     valid_pairs = all_pairs[split_idx:]
 
-    for split_name, pairs in [("train", train_pairs), ("valid", valid_pairs)]:
-        out_path = PROCESSED_DIR / f"{split_name}.jsonl"
-        with open(out_path, "w") as f:
-            for nl, bash in pairs:
-                f.write(json.dumps(to_chatml(nl, bash)) + "\n")
-        print(f"  {split_name}: {len(pairs)} examples -> {out_path}")
+    if args.cot:
+        out_dir = Path(str(out_dir) + "_cot")
 
-    print(f"\nProcessed data directory: {PROCESSED_DIR.resolve()}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for split_name, pairs in [("train", train_pairs), ("valid", valid_pairs)]:
+        out_path = out_dir / f"{split_name}.jsonl"
+        cot_errors = 0
+        with open(out_path, "w") as f:
+            for nl, bash, reasoning in pairs:
+                if args.cot:
+                    example = to_chatml_cot(nl, bash, reasoning)
+                    try:
+                        assert_cot_format(example)
+                    except ValueError as e:
+                        cot_errors += 1
+                        continue
+                else:
+                    example = to_chatml(nl, bash)
+                f.write(json.dumps(example) + "\n")
+        if cot_errors:
+            print(f"  WARNING: {cot_errors} CoT examples skipped (format check failed)")
+        print(f"  {split_name}: {len(pairs) - cot_errors} examples -> {out_path}")
+
+    print(f"\nProcessed data directory: {out_dir.resolve()}")
 
 
 if __name__ == "__main__":

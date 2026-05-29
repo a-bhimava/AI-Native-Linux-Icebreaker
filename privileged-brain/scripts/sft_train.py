@@ -27,6 +27,8 @@ def main():
                         help="Enable memory-saving mode: batch=1, grad_checkpointing, seq=256")
     parser.add_argument("--resume", action="store_true",
                         help="Resume from latest checkpoint in output-dir")
+    parser.add_argument("--cot", action="store_true",
+                        help="Train on CoT-formatted data (REASONING/COMMAND prefix)")
     args = parser.parse_args()
 
     # Low-memory overrides — apply before any torch allocations
@@ -95,11 +97,30 @@ def main():
     model.print_trainable_parameters()
 
     # --- Dataset ---
+    data_dir = "data/processed_cot" if args.cot else "data/processed"
     print("Loading datasets...")
-    train_ds = load_dataset("json", data_files="data/processed/train.jsonl", split="train")
-    valid_ds = load_dataset("json", data_files="data/processed/valid.jsonl", split="train")
+    print(f"  Data directory: {data_dir}/")
+    train_ds = load_dataset("json", data_files=f"{data_dir}/train.jsonl", split="train")
+    valid_ds = load_dataset("json", data_files=f"{data_dir}/valid.jsonl", split="train")
     print(f"  Train: {len(train_ds)} examples")
     print(f"  Valid: {len(valid_ds)} examples")
+
+    if args.cot:
+        # Sanity-check a sample of examples for correct REASONING/COMMAND format
+        _errors = 0
+        for ex in train_ds.select(range(min(50, len(train_ds)))):
+            assistant_turn = next(
+                (m["content"] for m in ex["messages"] if m["role"] == "assistant"), ""
+            )
+            lines = assistant_turn.strip().splitlines()
+            if len(lines) < 2 or not lines[0].startswith("REASONING:") or not lines[1].startswith("COMMAND:"):
+                _errors += 1
+        if _errors:
+            raise ValueError(
+                f"CoT format check failed: {_errors}/50 sampled examples missing REASONING/COMMAND prefix. "
+                "Run: python3 scripts/process_datasets.py --cot  to regenerate."
+            )
+        print(f"  CoT format check passed (sampled 50 examples)")
 
     def format_example(example):
         return {
@@ -155,6 +176,7 @@ def main():
     print(f"LoRA rank            : {args.lora_rank}")
     print(f"Max seq length       : {args.max_seq_len}")
     print(f"Low-memory mode      : {args.low_memory}")
+    print(f"CoT mode             : {args.cot}")
     print(f"Output               : {args.output_dir}/")
     print(f"\nExpected loss curve  : ~2.0 start → ~0.8 after epoch 1 → ~0.4 after epoch 3")
     print(f"If loss stuck >1.5 after 500 steps, run with --low-memory and lower --lr 1e-4\n")

@@ -6,11 +6,17 @@ Tiers:
   Tier 0 — Read-only operations. Auto-execute. No prompt. No notification.
   Tier 1 — Low-risk writes (user home dir, user services). Auto-execute + audit log.
   Tier 2 — Medium-risk (system services, package install). Auto-execute + notification.
+              QB verification hook fires here (verifier.py).
   Tier 3 — High/critical (outside home dir, firewall, /etc/sudoers, /boot, /root). BLOCK + HITL prompt.
+              Majority vote (voting.py) + QB verification + COW dry-run + HITL.
 
 Usage:
   from risk_classifier import classify, Tier
-  result = classify(intent)   # returns Tier + explanation
+  result = classify(intent)   # returns ClassificationResult
+
+  # After PB generates a command, run post-generation hooks:
+  from risk_classifier import run_post_generation_hooks
+  hooks_result = run_post_generation_hooks(tier, ref_id, command, intent_description)
 """
 
 from __future__ import annotations
@@ -182,6 +188,80 @@ def classify(intent: dict) -> ClassificationResult:
         tier=Tier.MEDIUM,
         reason=f"Unclassified action '{action}' — applying medium risk tier",
         reversible=True,
+    )
+
+
+# ── Post-generation hooks (Arch 2: QB verify, Arch 3: majority vote) ─────────
+
+from dataclasses import dataclass as _dc, field as _field
+
+@_dc
+class PostGenerationResult:
+    """Result of the post-generation hook pipeline."""
+    command: str               # final command to use (may differ from input if voting ran)
+    ref_id: str                # may be a revised ref_id if QB flagged a correction
+    requires_revision: bool    # True if PB should regenerate with revised Intent Object
+    low_confidence: bool       # True if majority vote found no consensus (warn in HITL)
+    verification_skipped: bool # True if QB was unreachable (fail-open)
+    vote_candidates: list      # all k vote candidates (empty if voting didn't run)
+
+
+def run_post_generation_hooks(
+    tier: Tier,
+    ref_id: str,
+    command: str,
+    intent_description: str,
+) -> PostGenerationResult:
+    """Run accuracy improvement hooks after the Privileged Brain generates a command.
+
+    Tier 2 (MEDIUM): QB verification only.
+    Tier 3 (HIGH):   Majority vote (k=3) first, then QB verification on the winner.
+
+    Returns PostGenerationResult. The Controller uses this to decide whether to:
+      - Proceed with the command (requires_revision=False)
+      - Regenerate with a revised Intent Object (requires_revision=True, revised ref_id set)
+      - Warn the user in the HITL prompt (low_confidence=True)
+
+    This function is fail-open: if any hook fails, the pipeline continues.
+    """
+    final_command = command
+    final_ref_id = ref_id
+    low_confidence = False
+    requires_revision = False
+    verification_skipped = False
+    vote_candidates: list = []
+
+    # ── Tier 3: majority vote across k=3 parallel PB inferences ──────────────
+    if tier == Tier.HIGH:
+        try:
+            from .voting import vote, Confidence
+            vote_result = vote(intent_description)
+            vote_candidates = vote_result.candidates
+            if vote_result.command:
+                final_command = vote_result.command
+            low_confidence = vote_result.confidence == Confidence.LOW
+        except Exception:
+            # voting unavailable — continue with single-inference command
+            pass
+
+    # ── Tier 2+: QB verification ──────────────────────────────────────────────
+    if tier >= Tier.MEDIUM:
+        try:
+            from .verifier import verify
+            verdict = verify(final_ref_id, final_command)
+            if not verdict.matches and verdict.revised_ref_id:
+                final_ref_id = verdict.revised_ref_id
+                requires_revision = True
+        except Exception:
+            verification_skipped = True
+
+    return PostGenerationResult(
+        command=final_command,
+        ref_id=final_ref_id,
+        requires_revision=requires_revision,
+        low_confidence=low_confidence,
+        verification_skipped=verification_skipped,
+        vote_candidates=vote_candidates,
     )
 
 

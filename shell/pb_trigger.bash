@@ -30,6 +30,15 @@ try:
     if resp.startswith('\`\`\`'):
         lines = resp.split('\n')
         resp = '\n'.join(l for l in lines if not l.startswith('\`\`\`')).strip()
+    # Strip CoT REASONING prefix — extract the COMMAND line if present
+    if resp.startswith('REASONING:'):
+        lines = resp.splitlines()
+        for line in lines:
+            if line.startswith('COMMAND:'):
+                resp = line[len('COMMAND:'):].strip()
+                break
+        else:
+            resp = ''
     print(resp.split('\n')[0])
 except: pass
 " 2>/dev/null
