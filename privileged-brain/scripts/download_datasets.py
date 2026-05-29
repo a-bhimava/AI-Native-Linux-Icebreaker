@@ -11,6 +11,7 @@ Sources (all confirmed NL->bash only, no general coding Q&A):
 import json
 from pathlib import Path
 
+import requests
 from datasets import load_dataset
 
 RAW_DIR = Path("data/raw")
@@ -95,11 +96,44 @@ def download_linux_commands():
     return len(pairs)
 
 
+def download_nl2bash():
+    """Lin et al., 2018 — ~9,305 verified, peer-reviewed NL->bash pairs.
+
+    Downloads train/dev/test splits directly from the canonical TellinaTool
+    GitHub repo (the original source of the dataset).  The jiacheng-ye/nl2bash
+    HuggingFace mirror uses a legacy dataset script that modern `datasets`
+    versions no longer support.
+    """
+    BASE = "https://raw.githubusercontent.com/TellinaTool/nl2bash/master/data/bash"
+
+    print("Downloading TellinaTool/nl2bash (Lin et al., 2018)...")
+    pairs = []
+    try:
+        nl_lines   = requests.get(f"{BASE}/all.nl", timeout=60).text.splitlines()
+        bash_lines = requests.get(f"{BASE}/all.cm", timeout=60).text.splitlines()
+    except Exception as e:
+        print(f"  ERROR: {e}")
+        return 0
+    for nl, bash in zip(nl_lines, bash_lines):
+        nl, bash = nl.strip(), bash.strip()
+        if nl and bash:
+            pairs.append({"nl": nl, "bash": bash})
+    print(f"  Raw pairs: {len(pairs)} (from {len(nl_lines)} lines)")
+
+    out_path = RAW_DIR / "nl2bash_full.jsonl"
+    with open(out_path, "w") as f:
+        for p in pairs:
+            f.write(json.dumps(p) + "\n")
+    print(f"  Total: {len(pairs)} pairs -> {out_path}")
+    return len(pairs)
+
+
 if __name__ == "__main__":
     total = 0
     total += download_nl2sh_alfa()
     total += download_tldr()
     total += download_linux_commands()
+    total += download_nl2bash()
     print(f"\nTotal raw pairs downloaded: {total}")
     print(f"Eval set (held out): eval/nl2sh_alfa_test.jsonl")
     print(f"Raw data directory:  {RAW_DIR.resolve()}")

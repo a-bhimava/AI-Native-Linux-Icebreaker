@@ -9,6 +9,7 @@ Usage:
     python3 scripts/sample_data.py --split eval     # from NL2SH-ALFA test set
     python3 scripts/sample_data.py --split all      # sample across all three
     python3 scripts/sample_data.py --seed 0         # reproducible sample
+    python3 scripts/sample_data.py --clean          # use clean NL2Bash dataset
 """
 
 import argparse
@@ -24,6 +25,12 @@ BASE_DIR = SCRIPT_DIR.parent
 FILES = {
     "train": BASE_DIR / "data/processed/train.jsonl",
     "valid": BASE_DIR / "data/processed/valid.jsonl",
+    "eval":  BASE_DIR / "eval/nl2sh_alfa_test.jsonl",
+}
+
+CLEAN_FILES = {
+    "train": BASE_DIR / "data/processed/clean/train.jsonl",
+    "valid": BASE_DIR / "data/processed/clean/valid.jsonl",
     "eval":  BASE_DIR / "eval/nl2sh_alfa_test.jsonl",
 }
 
@@ -124,7 +131,12 @@ def main():
     parser.add_argument("--n",     type=int, default=20, help="Number of samples to print")
     parser.add_argument("--split", default="train", choices=["train", "valid", "eval", "all"])
     parser.add_argument("--seed",  type=int, default=None, help="Random seed for reproducibility")
+    parser.add_argument("--clean", action="store_true", help="Sample from clean NL2Bash dataset (data/processed/clean/)")
     args = parser.parse_args()
+
+    files = CLEAN_FILES if args.clean else FILES
+    if args.clean:
+        print("[ clean NL2Bash dataset ]", file=sys.stderr)
 
     rng = random.Random(args.seed)
 
@@ -136,7 +148,7 @@ def main():
     # Load and tag each row with its split name
     tagged: list[tuple[str, dict]] = []
     for split in splits_to_sample:
-        path = FILES[split]
+        path = files[split]
         if not path.exists():
             print(f"WARNING: {path} not found — skipping", file=sys.stderr)
             continue
