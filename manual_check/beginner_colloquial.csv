@@ -1,0 +1,1026 @@
+#,nl,bash
+1,I want to make a new empty text file called notes on my desktop,touch ~/Desktop/notes.txt
+2,create an empty file named todo in my documents folder,touch ~/Documents/todo.txt
+3,make a blank file called readme inside my projects folder,touch ~/projects/readme.md
+4,I need an empty log file in my downloads folder,touch ~/Downloads/debug.log
+5,make a brand new folder called photos in my home directory,mkdir ~/photos
+6,create a folder named backups on my desktop,mkdir ~/Desktop/backups
+7,I want a new directory called invoices inside documents,mkdir ~/Documents/invoices
+8,make a folder called april2026 inside my reports folder,mkdir ~/reports/april2026
+9,how do I make a folder inside another folder that doesnt exist yet,mkdir -p ~/projects/myapp/src/components
+10,create the whole folder path documents slash work slash 2026 slash q2 in one go,mkdir -p ~/Documents/work/2026/q2
+11,I want to make several nested folders for organizing my photos by year and month,"mkdir -p ~/Pictures/2026/{01,02,03,04,05,06,07,08,09,10,11,12}"
+12,set up a typical project folder layout under newapp with src tests and docs,"mkdir -p ~/projects/newapp/{src,tests,docs}"
+13,make me a folder for each weekday inside my schedule folder,"mkdir -p ~/schedule/{monday,tuesday,wednesday,thursday,friday}"
+14,I want to create a quick file with the text hello world in it,echo 'hello world' > ~/hello.txt
+15,make a file called config.txt with the line debug equals true inside it,echo 'debug=true' > ~/config.txt
+16,create a shopping list file with three items milk eggs bread,printf 'milk\neggs\nbread\n' > ~/Documents/shopping.txt
+17,I need a small shell script file that just prints hi,printf '#!/bin/bash\necho hi\n' > ~/scripts/hi.sh
+18,save a multi line note about my meeting today into a file,"cat > ~/Documents/meeting.txt <<'EOF'
+Meeting with team
+Discussed Q2 roadmap
+Next steps: send recap
+EOF"
+19,write a quick readme with three lines of content into my new project folder,"cat > ~/projects/newapp/README.md <<'EOF'
+# newapp
+A small experiment.
+Run with: ./start.sh
+EOF"
+20,make a temporary scratch file I can use for a moment,mktemp
+21,I want a temp file with a name I can save and reuse,mktemp /tmp/scratch.XXXXXX
+22,create a temporary folder I can dump files into for now,mktemp -d
+23,make a one gigabyte placeholder file for testing,truncate -s 1G ~/Downloads/placeholder.bin
+24,I need a 500 megabyte dummy file to test upload speeds,truncate -s 500M ~/Downloads/dummy.bin
+25,create a 10 megabyte test file in tmp,truncate -s 10M /tmp/test10mb.bin
+26,make a copy of my resume so I can edit one version safely,cp ~/Documents/resume.pdf ~/Documents/resume_backup.pdf
+27,I want to make a copy of this file before I edit it,cp ~/projects/myapp/config.yaml ~/projects/myapp/config.yaml.bak
+28,duplicate the notes file as notes2,cp ~/Documents/notes.txt ~/Documents/notes2.txt
+29,copy my budget spreadsheet to the desktop,cp ~/Documents/budget.xlsx ~/Desktop/budget.xlsx
+30,put a copy of the slides into the shared folder,cp ~/Documents/slides.pptx ~/shared/slides.pptx
+31,copy the whole projects folder to my external drive mount point,cp -r ~/projects /mnt/external/projects
+32,make a full copy of my pictures folder onto the desktop,cp -r ~/Pictures ~/Desktop/Pictures_copy
+33,copy the entire myapp directory into the archive folder,cp -r ~/projects/myapp ~/archive/myapp
+34,I want to copy the receipts folder including everything inside it,cp -r ~/Documents/receipts ~/Documents/receipts_2025
+35,copy this file but keep the original date and permissions intact,cp -p ~/Documents/contract.pdf ~/Desktop/contract.pdf
+36,duplicate the log file but preserve its timestamps,cp -p /var/log/syslog ~/syslog_snapshot
+37,copy these photos but only overwrite if mine are older,cp -u ~/Pictures/*.jpg /mnt/backup/Pictures/
+38,sync documents to backup but only replace files that have changed,cp -ru ~/Documents/* /mnt/backup/Documents/
+39,copy the config file but make a numbered backup of any existing version,cp --backup=numbered ~/.bashrc ~/.bashrc.new
+40,copy three different files into my reports folder,cp ~/Documents/q1.pdf ~/Documents/q2.pdf ~/Documents/q3.pdf ~/reports/
+41,put all my pdf files into a single folder called pdfs,cp ~/Documents/*.pdf ~/Documents/pdfs/
+42,copy every jpg from downloads into my pictures folder,cp ~/Downloads/*.jpg ~/Pictures/
+43,I need to copy the hidden config files from my old account folder,cp -r /home/olduser/.config ~/.config_old
+44,copy all dotfiles including hidden ones from this folder to backup,cp -a ~/myconfig/. ~/backup_myconfig/
+45,rename this file from draft to final,mv ~/Documents/draft.docx ~/Documents/final.docx
+46,change the name of the photos folder to memories,mv ~/photos ~/memories
+47,rename my screenshot file to something more descriptive,mv ~/Pictures/Screenshot.png ~/Pictures/login_error_screenshot.png
+48,move my resume from downloads into documents,mv ~/Downloads/resume.pdf ~/Documents/resume.pdf
+49,shift this video file to my videos folder,mv ~/Downloads/movie.mp4 ~/Videos/movie.mp4
+50,move the whole reports folder into the archive folder,mv ~/reports ~/archive/reports
+51,transfer all jpg files from downloads to pictures,mv ~/Downloads/*.jpg ~/Pictures/
+52,move every pdf out of downloads into documents,mv ~/Downloads/*.pdf ~/Documents/
+53,I want to rename a bunch of files at once and put a prefix on them,"for f in ~/Pictures/IMG_*.jpg; do mv ""$f"" ""$(dirname ""$f"")/vacation_$(basename ""$f"")""; done"
+54,rename every txt file in this folder to have a 2026 prefix,"for f in ~/Documents/notes/*.txt; do mv ""$f"" ""$(dirname ""$f"")/2026_$(basename ""$f"")""; done"
+55,change the extension of all my htm files to html,"for f in ~/site/*.htm; do mv ""$f"" ""${f%.htm}.html""; done"
+56,rename all jpeg files to jpg,"for f in ~/Pictures/*.jpeg; do mv ""$f"" ""${f%.jpeg}.jpg""; done"
+57,move this file but only if a file with that name doesnt already exist at the destination,mv -n ~/Downloads/report.pdf ~/Documents/report.pdf
+58,shift my photos into the archive but dont overwrite anything that is already there,mv -n ~/Pictures/2025/* ~/archive/photos/2025/
+59,delete the file called old notes from my desktop,rm ~/Desktop/old_notes.txt
+60,throw away this temp file,rm /tmp/scratch.txt
+61,remove the broken download from my downloads folder,rm ~/Downloads/installer.dmg
+62,I want to get rid of this entire old project folder,rm -r ~/projects/old_prototype
+63,delete the trash folder on my desktop and everything inside it,rm -r ~/Desktop/trash
+64,wipe out the cache folder for my app,rm -r ~/.cache/myapp
+65,force delete this stubborn file that wont go away,rm -f ~/Downloads/.DS_Store
+66,delete every tmp file in the temp folder without asking,rm -f /tmp/*.tmp
+67,delete this file but ask me to confirm first,rm -i ~/Documents/important.doc
+68,remove every log file in this folder but prompt me before each one,rm -i ~/logs/*.log
+69,delete every file ending in dot bak in my projects folder,find ~/projects -type f -name '*.bak' -delete
+70,remove all the empty zero size files from downloads,find ~/Downloads -type f -empty -delete
+71,find and delete all the ds store junk files in my pictures,find ~/Pictures -type f -name '.DS_Store' -delete
+72,delete every log file older than 30 days in my logs folder,find ~/logs -type f -name '*.log' -mtime +30 -delete
+73,securely wipe this sensitive file so nobody can recover it,shred -u ~/Documents/secrets.txt
+74,permanently destroy this old tax document with no chance of recovery,shred -u -n 5 ~/Documents/tax_2018.pdf
+75,empty out this log file without deleting it,truncate -s 0 ~/logs/app.log
+76,clear the contents of this debug file but keep the file there,truncate -s 0 ~/projects/myapp/debug.log
+77,delete this empty folder,rmdir ~/Documents/empty_folder
+78,remove the empty draft directory,rmdir ~/projects/myapp/drafts
+79,delete all empty subfolders inside my downloads,find ~/Downloads -type d -empty -delete
+80,I downloaded a zip file how do I unzip it,unzip ~/Downloads/archive.zip -d ~/Downloads/
+81,unzip this file I downloaded into a new folder called extracted,unzip ~/Downloads/files.zip -d ~/Downloads/extracted
+82,extract the contents of this zip,unzip ~/Downloads/photos.zip -d ~/Pictures/
+83,compress my reports folder into a single zip file,zip -r ~/reports.zip ~/reports
+84,zip up the documents folder into one archive,zip -r ~/Documents_backup.zip ~/Documents
+85,package my whole projects folder into a compressed file for emailing,tar czf ~/projects_$(date +%F).tar.gz -C ~ projects
+86,create a compressed archive of my photos folder,tar czf ~/photos_backup.tar.gz -C ~ Pictures
+87,I have a tar.gz file how do I open it,tar xzf ~/Downloads/release.tar.gz -C ~/Downloads/
+88,extract this tarball into my projects folder,tar xzf ~/Downloads/source.tar.gz -C ~/projects/
+89,what files are inside this tar archive without extracting it,tar tzf ~/Downloads/release.tar.gz
+90,peek inside this gz file and list its contents,tar tzf ~/Downloads/data.tar.gz
+91,pull out just the readme file from inside this tarball,tar xzf ~/Downloads/project.tar.gz -C ~/Downloads/ project/README.md
+92,extract only the config file from this archive,tar xzf ~/Downloads/app.tar.gz -C ~/Downloads/ app/config.yaml
+93,make a compressed archive of my projects folder but skip the node modules folders,tar czf ~/projects.tar.gz --exclude='node_modules' -C ~ projects
+94,zip my source code but leave out the build folder,tar czf ~/source.tar.gz --exclude='build' --exclude='dist' -C ~/projects myapp
+95,compress this big log file to save space,gzip ~/logs/syslog.20260520
+96,shrink this database dump with gzip,gzip ~/backups/db_dump.sql
+97,uncompress this gz file back to the original,gunzip ~/Downloads/data.csv.gz
+98,decompress the log file so I can read it,gunzip ~/logs/syslog.20260520.gz
+99,make this file executable so I can run it,chmod +x ~/scripts/start.sh
+100,give this script permission to be run,chmod +x ~/projects/myapp/deploy.sh
+101,let everyone read this file but not change it,chmod a=r ~/Documents/public_notice.txt
+102,take away write permission from the group on this file,chmod g-w ~/Documents/report.pdf
+103,only let me read and write this file nobody else,chmod 600 ~/.ssh/id_ed25519
+104,set this folder so only I can use it,chmod 700 ~/private
+105,make this file readable by everyone but only writable by me,chmod 644 ~/Documents/changelog.md
+106,set the standard permissions for a website folder,chmod 755 ~/sites/blog
+107,lock this file down to owner only with full access,chmod 700 ~/Documents/private_journal.txt
+108,fix the permissions on my pictures folder recursively,chmod -R 755 ~/Pictures
+109,make all the scripts in this folder runnable,chmod -R +x ~/scripts
+110,change who owns this folder to me,chown -R $USER:$USER ~/projects/myapp
+111,make a shortcut on my desktop that points to my projects folder,ln -s ~/projects ~/Desktop/projects_link
+112,create a symlink to the config file in my home directory,ln -s ~/projects/myapp/config.yaml ~/config.yaml
+113,make a hard link from this document to a second name,ln ~/Documents/notes.txt ~/Documents/notes_link.txt
+114,where does this shortcut actually point to,readlink ~/Desktop/projects_link
+115,find all the broken shortcuts in my home folder,find ~ -xtype l
+116,show me all the dead symlinks under home,find ~ -type l ! -exec test -e {} \; -print
+117,atomically replace this shortcut to point to a new location,ln -sfn ~/projects/newapp ~/current
+118,find every pdf file in my documents folder,find ~/Documents -type f -name '*.pdf'
+119,I want to see all the jpg photos under pictures,find ~/Pictures -type f -name '*.jpg'
+120,list every subfolder under projects,find ~/projects -type d
+121,show me only the files not the folders in this tree,find ~/Documents -type f
+122,what files have changed in the last 7 days under home,find ~ -type f -mtime -7
+123,find every file I changed today in my projects folder,find ~/projects -type f -mtime 0
+124,show me files larger than 100 megabytes in downloads,find ~/Downloads -type f -size +100M
+125,find any really small files under 1 kilobyte in my logs folder,find ~/logs -type f -size -1k
+126,list all files owned by my user under the projects folder,find ~/projects -type f -user $USER
+127,find every file with permissions set to wide open 777,find ~ -type f -perm 777
+128,show me all the empty files in my downloads,find ~/Downloads -type f -empty
+129,list the empty folders inside documents,find ~/Documents -type d -empty
+130,tell me everything about this file when it was made size permissions,stat ~/Documents/report.pdf
+131,what kind of file is this exactly,file ~/Downloads/unknown_blob
+132,is this an image or a text file,file ~/Downloads/attachment
+133,how many lines are in this text file,wc -l ~/Documents/notes.txt
+134,count the lines in my todo list,wc -l ~/Documents/todo.txt
+135,how many characters are in this file,wc -c ~/Documents/essay.txt
+136,show me a detailed file listing including hidden files,ls -lah ~
+137,list everything in my documents folder with sizes and dates,ls -lah ~/Documents
+138,how big is my downloads folder total,du -sh ~/Downloads
+139,what is the size of my projects directory,du -sh ~/projects
+140,check if a file called report.pdf exists in documents,test -e ~/Documents/report.pdf && echo exists || echo missing
+141,does my dotfile bashrc exist in home,test -f ~/.bashrc && echo yes || echo no
+142,replace every instance of foo with bar in this config file,sed -i 's/foo/bar/g' ~/projects/myapp/config.yaml
+143,swap localhost for 127.0.0.1 in this hosts list,sed -i 's/localhost/127.0.0.1/g' ~/projects/myapp/hosts.txt
+144,fix the typo teh to the in this draft,sed -i 's/teh/the/g' ~/Documents/draft.txt
+145,add a new line at the end of my todo list,echo 'buy groceries' >> ~/Documents/todo.txt
+146,append a comment to the bottom of my bashrc,echo '# updated 2026-05-28' >> ~/.bashrc
+147,tack on another todo item to my list,echo 'call dentist' >> ~/Documents/todo.txt
+148,stick a new shebang line at the top of this script,sed -i '1i #!/bin/bash' ~/scripts/run.sh
+149,insert a header line at the top of this csv,"sed -i '1i name,email,phone' ~/Documents/contacts.csv"
+150,insert a note as line 5 of my journal file,sed -i '5i Inserted note on 2026-05-28' ~/Documents/journal.txt
+151,delete every line that has the word debug in it from this config,sed -i '/debug/d' ~/projects/myapp/config.yaml
+152,remove all blank lines from this text file,sed -i '/^$/d' ~/Documents/notes.txt
+153,strip out every line containing the word TODO from this file,sed -i '/TODO/d' ~/projects/myapp/main.py
+154,compare these two versions of the config file and show what changed,diff -u ~/projects/myapp/config.yaml ~/projects/myapp/config.yaml.bak
+155,show the differences between my old and new resume,diff -u ~/Documents/resume_old.txt ~/Documents/resume_new.txt
+156,are these two files exactly identical,cmp ~/Documents/a.bin ~/Documents/b.bin && echo same || echo different
+157,tell me if file1 and file2 in my downloads are the same,cmp ~/Downloads/file1.zip ~/Downloads/file2.zip && echo identical || echo different
+158,watch this log file and tell me when it changes,inotifywait -m ~/logs/app.log
+159,alert me when anything in this folder is modified,inotifywait -m -r ~/projects/myapp
+160,keep showing me the file list updated every 2 seconds,watch -n 2 ls -lah ~/Downloads
+161,monitor the size of this growing file,watch -n 1 'stat -c %s ~/logs/app.log'
+162,make this file read only so I dont accidentally edit it,chmod 444 ~/Documents/final_contract.pdf
+163,where did i save my tax return last year,find ~ -iname '*tax*2025*' 2>/dev/null
+164,locate that pdf about climate change i downloaded,find ~ -iname '*climate*.pdf' 2>/dev/null
+165,find every photo on my computer,find ~ -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.heic' \)
+166,show me all the word documents i have,find ~ -type f \( -iname '*.docx' -o -iname '*.doc' \)
+167,track down a file called invoice march somewhere on my machine,find ~ -iname '*invoice*march*' 2>/dev/null
+168,hunt for any file with the word resume in the name,find ~ -iname '*resume*' 2>/dev/null
+169,look up all my excel spreadsheets,find ~ -type f \( -iname '*.xlsx' -o -iname '*.xls' -o -iname '*.csv' \)
+170,find every powerpoint deck on my computer,find ~ -type f \( -iname '*.pptx' -o -iname '*.ppt' \)
+171,show me all videos i have downloaded,find ~/Downloads -type f \( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.mov' -o -iname '*.avi' \)
+172,scan for any zip files in my downloads,find ~/Downloads -type f -iname '*.zip'
+173,any python scripts in my home folder,find ~ -type f -iname '*.py'
+174,find files i changed today,find ~ -type f -mtime 0
+175,show me everything i edited yesterday,find ~ -type f -mtime 1
+176,which files have i changed in the last hour,find ~ -type f -mmin -60
+177,anything modified this week in my projects folder,find ~/projects -type f -mtime -7
+178,files i havent touched in a year,find ~ -type f -mtime +365
+179,show me empty files in my downloads,find ~/Downloads -type f -empty
+180,find empty folders i can clean up,find ~ -type d -empty
+181,any file bigger than 500 megabytes in my home,find ~ -type f -size +500M
+182,find files larger than a gig,find ~ -type f -size +1G
+183,show files between 100 and 500 megabytes,find ~ -type f -size +100M -size -500M
+184,look for very small files under 1k,find ~ -type f -size -1k
+185,find which file has my api key in it,grep -rln 'api_key' ~/projects 2>/dev/null
+186,which config file mentions port 8080,grep -rln '8080' ~/projects /etc 2>/dev/null
+187,search all my notes for the word meeting,grep -rn 'meeting' ~/Documents/notes/ 2>/dev/null
+188,find any file that contains my email address,grep -rln 'abhimava@andrew.cmu.edu' ~ 2>/dev/null
+189,look inside every text file for the word password,grep -rln 'password' ~ --include='*.txt' 2>/dev/null
+190,search my code for TODO comments,grep -rn 'TODO' ~/projects/myapp
+191,count how many lines mention error in this log file,grep -c 'error' ~/logs/app.log
+192,show me the lines with WARN in my java log,grep 'WARN' ~/logs/server.log
+193,find errors but ignore the word notice,grep 'error' ~/logs/app.log | grep -v 'notice'
+194,how much room is left on my drive,df -h /
+195,am i running low on storage,df -h ~
+196,which folder is hogging all my space,du -sh ~/* 2>/dev/null | sort -hr | head -20
+197,what is taking up so much room in my downloads,du -sh ~/Downloads/* 2>/dev/null | sort -hr | head -20
+198,show me the biggest folders in documents,du -sh ~/Documents/* 2>/dev/null | sort -hr | head -10
+199,how big is my home folder total,du -sh ~
+200,size of the trash folder,du -sh ~/.local/share/Trash
+201,how much is the browser cache eating,du -sh ~/.cache/google-chrome ~/.cache/mozilla 2>/dev/null
+202,empty my trash to free up space,rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/*
+203,clear out my browser cache to free space,rm -rf ~/.cache/google-chrome ~/.cache/mozilla
+204,delete temp files in my user temp folder,rm -rf /tmp/*-$USER-* 2>/dev/null
+205,free up space by removing thumbnail cache,rm -rf ~/.cache/thumbnails/*
+206,unzip this file i just downloaded,unzip ~/Downloads/archive.zip -d ~/Downloads/
+207,how do i open this tar.gz file,tar -xzf ~/Downloads/package.tar.gz -C ~/Downloads/
+208,extract this rar file,unrar x ~/Downloads/package.rar ~/Downloads/
+209,open this 7zip archive,7z x ~/Downloads/archive.7z -o/home/$USER/Downloads/
+210,decompress this tar.bz2 file,tar -xjf ~/Downloads/package.tar.bz2 -C ~/Downloads/
+211,extract that tar.xz package i grabbed,tar -xJf ~/Downloads/package.tar.xz -C ~/Downloads/
+212,just take a peek inside this zip without unpacking,unzip -l ~/Downloads/archive.zip
+213,list whats inside this tar archive without extracting,tar -tzf ~/Downloads/package.tar.gz
+214,compress my photos folder into a zip,zip -r ~/photos.zip ~/Pictures/
+215,make a tar.gz of my project folder,tar -czf ~/myapp.tar.gz -C ~ projects/myapp
+216,bundle up my documents folder for emailing,tar -czf ~/Desktop/documents.tar.gz -C ~ Documents/
+217,zip these three files together,zip ~/Desktop/bundle.zip ~/Documents/a.txt ~/Documents/b.txt ~/Documents/c.txt
+218,make a password protected zip of this folder,zip -er ~/Desktop/private.zip ~/Documents/private/
+219,whats hogging my cpu right now,top -bn1 | head -20
+220,which app is using all my memory,ps aux --sort=-%mem | head -10
+221,show me the top 10 cpu hogs,ps aux --sort=-%cpu | head -11
+222,is firefox running,pgrep -a firefox
+223,see all the chrome processes,pgrep -a chrome
+224,how many processes do i have running,ps aux | wc -l
+225,show me all my running programs,ps -u $USER
+226,kill the spotify app its frozen,pkill -f spotify
+227,close all my chrome windows,pkill -f chrome
+228,force quit slack its stuck,pkill -9 -f slack
+229,how long has my computer been on,uptime -p
+230,when did i last boot up,who -b
+231,show me the load average,uptime
+232,which process is listening on port 8080,lsof -i :8080
+233,whats using port 443,lsof -i :443
+234,how much ram am i using,free -h
+235,am i out of memory,free -h
+236,show me cpu temperature,sensors 2>/dev/null || echo 'install lm-sensors first'
+237,how many cpu cores do i have,nproc
+238,what kind of cpu is in this computer,lscpu | head -20
+239,show me hardware info about this machine,lshw -short 2>/dev/null || sudo lshw -short
+240,whats my ip address,ip -4 addr show | grep inet
+241,what is my external ip,curl -s ifconfig.me
+242,am i connected to the internet,ping -c 3 8.8.8.8
+243,can i reach google,ping -c 4 google.com
+244,test my dns is working,nslookup google.com
+245,look up the ip for github,dig +short github.com
+246,show me my wifi network name,"iwgetid -r 2>/dev/null || nmcli -t -f active,ssid dev wifi | grep '^yes'"
+247,list available wifi networks,nmcli dev wifi list
+248,connect to the wifi called HomeNet,nmcli dev wifi connect HomeNet
+249,forget that wifi network,nmcli connection delete HomeNet
+250,see all my network interfaces,ip link show
+251,show open network ports on my computer,ss -tuln
+252,which programs are using the internet right now,ss -tunap 2>/dev/null
+253,download this file from the internet,wget -P ~/Downloads/ https://example.com/file.zip
+254,grab this file with curl,curl -L -o ~/Downloads/file.zip https://example.com/file.zip
+255,test how fast my internet is,curl -s https://raw.githubusercontent.com/sivel/speedtest-cli/master/speedtest.py | python3
+256,check my dns server,grep nameserver /etc/resolv.conf
+257,traceroute to github,traceroute github.com
+258,see the system log from today,journalctl --since today
+259,show me errors from the system log,journalctl -p err -n 100
+260,what happened the last time i booted,journalctl -b -1 -p err
+261,watch the system log live,journalctl -f
+262,show me the kernel messages,dmesg | tail -50
+263,any errors in the syslog,grep -i error /var/log/syslog 2>/dev/null | tail -20
+264,show me only the last 100 lines of the auth log,tail -100 /var/log/auth.log 2>/dev/null
+265,see the nginx access log,tail -50 /var/log/nginx/access.log 2>/dev/null
+266,tail the nginx error log live,tail -f /var/log/nginx/error.log 2>/dev/null
+267,is my web server running,systemctl status nginx
+268,is postgres running,systemctl status postgresql
+269,check if docker is up,systemctl status docker
+270,list all the services on my computer,systemctl list-units --type=service
+271,show me failed services,systemctl --failed
+272,list services that start at boot,systemctl list-unit-files --state=enabled --type=service
+273,what time is it,date
+274,show me the date in iso format,date -I
+275,whats the unix timestamp right now,date +%s
+276,what day of the week is it,date +%A
+277,show me a calendar for this month,cal
+278,calendar for the whole year,cal 2026
+279,what timezone am i in,timedatectl | grep 'Time zone'
+280,count how many lines are in this file,wc -l ~/Documents/longreport.txt
+281,how many words is my essay,wc -w ~/Documents/essay.txt
+282,character count of this file,wc -c ~/Documents/article.md
+283,show me unique lines in this list,sort -u ~/Documents/emails.txt
+284,how many unique entries in this file,sort -u ~/Documents/emails.txt | wc -l
+285,get rid of duplicate lines in this csv,sort -u -o ~/Documents/data.csv ~/Documents/data.csv
+286,alphabetize this list of names,sort -o ~/Documents/names.txt ~/Documents/names.txt
+287,sort this number list smallest to largest,sort -n -o ~/Documents/numbers.txt ~/Documents/numbers.txt
+288,reverse the order of lines in this file,tac ~/Documents/notes.txt > ~/Documents/notes_reversed.txt
+289,shuffle these lines randomly,shuf ~/Documents/list.txt > ~/Documents/shuffled.txt
+290,first 50 lines of this giant log,head -50 ~/logs/app.log
+291,last 200 lines of this csv file,tail -200 ~/Documents/transactions.csv
+292,see lines 100 to 120 of this file,"sed -n '100,120p' ~/Documents/longreport.txt"
+293,save my current work in git,git -C ~/projects/myapp add -A && git -C ~/projects/myapp commit -m 'wip'
+294,what files have i changed since last commit,git -C ~/projects/myapp status
+295,show me what changed in this project,git -C ~/projects/myapp diff
+296,see my recent commits,git -C ~/projects/myapp log --oneline -20
+297,how do i undo my last commit but keep the changes,git -C ~/projects/myapp reset --soft HEAD~1
+298,push my changes up to github,git -C ~/projects/myapp push
+299,download the latest from github,git -C ~/projects/myapp pull
+300,clone the dotfiles repo onto my computer,git clone https://github.com/$USER/dotfiles.git ~/projects/dotfiles
+301,which branch am i on,git -C ~/projects/myapp branch --show-current
+302,switch to the develop branch,git -C ~/projects/myapp checkout develop
+303,make a new branch called fix-login,git -C ~/projects/myapp checkout -b fix-login
+304,delete the old feature branch i finished with,git -C ~/projects/myapp branch -d old-feature
+305,show me who edited this file last,git -C ~/projects/myapp log -1 --pretty=format:'%an %ad' -- src/main.py
+306,open this folder in the file manager,xdg-open ~/Documents
+307,open this pdf with the default viewer,xdg-open ~/Documents/report.pdf
+308,preview this image,xdg-open ~/Pictures/screenshot.png
+309,play this video file,xdg-open ~/Videos/recording.mp4
+310,open a terminal here,gnome-terminal --working-directory=$PWD 2>/dev/null || x-terminal-emulator
+311,which version of python do i have,python3 --version
+312,which node version is installed,node --version
+313,show me the bash version,bash --version | head -1
+314,which version of ubuntu am i running,lsb_release -a 2>/dev/null
+315,kernel version,uname -r
+316,show me all my environment variables,env
+317,what is my path variable,echo $PATH
+318,where is the python executable,which python3
+319,find where curl lives,which curl
+320,history of commands i ran today,history | tail -50
+321,clear my command history,history -c && history -w
+322,rerun my last command,!!
+323,search my command history for git push,history | grep 'git push'
+324,make this script runnable,chmod +x ~/scripts/deploy.sh
+325,give this shell script execute permission,chmod +x ~/projects/myapp/build.sh
+326,lock down permissions on my ssh key,chmod 600 ~/.ssh/id_ed25519
+327,fix permissions on my ssh folder,chmod 700 ~/.ssh && chmod 600 ~/.ssh/id_* && chmod 644 ~/.ssh/*.pub
+328,see who owns this file,stat -c '%U:%G' ~/Documents/report.pdf
+329,show me file permissions in this folder,ls -la ~/Documents/
+330,rename all my jpgs to lowercase,"for f in ~/Pictures/*.JPG; do mv -- ""$f"" ""${f%.JPG}.jpg""; done"
+331,add a date prefix to all the pdfs in this folder,"for f in ~/Documents/*.pdf; do mv -- ""$f"" ""$(dirname ""$f"")/2026-05-28_$(basename ""$f"")""; done"
+332,rename file old.txt to new.txt,mv ~/Documents/old.txt ~/Documents/new.txt
+333,change extension from .txt to .md on this file,mv ~/Documents/notes.txt ~/Documents/notes.md
+334,copy this file path to my clipboard,echo -n ~/Documents/report.pdf | xclip -selection clipboard
+335,paste from my clipboard into a file,xclip -selection clipboard -o > ~/Documents/clipboard.txt
+336,get the md5 hash of this file,md5sum ~/Downloads/installer.iso
+337,compute sha256 of this download,sha256sum ~/Downloads/installer.iso
+338,verify the checksum of this iso matches,sha256sum -c ~/Downloads/installer.iso.sha256
+339,open my bashrc in nano,nano ~/.bashrc
+340,edit my vimrc,nano ~/.vimrc
+341,open my ssh config,nano ~/.ssh/config
+342,create a new bash alias,"echo ""alias ll='ls -lah'"" >> ~/.bashrc && source ~/.bashrc"
+343,reload my bashrc,source ~/.bashrc
+344,create a shortcut from my dotfiles to home,ln -s ~/projects/dotfiles/.bashrc ~/.bashrc
+345,link this script into my path,ln -s ~/projects/myapp/run.sh ~/.local/bin/run
+346,convert this png to jpg,convert ~/Pictures/image.png ~/Pictures/image.jpg
+347,resize this image to 800 wide,convert ~/Pictures/photo.jpg -resize 800x ~/Pictures/photo_small.jpg
+348,rotate this photo 90 degrees,convert ~/Pictures/photo.jpg -rotate 90 ~/Pictures/photo_rotated.jpg
+349,merge these pdfs into one,pdfunite ~/Documents/a.pdf ~/Documents/b.pdf ~/Documents/c.pdf ~/Documents/merged.pdf
+350,split this pdf into pages,pdfseparate ~/Documents/book.pdf ~/Documents/page_%d.pdf
+351,convert this docx to pdf,libreoffice --headless --convert-to pdf --outdir ~/Documents/ ~/Documents/report.docx
+352,extract text from this pdf,pdftotext ~/Documents/article.pdf ~/Documents/article.txt
+353,convert this video to mp4,ffmpeg -i ~/Videos/recording.mkv ~/Videos/recording.mp4
+354,extract audio from this video as mp3,ffmpeg -i ~/Videos/lecture.mp4 -q:a 0 -map a ~/Music/lecture.mp3
+355,trim this video to the first 30 seconds,ffmpeg -i ~/Videos/clip.mp4 -t 30 -c copy ~/Videos/clip_30s.mp4
+356,resize this video to 720p,ffmpeg -i ~/Videos/big.mp4 -vf scale=-2:720 ~/Videos/big_720p.mp4
+357,take a screenshot of my whole screen,gnome-screenshot -f ~/Pictures/screenshot.png
+358,screenshot just one window,gnome-screenshot -w -f ~/Pictures/window.png
+359,my terminal is messed up reset it,reset
+360,clear the screen,clear
+361,show me everyone logged in,who
+362,show me my username,whoami
+363,which groups am i in,groups
+364,change my password,passwd
+365,set my hostname display,echo $HOSTNAME
+366,list my scheduled jobs,crontab -l
+367,edit my scheduled jobs,crontab -e
+368,remove all my scheduled jobs,crontab -r
+369,see all my shell aliases,alias
+370,show me what ll points to,type ll
+371,update the locate database so locate finds new files,updatedb 2>/dev/null || sudo updatedb
+372,locate every file named config.json,locate config.json
+373,show me all mounted drives,mount | grep -E '^/dev'
+374,list usb drives plugged in,"lsblk -o NAME,SIZE,MOUNTPOINT,TYPE | grep -E 'disk|part'"
+375,how full are all my mounts,df -h
+376,show me a json file pretty printed,python3 -m json.tool ~/Downloads/data.json
+377,validate this json file,python3 -m json.tool ~/Downloads/data.json > /dev/null && echo valid
+378,convert tabs to spaces in this file,expand -t 4 ~/projects/myapp/main.py > /tmp/main.py && mv /tmp/main.py ~/projects/myapp/main.py
+379,strip trailing whitespace from this file,sed -i 's/[[:space:]]*$//' ~/projects/myapp/main.py
+380,show me the contents of this file in pages,less ~/Documents/longreport.txt
+381,just print the file out,cat ~/Documents/notes.txt
+382,show this file with line numbers,cat -n ~/projects/myapp/main.py
+383,dump this binary file as hex,xxd ~/Downloads/file.bin | head -50
+384,what kind of file is this,file ~/Downloads/unknown.bin
+385,how many files in my downloads folder,ls -1 ~/Downloads | wc -l
+386,count the photos in my pictures folder,find ~/Pictures -type f \( -iname '*.jpg' -o -iname '*.png' \) | wc -l
+387,eject the usb drive,udisksctl unmount -b /dev/sdb1 && udisksctl power-off -b /dev/sdb
+388,safely remove this external disk,udisksctl unmount -b /dev/sdb1
+389,mount that usb stick,udisksctl mount -b /dev/sdb1
+390,turn the volume up to 80 percent,pactl set-sink-volume @DEFAULT_SINK@ 80%
+391,mute the sound,pactl set-sink-mute @DEFAULT_SINK@ 1
+392,unmute audio,pactl set-sink-mute @DEFAULT_SINK@ 0
+393,which file in this folder is the biggest,du -ah ~/Downloads | sort -hr | head -5
+394,top 20 biggest files anywhere in my home,find ~ -type f -printf '%s %p\n' 2>/dev/null | sort -nr | head -20
+395,is docker installed,command -v docker && docker --version
+396,do i have nodejs,command -v node && node --version
+397,check if git is installed,command -v git && git --version
+398,backup my documents to my external drive,rsync -av --progress ~/Documents/ /media/$USER/BACKUP/Documents/
+399,mirror my code folder to the usb stick,rsync -av --delete ~/projects/ /media/$USER/USB/projects/
+400,sync this folder with the remote server,rsync -avz ~/projects/myapp/ user@server:/var/www/myapp/
+401,put my computer to sleep,systemctl suspend
+402,lock the screen,loginctl lock-session
+403,log me out,loginctl terminate-user $USER
+404,how long until my battery dies,acpi -b 2>/dev/null || upower -i $(upower -e | grep BAT) | grep -E 'time|percentage'
+405,show me battery percentage,acpi -b 2>/dev/null | awk '{print $4}'
+406,list paired bluetooth devices,bluetoothctl devices
+407,show my displays and resolution,xrandr | grep ' connected'
+408,show me hidden files in my home folder,ls -la ~ | grep '^\.\|^d.*\.[^.]'
+409,list everything including hidden stuff in this folder,ls -la
+410,how big is this folder really,du -sh ~/projects/myapp
+411,count how many files are in here including subfolders,find ~/projects/myapp -type f | wc -l
+412,show file tree of this directory,tree ~/projects/myapp 2>/dev/null || find ~/projects/myapp -print | sed 's;[^/]*/;|-- ;g'
+413,just two levels deep of the folder tree,tree -L 2 ~/projects 2>/dev/null
+414,preview the first few lines of every txt file in this folder,"for f in ~/Documents/*.txt; do echo ""--- $f ---""; head -3 ""$f""; done"
+415,move all my photos from downloads to pictures,mv ~/Downloads/*.jpg ~/Downloads/*.png ~/Pictures/ 2>/dev/null
+416,copy this whole folder structure to my backup drive,cp -r ~/projects/myapp /media/$USER/BACKUP/
+417,move everything older than 30 days from downloads to archive,find ~/Downloads -maxdepth 1 -type f -mtime +30 -exec mv {} ~/Archive/ \;
+418,show me the 10 most recently changed files in my projects folder,find ~/projects -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -10 | cut -d' ' -f2-
+419,which file did i edit most recently,find ~ -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-
+420,convert this windows text file to unix line endings,dos2unix ~/Documents/notes.txt
+421,convert unix file to windows line endings,unix2dos ~/Documents/notes.txt
+422,check the encoding of this text file,file -i ~/Documents/notes.txt
+423,convert this file from latin1 to utf8,iconv -f ISO-8859-1 -t UTF-8 ~/Documents/old.txt -o ~/Documents/new.txt
+424,show me my mac address,ip link show | grep ether
+425,which port is the ssh daemon listening on,ss -tlnp | grep ssh
+426,show me all listening ports with the program names,ss -tlnp
+427,test if port 443 is open on github.com,nc -zv github.com 443
+428,scan my own machine for open ports,ss -tln
+429,show me a tree of all running processes,ps -ef --forest | head -30
+430,which process is the parent of this firefox instance,ps -o ppid= -p $(pgrep -n firefox 2>/dev/null) 2>/dev/null
+431,kill all processes started by my user,pkill -u $USER -f myapp
+432,send sigterm to the python script i started,pkill -f 'python.*myscript.py'
+433,how much memory is my chrome using total,"ps -C chrome -o rss= | awk '{sum+=$1} END {print sum/1024 "" MB""}'"
+434,list my running docker containers,docker ps
+435,show all containers including stopped ones,docker ps -a
+436,see my docker images,docker images
+437,stop the postgres container,docker stop postgres
+438,restart the redis container,docker restart redis
+439,see logs from my web app container,docker logs -f myapp
+440,remove stopped containers,docker container prune -f
+441,clean up unused docker images,docker image prune -a -f
+442,how much space is docker using,docker system df
+443,make a new python virtual environment,python3 -m venv ~/venvs/myenv
+444,activate my virtual env,source ~/venvs/myenv/bin/activate
+445,install requests in my venv,~/venvs/myenv/bin/pip install requests
+446,show me installed python packages,pip list
+447,freeze my requirements to a file,pip freeze > ~/projects/myapp/requirements.txt
+448,install everything in requirements.txt,pip install -r ~/projects/myapp/requirements.txt
+449,install dependencies for this node project,cd ~/projects/myapp && npm install
+450,run the start script for this node project,cd ~/projects/myapp && npm start
+451,update all my npm packages,cd ~/projects/myapp && npm update
+452,look up a word in the dictionary,dict 'serendipity' 2>/dev/null
+453,encode this string to base64,echo -n 'hello world' | base64
+454,decode this base64 string,echo 'aGVsbG8gd29ybGQ=' | base64 -d
+455,url encode this string,"python3 -c 'import urllib.parse; print(urllib.parse.quote(""hello world & friends""))'"
+456,generate a random password,openssl rand -base64 16
+457,generate a uuid,uuidgen
+458,get random bytes in hex,openssl rand -hex 32
+459,ssh into my server,ssh user@myserver.example.com
+460,copy this file to my server,scp ~/Documents/report.pdf user@myserver.example.com:~/
+461,download a file from my server,scp user@myserver.example.com:~/data.csv ~/Downloads/
+462,show me my ssh keys,ls -la ~/.ssh/*.pub
+463,generate a new ssh key pair,ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ''
+464,copy my ssh key to a server,ssh-copy-id user@myserver.example.com
+465,see what ssh agent has loaded,ssh-add -l
+466,add my private key to ssh agent,ssh-add ~/.ssh/id_ed25519
+467,see who wrote each line of this file,git -C ~/projects/myapp blame src/main.py
+468,stash my work to come back to later,git -C ~/projects/myapp stash
+469,bring back my stashed work,git -C ~/projects/myapp stash pop
+470,see what i stashed away,git -C ~/projects/myapp stash list
+471,discard all my uncommitted changes,git -C ~/projects/myapp checkout -- .
+472,see commits from last week,git -C ~/projects/myapp log --since='1 week ago' --oneline
+473,show me changes between this commit and the last,git -C ~/projects/myapp diff HEAD~1 HEAD
+474,am i on wayland or x11,echo $XDG_SESSION_TYPE
+475,set my screen brightness to half,brightnessctl set 50%
+476,set screen brightness to maximum,brightnessctl set 100%
+477,show me only unique lines that appear at least twice,sort ~/Documents/list.txt | uniq -d
+478,count how many times each line appears,sort ~/Documents/list.txt | uniq -c | sort -nr
+479,get only the second column of this csv,"cut -d',' -f2 ~/Documents/data.csv"
+480,extract the username field from /etc/passwd,cut -d':' -f1 /etc/passwd
+481,join these two sorted files,join ~/Documents/a.txt ~/Documents/b.txt
+482,paste these files side by side,paste ~/Documents/a.txt ~/Documents/b.txt
+483,schedule a script to run every day at 9am,(crontab -l 2>/dev/null; echo '0 9 * * * /home/$USER/scripts/morning.sh') | crontab -
+484,run a backup every sunday at midnight,(crontab -l 2>/dev/null; echo '0 0 * * 0 /home/$USER/scripts/backup.sh') | crontab -
+485,schedule cleanup every hour,(crontab -l 2>/dev/null; echo '0 * * * * /home/$USER/scripts/cleanup.sh') | crontab -
+486,I need to find that pdf I downloaded yesterday somewhere,find ~/Downloads -name '*.pdf' -mtime -2
+487,where did I put that word document about taxes,find ~ -iname '*tax*.docx' 2>/dev/null
+488,show me all the pictures in my downloads folder,"ls ~/Downloads/*.{jpg,jpeg,png,gif,heic} 2>/dev/null"
+489,I lost a file called budget somewhere on my computer,find ~ -iname 'budget*' 2>/dev/null
+490,search for any file with the word invoice in the name,find ~ -iname '*invoice*' 2>/dev/null
+491,look for all the screenshots I took today,find ~/Pictures -name 'Screenshot*' -mtime -1
+492,find every text file in my documents,find ~/Documents -type f -name '*.txt'
+493,where are all my python files,find ~ -name '*.py' -type f 2>/dev/null
+494,I need to see all the videos on my computer,find ~ -type f \( -iname '*.mp4' -o -iname '*.mov' -o -iname '*.mkv' \) 2>/dev/null
+495,show me files that were changed in the last hour,find ~ -type f -mmin -60 2>/dev/null
+496,I want to find files bigger than 100 megabytes,find ~ -type f -size +100M 2>/dev/null
+497,rename this file to something else,mv ~/Documents/old_name.txt ~/Documents/new_name.txt
+498,I want to rename my resume from draft to final,mv ~/Documents/resume_draft.pdf ~/Documents/resume_final.pdf
+499,change the name of this folder from temp to archive,mv ~/Desktop/temp ~/Desktop/archive
+500,move this picture to my pictures folder,mv ~/Downloads/photo.jpg ~/Pictures/
+501,move all my downloaded pdfs into the documents folder,mv ~/Downloads/*.pdf ~/Documents/
+502,move the project folder from desktop to my projects directory,mv ~/Desktop/myproject ~/projects/
+503,I want to move all jpg files into a photos subfolder,mkdir -p ~/photos && mv ~/*.jpg ~/photos/
+504,copy this folder and everything in it to the backup drive,cp -r ~/Documents/important /media/backup/
+505,copy my entire downloads folder to the external drive,cp -r ~/Downloads /media/usb/
+506,duplicate this project folder so I can experiment,cp -r ~/projects/myapp ~/projects/myapp_experimental
+507,make an exact mirror of my pictures folder on the backup disk,rsync -av ~/Pictures/ /media/backup/Pictures/
+508,sync my documents to the external drive but only the new stuff,rsync -avu ~/Documents/ /media/backup/Documents/
+509,back up only the files that changed since last time,rsync -av --update ~/projects/ /media/backup/projects/
+510,I deleted a file by mistake can I get it back,ls -la ~/.local/share/Trash/files/
+511,restore that file I just threw in the trash,mv ~/.local/share/Trash/files/document.pdf ~/Documents/
+512,empty the trash for good,rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/*
+513,delete this old document I don't need anymore,rm ~/Documents/old_notes.txt
+514,remove all the files ending in .tmp from my downloads,rm ~/Downloads/*.tmp
+515,I want to delete every log file in this folder,rm ~/projects/myapp/logs/*.log
+516,delete this entire folder of old work,rm -rf ~/Desktop/old_project
+517,wipe out all the cached files in this folder,rm -rf ~/.cache/myapp/*
+518,unzip this archive I just downloaded,unzip ~/Downloads/archive.zip -d ~/Downloads/
+519,extract this rar file someone sent me,unrar x ~/Downloads/files.rar ~/Downloads/
+520,open this tar gz file I got from the internet,tar -xzf ~/Downloads/source.tar.gz -C ~/Downloads/
+521,I have a 7z file how do I open it,7z x ~/Downloads/files.7z -o/home/$USER/Downloads/
+522,unpack this tarball into my projects folder,tar -xzf ~/Downloads/project.tar.gz -C ~/projects/
+523,make a zip of my project folder so I can email it,zip -r ~/Desktop/project.zip ~/projects/myapp
+524,compress all my pictures into a single archive,tar -czf ~/Desktop/pictures.tar.gz ~/Pictures/
+525,zip up these three files together,zip ~/Desktop/bundle.zip ~/Documents/a.txt ~/Documents/b.txt ~/Documents/c.txt
+526,make a smaller version of this big folder,tar -cJf ~/Desktop/folder.tar.xz ~/projects/bigproject
+527,see what's inside this zip file without extracting,unzip -l ~/Downloads/archive.zip
+528,peek into this tarball to see what files are inside,tar -tzf ~/Downloads/archive.tar.gz
+529,show me the contents of my pictures folder,ls ~/Pictures/
+530,list everything in this folder with details,ls -lh ~/Documents/
+531,I want to see my files sorted by date newest first,ls -lt ~/Documents/
+532,show files in this folder sorted by size,ls -lhS ~/Downloads/
+533,give me a tree view of my projects folder,tree ~/projects/ -L 2
+534,count how many files are in my downloads folder,ls ~/Downloads | wc -l
+535,how many photos do I have,find ~/Pictures -type f \( -iname '*.jpg' -o -iname '*.png' \) | wc -l
+536,show me my hard drive space,df -h
+537,how much disk do I have left,df -h /
+538,what's eating up all my disk space,du -h --max-depth=1 ~ | sort -hr | head -20
+539,find the biggest folders on my computer,du -h --max-depth=2 / 2>/dev/null | sort -hr | head -20
+540,which folder in my home is the biggest,du -sh ~/* | sort -hr | head -10
+541,show me the size of my downloads folder,du -sh ~/Downloads
+542,how big is my pictures folder,du -sh ~/Pictures
+543,find the largest 10 files anywhere in my home,find ~ -type f -exec du -h {} + 2>/dev/null | sort -hr | head -10
+544,find files over 1 gigabyte hogging space,find ~ -type f -size +1G 2>/dev/null
+545,I'm running out of space please help,df -h && echo '---' && du -sh ~/* 2>/dev/null | sort -hr | head -10
+546,show all my mounted drives,"df -h --output=source,size,used,target | grep -v tmpfs"
+547,how do I see all my partitions,lsblk
+548,list all attached storage,"lsblk -o NAME,SIZE,TYPE,MOUNTPOINT"
+549,show me the usb drives connected,"lsblk -o NAME,SIZE,VENDOR,MODEL,TRAN | grep usb"
+550,did the system see my usb stick,lsusb
+551,eject my external hard drive safely,udisksctl unmount -b /dev/sdb1
+552,unmount the usb drive before I pull it out,sudo umount /media/usb
+553,mount the usb drive at slash media slash mydrive,sudo mount /dev/sdb1 /media/mydrive
+554,where is my external drive mounted,mount | grep /dev/sd
+555,see all mounted filesystems,mount | column -t
+556,how do I install chrome,sudo apt update && sudo apt install -y google-chrome-stable
+557,install firefox,sudo apt install -y firefox
+558,I want to install vim,sudo apt install -y vim
+559,add the latest nodejs to my system,curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - && sudo apt install -y nodejs
+560,install vlc media player,sudo apt install -y vlc
+561,I need the gimp image editor,sudo apt install -y gimp
+562,I want to get discord,sudo snap install discord
+563,add slack to my computer,sudo snap install slack
+564,install zoom for video calls,sudo snap install zoom-client
+565,I need to install git,sudo apt install -y git
+566,install the latest python,sudo apt install -y python3 python3-pip
+567,get me visual studio code,sudo snap install code --classic
+568,install obs studio for recording,sudo apt install -y obs-studio
+569,I want libreoffice,sudo apt install -y libreoffice
+570,uninstall this program I don't use anymore,sudo apt remove -y libreoffice
+571,remove chrome from my computer,sudo apt remove -y google-chrome-stable
+572,get rid of an app I installed as a snap,sudo snap remove discord
+573,completely uninstall this and its config files too,sudo apt purge -y nginx
+574,clean up packages I don't need anymore,sudo apt autoremove -y
+575,free up space from old downloaded installers,sudo apt clean
+576,update all my software,sudo apt update && sudo apt upgrade -y
+577,check if there are any updates available,sudo apt update && apt list --upgradable
+578,upgrade just one specific package,sudo apt install --only-upgrade -y firefox
+579,what version of firefox do I have,firefox --version
+580,what version of python is installed,python3 --version
+581,show me the version of git,git --version
+582,is docker installed and what version,docker --version
+583,list every program I installed,apt list --installed 2>/dev/null
+584,search for an app related to photos,apt search photo 2>/dev/null | head -20
+585,find a package that has the word audio,apt-cache search audio | head -20
+586,my computer is running really slow today,top -bn1 | head -20
+587,what's hogging my cpu right now,ps aux --sort=-%cpu | head -10
+588,show me what's using all my ram,ps aux --sort=-%mem | head -10
+589,is something stuck eating 100 percent cpu,top -bn1 -o %CPU | head -15
+590,open the task manager equivalent,htop
+591,show me all the programs that are running,ps -ef
+592,list every running process,ps aux
+593,is firefox still running in the background,pgrep -fl firefox
+594,is my python script still going,pgrep -fla python3
+595,find the process id of chrome,pgrep -f chrome
+596,this app is frozen close it,pkill -9 -f firefox
+597,force quit slack,pkill -9 slack
+598,stop a stuck process by name,pkill -f myapp
+599,kill the process that's using port 8080,fuser -k 8080/tcp
+600,stop whatever is listening on port 3000,fuser -k 3000/tcp
+601,I want to kill process number 4523,kill 4523
+602,force kill that hung process,kill -9 4523
+603,show me how much memory I have free,free -h
+604,check my available memory,free -m
+605,is my computer using a lot of swap,free -h | grep -i swap
+606,is my cpu running hot,sensors | grep -E 'Core|Package'
+607,see system load average,uptime
+608,how long has my computer been running,uptime -p
+609,show me cpu info,lscpu
+610,what cpu am I using,grep 'model name' /proc/cpuinfo | head -1
+611,see all my hardware specs,sudo lshw -short
+612,what graphics card do I have,lspci | grep -i vga
+613,is my gpu being used,nvidia-smi 2>/dev/null || intel_gpu_top 2>/dev/null
+614,how much total memory does my computer have,free -h | awk '/^Mem:/ {print $2}'
+615,kill any zombie processes,"ps -A -ostat,ppid | awk '/[zZ]/ {print $2}' | xargs -r kill -9"
+616,show processes using more than 5 percent cpu,ps aux | awk '$3 > 5 {print}'
+617,find the parent process of this one,ps -o ppid= -p 4523
+618,stop a background job I started earlier,jobs && kill %1
+619,show me all my background jobs,jobs -l
+620,bring a background job back to the foreground,fg %1
+621,send the current process to the background,bg
+622,I can't open this file it says permission denied,chmod u+r ~/Documents/locked.txt
+623,let everyone read this file,chmod 644 ~/Documents/public.txt
+624,make this file only readable by me,chmod 600 ~/Documents/private.txt
+625,I downloaded this program but it won't run,chmod +x ~/Downloads/program.AppImage
+626,this folder won't let me see inside,chmod +rx ~/projects/restricted
+627,give myself ownership of this file,sudo chown $USER:$USER ~/Documents/file.txt
+628,take ownership of this whole folder,sudo chown -R $USER:$USER ~/projects/myapp
+629,fix permissions so I can edit my own files,sudo chown -R $USER:$USER ~
+630,make all the scripts in this folder executable,chmod +x ~/scripts/*.sh
+631,set this whole project folder so only I can access it,chmod -R 700 ~/projects/private
+632,what permissions does this file have,ls -l ~/Documents/report.pdf
+633,who owns this file,stat -c '%U:%G' ~/Documents/notes.txt
+634,see who owns everything in this folder,ls -la ~/projects/myapp/
+635,check if I'm connected to the internet,ping -c 3 8.8.8.8
+636,is my wifi working,ping -c 3 google.com
+637,what's my computer's ip address,ip addr show | grep -oP 'inet \K[\d.]+' | grep -v 127
+638,show me my public ip address,curl -s ifconfig.me
+639,what's my external ip,curl -s https://api.ipify.org
+640,is example.com online or down,curl -I https://example.com
+641,test if a website is reachable,curl -Is https://github.com | head -1
+642,show all my network connections,ss -tunap 2>/dev/null
+643,see what ports are open on my machine,ss -tlnp
+644,what services are listening for connections,ss -tlnp | grep LISTEN
+645,is anything listening on port 80,ss -tlnp 'sport = :80'
+646,what's using port 5432,ss -tlnp 'sport = :5432'
+647,see my wifi network name,iwgetid -r
+648,show available wifi networks,nmcli device wifi list
+649,connect to a wifi network,nmcli device wifi connect 'HomeWiFi' password 'mypassword123'
+650,show my current network connection,nmcli connection show --active
+651,turn off wifi,nmcli radio wifi off
+652,turn wifi back on,nmcli radio wifi on
+653,see my router ip address,ip route | awk '/default/ {print $3}'
+654,find the mac address of my wifi adapter,ip link show wlan0 | awk '/ether/ {print $2}'
+655,trace the route to google,traceroute google.com
+656,look up the ip of a domain,dig +short github.com
+657,what server hosts this website,dig github.com NS +short
+658,see the mail server for a domain,dig example.com MX +short
+659,reverse lookup an ip address,dig -x 8.8.8.8 +short
+660,show me what's using my internet bandwidth,sudo nethogs
+661,monitor my network traffic in real time,sudo iftop
+662,download a file from a url,wget https://example.com/file.zip -P ~/Downloads/
+663,fetch this image and save it,curl -o ~/Downloads/image.png https://example.com/image.png
+664,I need to check if my vpn is connected,ip route | grep -E 'tun|wg|ppp'
+665,see if openvpn is running,systemctl status openvpn
+666,restart my network connection,sudo systemctl restart NetworkManager
+667,nginx stopped working how do I turn it back on,sudo systemctl restart nginx
+668,is apache running,systemctl status apache2
+669,start the postgres database service,sudo systemctl start postgresql
+670,stop the redis server,sudo systemctl stop redis
+671,restart my mysql database,sudo systemctl restart mysql
+672,enable docker to start when my computer boots,sudo systemctl enable docker
+673,stop a service from starting at boot,sudo systemctl disable bluetooth
+674,make nginx start at boot and start it now,sudo systemctl enable --now nginx
+675,check if ssh is running,systemctl is-active sshd
+676,show all running services,systemctl list-units --type=service --state=running
+677,show me services that failed,systemctl --failed
+678,see all services that start at boot,systemctl list-unit-files --state=enabled
+679,reload nginx after I changed the config,sudo systemctl reload nginx
+680,"the database service stopped, restart it",sudo systemctl restart postgresql
+681,is cron running,systemctl status cron
+682,show me what happened with nginx today,sudo journalctl -u nginx --since today
+683,see recent system errors,sudo journalctl -p err -n 50
+684,what crashed in the last hour,sudo journalctl --since '1 hour ago' -p err
+685,look at the most recent system messages,sudo journalctl -n 100
+686,follow the system log live,sudo journalctl -f
+687,show docker's logs,sudo journalctl -u docker -n 100
+688,why did my computer restart,last reboot | head -5
+689,when did the system last boot,who -b
+690,show me kernel messages,sudo dmesg | tail -50
+691,did the kernel see any errors,sudo dmesg --level=err
+692,check the auth log for failed logins,sudo grep 'Failed password' /var/log/auth.log | tail -20
+693,show me who tried to log in recently,sudo journalctl -u sshd --since '24 hours ago'
+694,what does the syslog say,sudo tail -100 /var/log/syslog
+695,see only errors in the system log,sudo journalctl -p 3 -xb
+696,logs from yesterday only,sudo journalctl --since yesterday --until today
+697,what happened between 9am and 10am today,sudo journalctl --since '09:00' --until '10:00'
+698,see the boot log,sudo journalctl -b
+699,show logs from the previous boot,sudo journalctl -b -1
+700,tail the apache error log live,sudo tail -f /var/log/apache2/error.log
+701,search system logs for the word crash,sudo journalctl | grep -i crash | tail -20
+702,add a new user account named alice,sudo adduser alice
+703,create a user called bob with home directory,sudo useradd -m -s /bin/bash bob
+704,delete an old user account,sudo deluser charlie
+705,remove a user and their home folder,sudo deluser --remove-home dave
+706,reset the password for another user,sudo passwd alice
+707,lock the bob account so they can't log in,sudo passwd -l bob
+708,unlock the alice account,sudo passwd -u alice
+709,see who else is logged in right now,who
+710,list all users on this computer,cut -d: -f1 /etc/passwd
+711,switch to a different user,su - alice
+712,add alice to the sudo group,sudo usermod -aG sudo alice
+713,show what groups I'm in,groups
+714,what's my username,whoami
+715,see my user id number,id
+716,schedule the cleanup script to run nightly,(crontab -l 2>/dev/null; echo '0 2 * * * /home/$USER/scripts/cleanup.sh') | crontab -
+717,list my scheduled tasks,crontab -l
+718,remove all my scheduled tasks,crontab -r
+719,see system wide cron jobs,ls /etc/cron.d/ /etc/cron.daily/ /etc/cron.hourly/
+720,run a command every 5 minutes,(crontab -l 2>/dev/null; echo '*/5 * * * * /home/$USER/scripts/check.sh') | crontab -
+721,schedule a reboot for 3am tomorrow,sudo shutdown -r 03:00
+722,set up a one time job to run in 2 hours,echo '/home/$USER/scripts/task.sh' | at now + 2 hours
+723,see what at jobs are queued,atq
+724,cancel a scheduled at job,atrm 3
+725,show me the date and time,date
+726,what time zone am I in,timedatectl
+727,set my time zone to new york,sudo timedatectl set-timezone America/New_York
+728,sync my clock with the internet,sudo systemctl restart systemd-timesyncd
+729,show the calendar for this month,cal
+730,show me a calendar for the whole year,cal -y
+731,where am I right now in the filesystem,pwd
+732,go to my home folder,cd ~
+733,go back to the previous folder I was in,cd -
+734,navigate up one folder,cd ..
+735,show me the first 20 lines of this file,head -20 ~/Documents/log.txt
+736,show the last 50 lines of the log,tail -50 /var/log/syslog
+737,follow this log file as it grows,tail -f ~/projects/myapp/app.log
+738,show me the whole file,cat ~/Documents/notes.txt
+739,let me page through this big file,less /var/log/syslog
+740,open this file in a basic editor,nano ~/Documents/todo.txt
+741,view this file but I want syntax colors,bat ~/projects/myapp/main.py
+742,show line numbers when viewing this file,cat -n ~/Documents/code.py
+743,count the lines in my file,wc -l ~/Documents/list.txt
+744,count words in this document,wc -w ~/Documents/essay.txt
+745,see how big this file is in characters,wc -c ~/Documents/file.txt
+746,find the word error in my log file,grep -i error ~/projects/myapp/app.log
+747,search all files in this folder for a phrase,grep -r 'database connection' ~/projects/myapp/
+748,look for failed in the auth log,sudo grep -i failed /var/log/auth.log | tail -20
+749,search files for the word todo and show me where,grep -rn 'TODO' ~/projects/myapp/ --include='*.py'
+750,count how many times the word warning appears,grep -c warning ~/projects/myapp/app.log
+751,find lines that don't have the word ok,grep -v 'OK' ~/projects/myapp/status.log
+752,show lines around a match for context,grep -C 2 'error' ~/projects/myapp/app.log
+753,case insensitive search,grep -i 'password' ~/Documents/notes.txt
+754,sort lines in this file alphabetically,sort ~/Documents/names.txt
+755,sort by number not alphabetically,sort -n ~/Documents/scores.txt
+756,sort in reverse order,sort -r ~/Documents/list.txt
+757,remove duplicate lines from this file,sort -u ~/Documents/emails.txt -o ~/Documents/emails.txt
+758,show me only the unique lines,sort ~/Documents/data.txt | uniq
+759,replace every instance of cat with dog in this file,sed -i 's/cat/dog/g' ~/Documents/story.txt
+760,remove blank lines from this file,sed -i '/^$/d' ~/Documents/data.txt
+761,show only lines 10 through 20,"sed -n '10,20p' ~/Documents/log.txt"
+762,show me the second column of this csv,"awk -F',' '{print $2}' ~/Documents/data.csv"
+763,add line numbers to this file,nl ~/Documents/code.py
+764,compare two files side by side,diff -y ~/Documents/v1.txt ~/Documents/v2.txt
+765,show me what changed between two files,diff ~/Documents/old.txt ~/Documents/new.txt
+766,are these two files identical,cmp -s ~/Documents/a.txt ~/Documents/b.txt && echo same || echo different
+767,get the checksum of this file,sha256sum ~/Downloads/installer.iso
+768,calculate md5 of this file,md5sum ~/Downloads/file.zip
+769,verify the integrity of my download,sha256sum -c ~/Downloads/SHA256SUMS
+770,show the file type,file ~/Downloads/mystery.bin
+771,show this image's dimensions,identify ~/Pictures/photo.jpg
+772,get the metadata from this photo,exiftool ~/Pictures/photo.jpg
+773,convert a png to jpg,convert ~/Pictures/image.png ~/Pictures/image.jpg
+774,resize this image to 800 pixels wide,convert ~/Pictures/photo.jpg -resize 800x ~/Pictures/photo_small.jpg
+775,make a thumbnail of this photo,convert ~/Pictures/photo.jpg -resize 200x200 ~/Pictures/photo_thumb.jpg
+776,get the audio out of this video,ffmpeg -i ~/Videos/clip.mp4 -vn -acodec copy ~/Videos/clip.aac
+777,trim a video to the first 30 seconds,ffmpeg -i ~/Videos/clip.mp4 -t 30 -c copy ~/Videos/clip_short.mp4
+778,merge two pdf files together,pdfunite ~/Documents/a.pdf ~/Documents/b.pdf ~/Documents/merged.pdf
+779,extract the first 5 pages of this pdf,pdftk ~/Documents/big.pdf cat 1-5 output ~/Documents/first5.pdf
+780,split a pdf into individual pages,pdftk ~/Documents/report.pdf burst output ~/Documents/page_%02d.pdf
+781,make a screen recording,ffmpeg -f x11grab -i :0.0 -r 30 ~/Videos/recording.mp4
+782,screenshot just a selection I draw,scrot -s ~/Pictures/selection.png
+783,screenshot with a 5 second delay,sleep 5 && scrot ~/Pictures/delayed.png
+784,show me what's in my clipboard,xclip -selection clipboard -o
+785,copy this text to my clipboard,echo 'hello world' | xclip -selection clipboard
+786,paste from clipboard into a file,xclip -selection clipboard -o > ~/Documents/pasted.txt
+787,play this song,mpv ~/Music/song.mp3
+788,play this video,mpv ~/Videos/movie.mp4
+789,lower the volume to 30 percent,pactl set-sink-volume @DEFAULT_SINK@ 30%
+790,mute my speakers,pactl set-sink-mute @DEFAULT_SINK@ 1
+791,turn the volume up,pactl set-sink-volume @DEFAULT_SINK@ +10%
+792,lock my screen,loginctl lock-session
+793,shut down the computer in 10 minutes,sudo shutdown -h +10
+794,cancel the shutdown I just scheduled,sudo shutdown -c
+795,reboot now,sudo reboot
+796,restart my computer in an hour,sudo shutdown -r +60
+797,hibernate my laptop,systemctl hibernate
+798,log out of my session,loginctl terminate-user $USER
+799,is my battery low,acpi -b
+800,how much battery do I have left,upower -i $(upower -e | grep BAT) | grep percentage
+801,see how my laptop battery is doing,upower -i /org/freedesktop/UPower/devices/battery_BAT0
+802,show display brightness,brightnessctl
+803,make my screen dimmer,brightnessctl set 30%
+804,show me bluetooth devices,bluetoothctl devices
+805,turn on bluetooth,bluetoothctl power on
+806,scan for bluetooth devices,bluetoothctl scan on
+807,connect to my bluetooth headphones,bluetoothctl connect AA:BB:CC:DD:EE:FF
+808,see what audio output is being used,pactl info | grep 'Default Sink'
+809,list audio devices,pactl list sinks short
+810,switch to headphones output,pactl set-default-sink alsa_output.pci-0000_00_1f.3.analog-stereo
+811,list my keyboard layouts,localectl list-keymaps | head -20
+812,change keyboard layout to french,setxkbmap fr
+813,switch keyboard back to english,setxkbmap us
+814,see what my current keyboard layout is,setxkbmap -query | grep layout
+815,list installed fonts,fc-list | head -30
+816,search for a font,fc-list | grep -i monaco
+817,see currently set environment variables,env
+818,show me the value of an environment variable,echo $HOME
+819,add a folder to my path permanently,"echo 'export PATH=""$HOME/bin:$PATH""' >> ~/.bashrc"
+820,set an environment variable for this session,export EDITOR=nano
+821,edit my shell startup file,nano ~/.bashrc
+822,reload my shell config,source ~/.bashrc
+823,what shell am I using,echo $SHELL
+824,change my default shell to zsh,chsh -s /usr/bin/zsh
+825,search through my command history,history | grep docker
+826,clear my terminal history,history -c && history -w
+827,run a command without saving it in history, ls -la
+828,find a command I used yesterday,history | tail -200 | grep ssh
+829,open a new tmux session,tmux new -s work
+830,list my tmux sessions,tmux ls
+831,attach to my tmux session,tmux attach -t work
+832,kill a tmux session,tmux kill-session -t old
+833,start a long task in the background using screen,screen -dmS backup bash -c '/home/$USER/scripts/backup.sh'
+834,see active screen sessions,screen -ls
+835,reattach to my screen session,screen -r backup
+836,I need to check the weather,curl -s 'wttr.in/?format=3'
+837,show me a 3 day weather forecast,curl -s 'wttr.in/?2'
+838,convert this file from windows line endings,dos2unix ~/Documents/script.sh
+839,fix line endings to be windows style,unix2dos ~/Documents/notes.txt
+840,show non printable characters in this file,cat -A ~/Documents/data.txt
+841,I want to see the file as hex,xxd ~/Downloads/binary.bin | less
+842,look at the first few bytes of a binary file,xxd ~/Downloads/data.bin | head
+843,list everyone's groups on the system,cat /etc/group | cut -d: -f1
+844,add myself to the docker group,sudo usermod -aG docker $USER
+845,remove a user from a group,sudo gpasswd -d alice docker
+846,see who is in the sudo group,getent group sudo
+847,what is the linux distribution I'm running,lsb_release -d
+848,show me my os version,cat /etc/os-release
+849,what kernel version do I have,uname -r
+850,is this a 64 bit system,uname -m
+851,show me my hostname,hostname
+852,change my computer's name,sudo hostnamectl set-hostname mylaptop
+853,show details about my machine,hostnamectl
+854,see what shell features are enabled,shopt
+855,make a directory I can write to but others can read,mkdir -p ~/shared && chmod 755 ~/shared
+856,share a folder with another user on this computer,sudo chgrp -R sharedusers ~/Documents/shared && sudo chmod -R 770 ~/Documents/shared
+857,set the sticky bit on a folder,chmod +t /tmp/shared
+858,give read access to the team for this file,sudo chgrp team ~/Documents/report.pdf && chmod g+r ~/Documents/report.pdf
+859,see how much swap I'm using,swapon --show
+860,add more swap space,sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+861,disable swap temporarily,sudo swapoff -a
+862,show file system types,df -hT
+863,check for errors on a disk,sudo fsck /dev/sdb1
+864,show inodes used on my drive,df -i
+865,see all symbolic links in my home,find ~ -type l 2>/dev/null
+866,create a shortcut to my projects folder on the desktop,ln -s ~/projects ~/Desktop/projects
+867,remove a broken shortcut,rm ~/Desktop/old_link
+868,find broken shortcuts in my home,find ~ -xtype l 2>/dev/null
+869,make a hard link to this file,ln ~/Documents/original.txt ~/Documents/linked.txt
+870,show file creation dates,stat ~/Documents/file.txt
+871,when was this file last modified,stat -c '%y' ~/Documents/file.txt
+872,update the modification time of a file,touch ~/Documents/file.txt
+873,my downloads folder is a mess clean it up,find ~/Downloads -type f -mtime +30 -delete
+874,delete files in tmp that are older than a week,find /tmp -type f -mtime +7 -delete 2>/dev/null
+875,remove empty folders in this directory,find ~/projects -type d -empty -delete
+876,delete files older than 90 days from this folder,find ~/Downloads/old -type f -mtime +90 -delete
+877,clean out the cache folder,rm -rf ~/.cache/thumbnails/*
+878,clear browser cache for firefox,rm -rf ~/.cache/mozilla/firefox/*/cache2/*
+879,find duplicate files in my pictures folder,fdupes -r ~/Pictures/
+880,show me which programs auto start when I log in,ls ~/.config/autostart/
+881,stop a program from auto starting,rm ~/.config/autostart/spotify.desktop
+882,add a startup script,cp ~/scripts/launcher.desktop ~/.config/autostart/
+883,see all the desktop apps installed,ls /usr/share/applications/
+884,find an installed app by name,ls /usr/share/applications/ | grep -i firefox
+885,see what wallpaper I'm using,gsettings get org.gnome.desktop.background picture-uri
+886,change my desktop wallpaper,gsettings set org.gnome.desktop.background picture-uri 'file:///home/$USER/Pictures/wallpaper.jpg'
+887,toggle dark mode,gsettings set org.gnome.desktop.interface color-scheme prefer-dark
+888,switch to light mode,gsettings set org.gnome.desktop.interface color-scheme default
+889,see the size of every subfolder,du -sh ~/Documents/*/
+890,rank folders by size,du -h --max-depth=1 ~ | sort -hr
+891,find empty files in my home,find ~ -type f -empty 2>/dev/null
+892,find folders with no files inside,find ~ -type d -empty 2>/dev/null
+893,show me only files modified today,find ~ -type f -newermt '1 day ago' 2>/dev/null
+894,show files I haven't touched in a year,find ~ -type f -atime +365 2>/dev/null | head -20
+895,find old downloads and list them,find ~/Downloads -type f -mtime +60 -ls
+896,search for a config file across the system,sudo find /etc -name '*.conf' -type f 2>/dev/null
+897,where is the apache config,find /etc -name 'apache2.conf' 2>/dev/null
+898,where is the nginx config,find /etc -name 'nginx.conf' 2>/dev/null
+899,find python on my system,which python3
+900,where is the docker binary,command -v docker
+901,find all the binaries for a command,type -a python3
+902,show me the man page for cp,man cp
+903,quick help for the curl command,curl --help | less
+904,what does this command do explain it,tldr tar
+905,show examples for the find command,tldr find
+906,list all the things I can do with ssh,ssh --help 2>&1 | less
+907,see my git config,git config --list
+908,set my git username,git config --global user.name 'Aditya Mavalankar'
+909,set my git email,git config --global user.email 'aditya@example.com'
+910,clone a github repo,git clone https://github.com/torvalds/linux.git ~/projects/linux
+911,commit all my changes,git -C ~/projects/myapp add -A && git -C ~/projects/myapp commit -m 'updates'
+912,push my changes to github,git -C ~/projects/myapp push
+913,pull the latest changes,git -C ~/projects/myapp pull
+914,see what changed in my project,git -C ~/projects/myapp status
+915,show the last 10 commits,git -C ~/projects/myapp log --oneline -10
+916,create a new branch and switch to it,git -C ~/projects/myapp checkout -b feature/new-thing
+917,switch back to main branch,git -C ~/projects/myapp checkout main
+918,see what branches I have,git -C ~/projects/myapp branch
+919,delete an old branch,git -C ~/projects/myapp branch -d old-feature
+920,merge a feature branch into main,git -C ~/projects/myapp checkout main && git -C ~/projects/myapp merge feature/new-thing
+921,undo my last commit but keep the changes,git -C ~/projects/myapp reset HEAD~1
+922,see what I changed since my last commit,git -C ~/projects/myapp diff
+923,check my email with mutt,mutt
+924,send a quick email from terminal,echo 'hi there' | mail -s 'Subject' friend@example.com
+925,check the spelling of words in a file,aspell check ~/Documents/essay.txt
+926,translate a word using an online service,trans :es 'hello world'
+927,do a quick calculation,echo '15 * 24 + 100' | bc
+928,calculate a percentage,echo 'scale=2; 87/120 * 100' | bc
+929,show me random numbers,shuf -i 1-100 -n 5
+930,pick a random line from this file,shuf -n 1 ~/Documents/wordlist.txt
+931,shuffle the lines in this file,shuf ~/Documents/playlist.txt -o ~/Documents/shuffled.txt
+932,see what my prompt looks like,echo $PS1
+933,make terminal text colorful,echo -e '\033[1;32mhello\033[0m'
+934,clear my terminal,clear
+935,reset the terminal if it gets weird,reset
+936,what are the keyboard shortcuts in my terminal,bind -p | head -30
+937,set up a useful alias,"echo 'alias ll=""ls -lah""' >> ~/.bashrc && source ~/.bashrc"
+938,show my current aliases,alias
+939,remove an alias,unalias ll
+940,see my recently used files,ls -lt ~ | head -20
+941,find files modified after a specific date,find ~/projects -type f -newermt '2026-05-01' 2>/dev/null
+942,show files that haven't been read in 60 days,find ~/Documents -type f -atime +60 2>/dev/null
+943,tell me what programs are listening on the network,sudo ss -tlnp
+944,monitor disk activity,iostat -x 2
+945,see disk read write speeds in real time,sudo iotop
+946,watch what cpu cores are doing,mpstat -P ALL 2
+947,check virtual memory stats,vmstat 2 5
+948,show context switches and interrupts,vmstat 1 5
+949,see open files for a process,lsof -p 4523
+950,what files is firefox using,lsof -c firefox 2>/dev/null | head -20
+951,who has this file open,lsof ~/Documents/report.pdf
+952,see network connections by process,sudo lsof -i -P -n | grep LISTEN
+953,monitor a folder for changes,inotifywait -m -r ~/projects/myapp
+954,watch a command refresh every 2 seconds,watch -n 2 'df -h /'
+955,keep checking my battery every 10 seconds,watch -n 10 acpi -b
+956,send my desktop a notification,notify-send 'Done' 'Your script finished'
+957,make my speakers beep,paplay /usr/share/sounds/freedesktop/stereo/bell.oga
+958,speak this text out loud,espeak 'hello world'
+959,show only directories not files,ls -d ~/projects/*/
+960,list files showing hidden ones too,ls -A ~/
+961,show me what's in slash etc,ls /etc/ | head -30
+962,look at the configuration for nginx,cat /etc/nginx/nginx.conf
+963,see what's in my crontab folder,ls /etc/cron.daily/
+964,check disk partition table,sudo fdisk -l
+965,show me the gpt partitions,sudo parted -l
+966,see the boot loader entries,ls /boot/grub/
+967,view kernel boot parameters,cat /proc/cmdline
+968,list loaded kernel modules,lsmod | head -20
+969,show the firewall rules,sudo ufw status verbose
+970,allow web traffic through the firewall,sudo ufw allow 80/tcp
+971,allow ssh through firewall,sudo ufw allow 22/tcp
+972,block a specific ip address,sudo ufw deny from 192.168.1.50
+973,show me what is using port 22,sudo lsof -i :22
+974,see open udp connections,ss -unap 2>/dev/null
+975,see established tcp connections,ss -tan state established
+976,how do I open a port for an app,sudo ufw allow 8080/tcp
+977,block all outgoing connections to a specific port,sudo ufw deny out 25/tcp
+978,check if my web app is reachable from outside,curl -I http://localhost:8080
+979,test a web server response time,curl -w 'time_total: %{time_total}\n' -o /dev/null -s https://example.com
+980,see my dns servers,resolvectl status | grep 'DNS Servers'
+981,see open files by everyone on the system,sudo lsof | head -30
+982,check how many processes I have,ps -e | wc -l
+983,see threads of a process,ps -eLf | grep firefox | head
+984,show me the process tree,pstree -p
+985,what process started this one,ps -p $$ -o ppid=
+986,stop all instances of a program,killall firefox
+987,pause a process temporarily,kill -STOP 4523
+988,resume a paused process,kill -CONT 4523
+989,lower the priority of a running task,renice -n 10 -p 4523
+990,give a process more priority,sudo renice -n -5 -p 4523
+991,run a command at lower priority,nice -n 19 ~/scripts/heavy_task.sh
+992,see disk usage tree,ncdu ~
+993,interactively find what's filling my disk,ncdu /
+994,show me which folder eats the most space in slash var,sudo du -sh /var/* | sort -hr | head
+995,find biggest folders under root,sudo du -h --max-depth=1 / 2>/dev/null | sort -hr | head
+996,do a quick smart test,sudo smartctl -t short /dev/sda
+997,see drive temperature,sudo smartctl -a /dev/sda | grep -i temperature
+998,format a usb drive as fat32,sudo mkfs.vfat -F32 /dev/sdb1
+999,format a drive as ext4,sudo mkfs.ext4 /dev/sdb1
+1000,label a usb drive,sudo fatlabel /dev/sdb1 MYDRIVE
+1001,show all the cron jobs system wide,for u in $(cut -d: -f1 /etc/passwd); do sudo crontab -u $u -l 2>/dev/null && echo --$u--; done
+1002,back up my home folder to an external drive,"rsync -aAXv ~/ /media/backup/home_backup/ --exclude={.cache,.local/share/Trash}"
+1003,make a full system snapshot,"sudo rsync -aAXv --exclude={/proc,/sys,/dev,/tmp,/run,/mnt,/media} / /media/backup/system/"
+1004,check if a package is installed,dpkg -l | grep nginx
+1005,show me which package installed a file,dpkg -S /usr/bin/python3
+1006,see what files a package installed,dpkg -L nginx | head -20
+1007,fix broken package installs,sudo apt --fix-broken install
+1008,see my recent apt history,less /var/log/apt/history.log
+1009,what did I install yesterday,grep -A1 'Start-Date' /var/log/apt/history.log | tail -20
+1010,add a new repository,sudo add-apt-repository ppa:graphics-drivers/ppa
+1011,list my repositories,grep -rh ^deb /etc/apt/sources.list /etc/apt/sources.list.d/
+1012,show me what python is installed,ls /usr/bin/python*
+1013,install pip for python,sudo apt install -y python3-pip
+1014,see installed pip packages,pip list --user
+1015,update a pip package,pip install --upgrade requests
+1016,uninstall a python package,pip uninstall -y requests
+1017,show me node js version,node --version

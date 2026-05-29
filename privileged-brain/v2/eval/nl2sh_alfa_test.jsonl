@@ -1,0 +1,300 @@
+{"nl": "list files in the current directory", "bash": "ls"}
+{"nl": "list all files in the current directory including hidden files", "bash": "ls -a"}
+{"nl": "list open files", "bash": "lsof"}
+{"nl": "create a copy of /testbed/hello.php named /testbed/hello-COPY.php", "bash": "cp /testbed/hello.php /testbed/hello-COPY.php"}
+{"nl": "create a file  /testbed/test.txt", "bash": "touch /testbed/test.txt"}
+{"nl": "create a directory /testbed/test_dir", "bash": "mkdir /testbed/test_dir"}
+{"nl": "remove a file named does_not_exist.txt", "bash": "rm does_not_exist.txt"}
+{"nl": "print hello world", "bash": "echo hello world"}
+{"nl": "print the current working directory", "bash": "pwd"}
+{"nl": "print the current date and time", "bash": "date"}
+{"nl": "print the current user", "bash": "whoami"}
+{"nl": "remove a directory named fake_dir", "bash": "rmdir fake_dir"}
+{"nl": "print the current shell", "bash": "echo $0"}
+{"nl": "print environment variables", "bash": "env"}
+{"nl": "print the current user's home directory", "bash": "echo $HOME"}
+{"nl": "print the current user's path", "bash": "echo $PATH"}
+{"nl": "display the contents of the setup_nl2b_fs_1.sh file", "bash": "cat setup_nl2b_fs_1.sh"}
+{"nl": "display the first 5 lines of the setup_nl2b_fs_1.sh file", "bash": "head -n 5 setup_nl2b_fs_1.sh"}
+{"nl": "display the last 5 lines of the setup_nl2b_fs_1.sh file", "bash": "tail -n 5 setup_nl2b_fs_1.sh"}
+{"nl": "print the tenth line of the setup_nl2b_fs_1.sh", "bash": "sed -n 10p setup_nl2b_fs_1.sh"}
+{"nl": "print the path of the bash executable", "bash": "which bash"}
+{"nl": "display the shell history", "bash": "history"}
+{"nl": "print the system utilization stats", "bash": "vmstat"}
+{"nl": "print the system uptime", "bash": "uptime"}
+{"nl": "print the system load averages", "bash": "w"}
+{"nl": "print running processes", "bash": "ps"}
+{"nl": "print running processes in a tree format", "bash": "pstree"}
+{"nl": "print the system memory usage", "bash": "free"}
+{"nl": "print the system disk usage", "bash": "df"}
+{"nl": "print the kernel version", "bash": "uname -a"}
+{"nl": "print the system hostname", "bash": "hostname"}
+{"nl": "print the system IP address", "bash": "hostname -I"}
+{"nl": "print the ip addresses of the system DNS servers", "bash": "cat /etc/resolv.conf | grep nameserver"}
+{"nl": "display the network interfaces", "bash": "ifconfig"}
+{"nl": "display the routing table", "bash": "route"}
+{"nl": "show the last logged in users", "bash": "last"}
+{"nl": "print the last logged in users and show the full user and domain names", "bash": "last -w"}
+{"nl": "print the openssl version", "bash": "openssl version"}
+{"nl": "base64 encode the string 'hello'", "bash": "echo -n 'hello' | base64"}
+{"nl": "base64 decode the string 'aGVsbG8='", "bash": "echo 'aGVsbG8=' | base64 -d"}
+{"nl": "print lines containing 'console' in the file setup_nl2b_fs_1.sh", "bash": "grep 'console' setup_nl2b_fs_1.sh"}
+{"nl": "list the stats and timestamps of the file setup_nl2b_fs_1.sh", "bash": "stat setup_nl2b_fs_1.sh"}
+{"nl": "gzip the file /testbed/hello.php keeping the original file", "bash": "gzip -k /testbed/hello.php"}
+{"nl": "tar the file /testbed/hello.php to /testbed/hello.tar", "bash": "tar -cf /testbed/hello.tar /testbed/hello.php"}
+{"nl": "show apt information about the curl package", "bash": "apt show curl"}
+{"nl": "list background jobs", "bash": "jobs"}
+{"nl": "print the current terminal type", "bash": "echo $TERM"}
+{"nl": "display the current process priority", "bash": "nice"}
+{"nl": "display the pid of the current shell", "bash": "echo $$"}
+{"nl": "time how long it takes to run the command echo 'hello'", "bash": "time echo 'hello'"}
+{"nl": "print the current user's groups", "bash": "groups"}
+{"nl": "print the current user's id", "bash": "id"}
+{"nl": "list the cron tab", "bash": "crontab -l"}
+{"nl": "print the current user's umask", "bash": "umask"}
+{"nl": "list cpu information", "bash": "lscpu"}
+{"nl": "list memory information", "bash": "lsmem"}
+{"nl": "print the installed ssh version", "bash": "ssh -V"}
+{"nl": "print the bash profile in the home directory", "bash": "cat ~/.bashrc"}
+{"nl": "print the system's locale", "bash": "locale"}
+{"nl": "list block devices", "bash": "lsblk"}
+{"nl": "find all files larger than 100MB in the current dir", "bash": "find . -size +100M -print"}
+{"nl": "create a symbolic link to /testbed/hello.php named /testbed/link", "bash": "ln -s /testbed/hello.php /testbed/link"}
+{"nl": "change the ownership of /testbed/test.txt to user 'nobody'", "bash": "chown nobody /testbed/test.txt"}
+{"nl": "change the group of /testbed/test.txt to group 'nogroup'", "bash": "chgrp nogroup /testbed/test.txt"}
+{"nl": "change permissions of /testbed/test.txt to read-only for everyone", "bash": "chmod 444 /testbed/test.txt"}
+{"nl": "count the lines, words, and characters in setup_nl2b_fs_1.sh", "bash": "wc setup_nl2b_fs_1.sh"}
+{"nl": "print the lines in setup_nl2b_fs_1.sh sorted alphabetically", "bash": "sort setup_nl2b_fs_1.sh"}
+{"nl": "print the unique lines in setup_nl2b_fs_1.sh", "bash": "uniq setup_nl2b_fs_1.sh"}
+{"nl": "display network statistics", "bash": "netstat --statistics"}
+{"nl": "display network interfaces", "bash": "netstat -i"}
+{"nl": "display a calendar for the next 3 months", "bash": "cal -3"}
+{"nl": "show running daemons and services", "bash": "service --status-all"}
+{"nl": "print the system boot time", "bash": "who -b"}
+{"nl": "print current swap usage", "bash": "swapon --show"}
+{"nl": "print a list of active kernel parameters", "bash": "sysctl -a"}
+{"nl": "list the installed software packages", "bash": "dpkg --get-selections"}
+{"nl": "list available shells", "bash": "cat /etc/shells"}
+{"nl": "list all users on the system", "bash": "getent passwd"}
+{"nl": "list all groups on the system", "bash": "getent group"}
+{"nl": "extract the filename from this path '/usr/local/bin/my_script.sh'", "bash": "basename /usr/local/bin/my_script.sh"}
+{"nl": "perform a dns lookup for google.com", "bash": "nslookup google.com"}
+{"nl": "extract the directory from this path '/usr/local/bin/my_script.sh'", "bash": "dirname /usr/local/bin/my_script.sh"}
+{"nl": "send the message 'System maintenance in 10 minutes!' to all logged in users", "bash": "wall 'System maintenance in 10 minutes!'"}
+{"nl": "print the file type of setup_nl2b_fs_1.sh", "bash": "file setup_nl2b_fs_1.sh"}
+{"nl": "print the contents of setup_nl2b_fs_1.sh with lines wrapped to 40 characters", "bash": "fold -w 40 setup_nl2b_fs_1.sh"}
+{"nl": "print all system configuration variables", "bash": "getconf -a"}
+{"nl": "print the number of processors", "bash": "nproc"}
+{"nl": "print the max number of open file descriptors", "bash": "ulimit -n"}
+{"nl": "print the max number of user processes", "bash": "ulimit -u"}
+{"nl": "print the max cpu time", "bash": "ulimit -t"}
+{"nl": "display the configured size of long integers", "bash": "getconf LONG_BIT"}
+{"nl": "print the directory tree two levels deep", "bash": "tree -L 2"}
+{"nl": "print the number of times the word 'the' appears in setup_nl2b_fs_1.sh", "bash": "grep -o 'the' setup_nl2b_fs_1.sh | wc -l"}
+{"nl": "print the number of files in the current directory", "bash": "ls -a | wc -l"}
+{"nl": "print first line of setup_nl2b_fs_1.sh", "bash": "sed -n '1p' setup_nl2b_fs_1.sh"}
+{"nl": "print the last line of setup_nl2b_fs_1.sh", "bash": "sed -n '$p' setup_nl2b_fs_1.sh"}
+{"nl": "print lines 3 to 5 of setup_nl2b_fs_1.sh", "bash": "sed -n '3,5p' setup_nl2b_fs_1.sh"}
+{"nl": "print every other line of setup_nl2b_fs_1.sh", "bash": "sed -n '1~2p' setup_nl2b_fs_1.sh"}
+{"nl": "print the number of words in setup_nl2b_fs_1.sh", "bash": "wc -w setup_nl2b_fs_1.sh"}
+{"nl": "find all empty files in the current directory, do not search sub directories", "bash": "find . -maxdepth 1 -type f -empty"}
+{"nl": "print lines in the file setup_nl2b_fs_1.sh that are less than 20 characters", "bash": "awk 'length < 20' setup_nl2b_fs_1.sh"}
+{"nl": "print lines in the file setup_nl2b_fs_1.sh that contain the characters 'the'", "bash": "grep 'the' setup_nl2b_fs_1.sh"}
+{"nl": "print lines in the file setup_nl2b_fs_1.sh that contain the characters 'the' and 'a'", "bash": "grep 'the' setup_nl2b_fs_1.sh | grep 'a'"}
+{"nl": "display the sha512 digest of setup_nl2b_fs_1.sh", "bash": "sha512sum setup_nl2b_fs_1.sh"}
+{"nl": "encrypt the file setup_nl2b_fs_1.sh using the aes-256-cbc algorithm with password 'password' and save it to out.enc", "bash": "openssl enc -aes-256-cbc -in setup_nl2b_fs_1.sh -pass pass:password -out out.enc"}
+{"nl": "create a file named 'world.txt' with the text 'hello' inside", "bash": "echo 'hello' > world.txt"}
+{"nl": "print the system's public ip address", "bash": "curl ipinfo.io/ip"}
+{"nl": "Calculate a list of duplicate md5 sum hashes for all the \".java\" files in the /testbed directory", "bash": "md5sum /testbed/*.java | awk '{print $1}' | sort | uniq -d"}
+{"nl": "Calculate the md5 sum of the md5 sum of all the files under /testbed/dir2/subdir2 sorted by filename", "bash": "find /testbed/dir2/subdir2 -type f -print0 | sort -z | xargs -0 md5sum | awk '{print $1}' | md5sum"}
+{"nl": "Calculate the md5 sum of the contents of the sorted list of files \"$FILES\"", "bash": "cat $(echo $FILES | tr ' ' '\\n' | sort) | md5sum"}
+{"nl": "Calculate the md5 sum of the sorted list of md5 sums of all \".py\" files under /testbed/dir1/subdir1", "bash": "find /testbed/dir1/subdir1 -type f -name *.py -exec md5sum {} + | awk '{print $1}' | sort | md5sum"}
+{"nl": "Calculate the total disk usage for each \".txt\" file on the /testbed directory and prepend the system host name to the output", "bash": "find /testbed -name \"*.txt\" -exec du {} + | awk -v hostname=\"$(hostname)\" '{print hostname, $0}'"}
+{"nl": "Change permissions for all PHP files under the /testbed directory tree to 755 and print the number of files changed", "bash": "find /testbed -name \"*.php\" -exec chmod 755 {} \\; -exec /bin/echo {} \\; | wc -l"}
+{"nl": "Check if the current shell is running within a 'screen' process and print \"True\" or \"False\"", "bash": "pstree -s $$ | grep -q \"screen\" && echo \"True\" || echo \"False\""}
+{"nl": "Print \"True\" if the contents of file /testbed/dir3/subdir1/subsubdir1/textfile3.txt is a subset of file /testbed/dir2/subdir1/textfile2.txt, otherwise print \"False\"", "bash": "comm -23 <(sort /testbed/dir3/subdir1/subsubdir1/textfile3.txt | uniq) <(sort /testbed/dir2/subdir1/textfile2.txt | uniq) | head -1 | grep -q '.' && echo \"False\" || echo \"True\""}
+{"nl": "Compute the mean average of the word count of *.txt files in the /testbed directory", "bash": "find /testbed -name '*.txt' -print0 | xargs -0 wc -w | awk 'END { print $1/(NR-1) }'"}
+{"nl": "Compute the mean average of the word count of *.txt files smaller than 6 words in the /testbed directory", "bash": "find /testbed -name '*.txt' -print0 | xargs -0 wc -w | awk '$1 < 6 {v += $1; c++} END {print v/c}'"}
+{"nl": "Copy all files with \"FooBar\" in the path under the '/testbed' directory to the '/testbed/dir3/subdir1/subsubdir1/tmp' directory.", "bash": "find /testbed -path '*FooBar*' -print0 | xargs -0 -I{} cp -r {} /testbed/dir3/subdir1/subsubdir1/tmp"}
+{"nl": "search for all .txt files in the /testbed directory, prints their paths, and then search within each file for the word \"another\"", "bash": "find /testbed -name \"*.txt\" \\( -exec echo {} \\; -o -exec true \\; \\) -exec grep another {} \\;"}
+{"nl": "Convert the first 16 characters in \"/testbed/textfile7.txt\" to a single hexadecimal value", "bash": "head /testbed/textfile7.txt -c16 | od -tx1 -w16 | head -n1 | cut -d' ' -f2- | tr -d ' '"}
+{"nl": "Copies all files under the /testbed folder like \"file.txt\" with \"FooBar\" in the path to the root of the current folder, preserving mode, ownership and timestamp attributes.", "bash": "find /testbed -type f -path '*FooBar*' | xargs -i cp -p \"{}\" ."}
+{"nl": "Copy all files and folders below the /testbed directory whose names contain \"FooBar\" to directory '/testbed/dir3/subdir1/subsubdir1/tmp'", "bash": "find /testbed -name '*FooBar*' -print0 | xargs -0 -I{} cp -R {} /testbed/dir3/subdir1/subsubdir1/tmp"}
+{"nl": "Count all the lines of all '*.c' files in /testbed directory recursively", "bash": "find /testbed -name \"*.c\" -print0 | xargs -0 cat | wc -l"}
+{"nl": "Count all the lines of all files with names ending with 'php' in current directory and subdirectories recursively", "bash": "find . -type f -name '*php' | xargs cat | wc -l"}
+{"nl": "Count all the lines of all php files in the /testbed directory recursively", "bash": "find /testbed/ -name '*.php' | xargs cat | wc -l"}
+{"nl": "Calculate the md5sum of all '*.py' files in /testbed folder and sub folders.", "bash": "find /testbed -type f -name \"*.py\" -exec md5sum {} +"}
+{"nl": "Count the *.html files residing in the /testbed directory tree and containing string \"foo\"", "bash": "find /testbed -name \"*.html\" | xargs grep -l foo | wc -l"}
+{"nl": "Count the number of files/directories with '.php' extension under /testbed directory tree and change the permissions to 755", "bash": "find /testbed -name \"*.php\" -exec chmod 755 {} \\; -exec /bin/echo {} \\; | wc -l"}
+{"nl": "Count the number of lines in all files in the /testbed directory tree that match pattern '*file*'", "bash": "find /testbed/ -name '*file*' | sort | xargs wc -l"}
+{"nl": "Count the number of regular files in directory tree ${DIRECTORY} that contain a vowel in their names", "bash": "find ${DIRECTORY} -type f -print | sed -e 's@^.*/@@' | grep '[aeiouyAEIOUY]' | wc -l"}
+{"nl": "Count the number of files for each unique file extensions in the /testbed directory tree.", "bash": "find /testbed -type f | sed -e 's/.*\\.//' | sed -e 's/.*\\///' | sort | uniq -c | sort -rn"}
+{"nl": "Count the total number of lines in all \"*.gz\" files in the /testbed directory tree after decompression", "bash": "find /testbed -type f -name '*.gz' | xargs zcat | wc -l"}
+{"nl": "Counts all files in the /testbed folder and subfolders.", "bash": "find /testbed -type f -exec ls -l {} \\; | wc -l"}
+{"nl": "Count lines in each *.php file sorted by file in /testbed directory.", "bash": "find /testbed -name '*.php' -type f | sort | xargs wc -l"}
+{"nl": "Counts lines in each *.php file in /testbed directory, sorted by number of lines, descending.", "bash": "find /testbed -name '*.php' -type f | xargs wc -l | sort -nr"}
+{"nl": "Counts number of occurences of all ip addresses in '/etc/networks' file, and prints all addresses with number of occurences in a descending order.", "bash": "grep -oE '([0-9]{1,3}\\.){3}[0-9]{1,3}' /etc/networks | sort | uniq -c | sort -nr"}
+{"nl": "Counts total number of only lines with alphanumeric symbols in all *.php files in the /testbed folder and subfolders.", "bash": "find /testbed -name '*.php' | xargs cat | awk '/[a-zA-Z0-9]/ {i++} END{print i}'"}
+{"nl": "Counts total lines in PHP and JS files in /testbed.", "bash": "find /testbed -name '*.js' -or -name '*.php' | xargs wc -l | grep 'total'  | awk '{print $1}'"}
+{"nl": "Create an empty file \"abc.txt\" in each directory named \"dir1\" under testbed directory.", "bash": "find /testbed -type d -name \"dir1\" -print |  sed 's/$/\\/abc.txt/g' | xargs touch"}
+{"nl": "Create logs.tar.gz of all older than one day logs of Ubuntu", "bash": "find /var/log/ -mtime +1 | xargs  tar -czvPf  /testbed/logs.tar.gz"}
+{"nl": "Delete files in \"/testbed/dir3/subdir1/subsubdir1/tmp\" that are older than 2 days", "bash": "find /testbed/dir3/subdir1/subsubdir1/tmp -type f -mtime +2 -print0 | xargs -0 rm -f"}
+{"nl": "Display the 5 largest files in the /testbed directory and its sub-directories.", "bash": "find /testbed -type f -exec du -b {} + | sort -rh | head -n 5"}
+{"nl": "Display the 5 smallest files in the /testbed directory and its sub-directories ignoring any empty files.", "bash": "find /testbed -type f -size +0c -exec du -b {} + | sort -n | head -n 5"}
+{"nl": "Display the 5 smallest files in the /testbed directory and its sub-directories.", "bash": "find /testbed -type f -exec ls -s {} \\; | sort -n  | head -5"}
+{"nl": "Display the five biggest file sizes only in the /testbed directory", "bash": "find /testbed -type f -maxdepth 1 -exec du -b {} + | sort -rh | head -n 5"}
+{"nl": "Find .java files in the testbed directory tree that contain 'Hello', and print their names", "bash": "find /testbed -name \"*.java\" -exec grep -Hin Hello {} + | cut -d \":\" -f 1 | xargs -I{} basename {}"}
+{"nl": "Print a list of all duplicate case insensitive filenames in the /testbed directory tree", "bash": "find /testbed -type f | awk -F/ '{print $NF}' | sort -f | uniq -i -d"}
+{"nl": "Print all unique file paths under \"testbed/dir1\" compared to \"testbed/dir2\"", "bash": "comm -23 <(find /testbed/dir1 | sed 's#/testbed/dir1/##' | sort) <(find /testbed/dir2 | sed 's#/testbed/dir2/##' | sort) | sed 's#^#/testbed/dir1/#'"}
+{"nl": "Recursively finds all files containing text 'Hello' in /testbed and prints folder where they are placed.", "bash": "grep -rl 'Hello' /testbed | xargs -I {} dirname {} | sort | uniq"}
+{"nl": "Prints total number of lines of all *.java files in /testbed folder and subfolders.", "bash": "find /testbed -name '*.java' -print0 |xargs -0 wc -l|grep 'total' |awk '{ print $1 }'"}
+{"nl": "Create a symbolic link named FooBar in the /testbed/dir3/subdir1/subsubdir1 directory to the root directory /", "bash": "ln /testbed/dir3/subdir1/subsubdir1/FooBar -s /"}
+{"nl": "search for all the files in the folder /testbed/dir1 which have sticky bit set and have the permissions 553", "bash": "find /testbed/dir1 -perm 1553"}
+{"nl": "search for php files in /testbed directory and search for \"world\" in all these files", "bash": "find /testbed -name '*.php' -exec grep -iq \"world\" {} \\; -print"}
+{"nl": "Recursively finds all files with any cased text \"Hello\" in the '/system/folder1' folder, and precedes found string with its number in file.", "bash": "grep -inr \"Hello\" /system/folder1"}
+{"nl": "Recursively finds all files with whole word \"foo\" in the '/system', and precedes found string with its number in file.", "bash": "grep -rnw /system -e \"foo\""}
+{"nl": "Recursively list contents of the '/system' directory in a tree-like format", "bash": "tree /system"}
+{"nl": "Recursively print all files and directories in the '/system/folder2' directory tree including hidden files", "bash": "tree -a /system/folder2"}
+{"nl": "Recursively prints all folders in the '/system' folder that contain files like \"*.out\".", "bash": "find /system -type f -name \"*.out\" -print0 | xargs -0 -n1 dirname | sort -u"}
+{"nl": "Remove all \"*.txt\" files in the '/system' folder and answer \"y\" to any prompt", "bash": "yes y | rm -r /system/*.txt"}
+{"nl": "Recursively removes all empty folders from the /system/folder3/temp folder.", "bash": "find /system/folder3/temp -depth -type d -exec rmdir {} \\;"}
+{"nl": "Recursively removes all empty folders under /system/folder3/temp, printing info message on each operation, and suppressing error messages if folder is not empty.", "bash": "find /system/folder3/temp -type d -empty -exec rmdir -vp --ignore-fail-on-non-empty {} +"}
+{"nl": "Recursively removes all files in the /system/folder1 folder but '*txt' files.", "bash": "find /system/folder1 -type f -not -name '*txt' | xargs rm"}
+{"nl": "Recursively rename all files under /system/folder2 replacing special with regular.", "bash": "find /system/folder2 -type f -name '*special*' ! -path '*/special/*' -execdir bash -c 'mv \"$0\" \"${0/special/regular}\"' {} \\;"}
+{"nl": "Recursively search for \"foo\" in the '/system' folder and write the output to the console followed by the number of matched lines", "bash": "grep -r \"foo\" /system | tee >(wc -l)"}
+{"nl": "Recursively search for all regular files below directory \"/system/folder3/\", and output the name of each, without any containing directories.", "bash": "find /system/folder3/ -type f -exec basename {} \\;"}
+{"nl": "Recursively unzip files to stdout in \"/system/folder2.tar.gz\" and search for \"special\"", "bash": "zcat -r /system/folder2.tar.gz | grep \"special\""}
+{"nl": "Remove \"\\r\" at the end of each line in \"system/folder3/temp/temp1/text1.txt\" and display the result as printable characters or backslash escapes", "bash": "cat /system/folder3/temp/temp1/text1.txt | sed 's/\\r$//' | od -c"}
+{"nl": "Remove all *.doc files from the /system/folder1 tree", "bash": "find /system/folder1 -name '*.doc' -exec rm \"{}\" \\;"}
+{"nl": "Remove all *.log files from the /system/folder1 tree", "bash": "find /system/folder1 -name '*.log' -print0 | xargs -0 rm"}
+{"nl": "Remove all *.txt files in '/system' directory but not in it's subdirectories", "bash": "find /system -name '*.txt' -maxdepth 1 | xargs rm"}
+{"nl": "Remove all *.sql files in the '/system/folder3/backup_dbg' directory that were last modified more than 25 days ago", "bash": "find /system/folder3/backup_dbg/*.sql -mtime +25 -exec rm -f {} \\;"}
+{"nl": "Remove all *.txt files under the /system/folder1 directory modified more than 5 minutes ago", "bash": "find /system/folder1 -mmin +5 -type f -name \"*.txt\" -delete"}
+{"nl": "Remove all *.txt files, except \"keep.txt\", under /system/folder1 directory modified more than 5 minutes ago. Do not include subdirectories.", "bash": "find /system/folder1 -maxdepth 1 -mmin +5 -type f -name \"*.txt\" ! -name \"keep.txt\" -delete"}
+{"nl": "Remove all .sh files in the '/system/folder1' tree whose names begin with \"new\"", "bash": "find /system/folder1 -name 'new*.sh' -exec rm -f '{}' \\;"}
+{"nl": "Remove all a.out, *.o, and core files under the '/system' directory", "bash": "find /system \\( -name a.out -o -name '*.o' -o -name 'core' \\) -exec rm {} \\;"}
+{"nl": "Print the last five lines of /system/folder1/data.csv", "bash": "cat /system/folder1/data.csv | rev | cut -d, -f-5 | rev"}
+{"nl": "Remove all directories called \"temp\" from the /system directory tree", "bash": "find /system -name \"temp\" -type d -delete"}
+{"nl": "Remove all empty files in /system/folder3/temp and below", "bash": "find /system/folder3/temp -type f -empty -print | xargs rm -f"}
+{"nl": "Remove all files a.out and *.o in the /system directory tree that were modified less than 7 days ago", "bash": "find /system \\( -name a.out -o -name '*.o' \\) -mtime -7 -exec rm {} \\;"}
+{"nl": "Remove all files and directories under '/system/folder3/temp' directory tree that match with one of the name patterns '.DS_Store', '._.DS_Store' , '._*', '.TemporaryItems' or '.apdisk'", "bash": "find /system/folder3/temp \\( -name '.DS_Store' -or -name '._.DS_Store' -or -name '._*' -or -name '.TemporaryItems' -or -name '.apdisk' \\) -exec rm -rf {} \\;"}
+{"nl": "Remove everything within parentheses and substitute all non digit characters with a space from \"1/2 [3] (27/03/2012 19:32:54) word word word word 4/5\" and format the output as a table", "bash": "echo '1/2 [3] (27/03/2012 19:32:54) word word word word 4/5' | sed -e 's/(.*)//' -e 's/[^0-9]/ /g' | column -t"}
+{"nl": "Remove files text2, text3, text4 in directory /system/folder1", "bash": "find /system/folder1 -name 'text[2-4]*' -exec rm {} \\;"}
+{"nl": "Remove files that are less than 1KB in size under /system directory", "bash": "find /system -type f -size -1k -exec rm {} +"}
+{"nl": "Remove files modified more than 31 days ago recursively from \"/system\"", "bash": "find /system -type f -mtime +31 -exec rm -f {} \\;"}
+{"nl": "Print \"/system/folder3/temp/temp1/text1.txt\" without newline characters.", "bash": "paste -sd \"\" /system/folder3/temp/temp1/text1.txt"}
+{"nl": "Remove regular files in the /system directory tree", "bash": "find /system -type f -exec rm {} +"}
+{"nl": "Print which files differ between /system/folder1 and /system/folder2.", "bash": "diff -qr /system/folder1 /system/folder2 | sort"}
+{"nl": "Print amount of space available on the file system containing path to the /system directory in megabytes.", "bash": "df -m /system"}
+{"nl": "Display the number of sub-directories under /system", "bash": "find /system -type d | wc -l"}
+{"nl": "Archive all files in /system/folder1 directory modified in the last 60 days to \"/mytarfile.tgz\" with a time of 2023-01-01, owner of 0, and group of 0.", "bash": "tar --mtime='2023-01-01' --owner=0 --group=0 -czf mytarfile.tgz `find /system/folder1 -mtime -60`"}
+{"nl": "Create a symbolic link named folder1 in the /system directory to the root folder /", "bash": "ln /system/folder1 -s /"}
+{"nl": "Write the current date and time followed by \" 1\" to the console and append to \"/system/folder3/temp/empty.txt\"", "bash": "echo $(date) \"1\" | tee -a /system/folder3/temp/empty.txt"}
+{"nl": "Concatenate all .txt files residing in the /system tree into a single file \"/system/folder3/temp/concat.txt\"", "bash": "find /system -name \"*.txt\" -not -name \"concat.txt\" -print -exec cat {} \\; > /system/folder3/temp/concat.txt"}
+{"nl": "Compresses all the files in the /system folder with default depth to /backup using cpio.", "bash": "find /system -depth -print | cpio -dump /backup"}
+{"nl": "Copy all files in the /system directory except those containing 'text' to '/system/folder3/backup_dbg/backup'. Do not include subdirectories.", "bash": "find /system -maxdepth 1 -type f ! -name '*text*' -exec cp {} /system/folder3/backup_dbg/backup \\;"}
+{"nl": "Rename \"/system/folder3/temp/temp1\" to \"/system/folder3/temp/temp1_old\"", "bash": "mv /system/folder3/temp/temp1 /system/folder3/temp/temp1_old"}
+{"nl": "Dump \"/system/text1.txt\" as ASCII characters", "bash": "od -t c /system/text1.txt"}
+{"nl": "Create a compressed archive of /system/folder1 \"compress_folder1.tar.gz\" with a time of 2023-01-01, owner of 0, and group of 0.", "bash": "tar --mtime='2023-01-01' --owner=0 --group=0 -zcf compress_folder1.tar.gz /system/folder1"}
+{"nl": "download content from \"http://example.com/textfile.txt\" and output to 'textfile.txt' in /system", "bash": "curl http://example.com/textfile.txt -o /system/textfile.txt"}
+{"nl": "Search in /system downwards all files whose size is greater than 10 bytes.", "bash": "find /system -size +10c -print"}
+{"nl": "Calculate the md5sum of each \".txt\" file under \"/system\" and sort the output.", "bash": "find /system -type f -name '*.txt' -exec md5sum {} + | awk '{print $1}' | sort"}
+{"nl": "Search for the system host name in \"/etc/hosts\" and print the IP address in the first awk field", "bash": "more /etc/hosts | grep `hostname` | awk '{print $1}'"}
+{"nl": "Find files in /workspace directory modified within 30 days.", "bash": "find /workspace -daystart -type f -mtime -30"}
+{"nl": "find files in the /workspace directory with pattern` *.c  that larger than 1 Kilobytes", "bash": "find /workspace -name '*.c' -size +1k -print"}
+{"nl": "Find files in the /workspace directory and sub-directories, that changed over an hour ago.", "bash": "find /workspace -type f -cmin +60"}
+{"nl": "Find files in the /workspace directory and sub-directories, that were accessed over an hour ago.", "bash": "find /workspace -type f -amin +60"}
+{"nl": "list all the drectories present in the /workspace directory and do not search in the sub directories.", "bash": "find /workspace -maxdepth 1 -type d"}
+{"nl": "list all the files in the /workspace directory which are of size 0 bytes.", "bash": "find /workspace -empty"}
+{"nl": "list all zero-length files under the /workspace directory", "bash": "find /workspace -empty -exec ls {} \\;"}
+{"nl": "locate and remove large files (> 1 KB) in /workspace", "bash": "find /workspace -type f -size +1k -delete"}
+{"nl": "List all the files in the /workspace directory which have only read permission to the group.", "bash": "find /workspace -perm 400 -type f -exec ls -l {} \\;"}
+{"nl": "List all the files in the /workspace directory which have permissions 777.", "bash": "find /workspace -perm 777 -type f -exec ls -l {} \\;"}
+{"nl": "List the details of all the text files in /workspace directory.", "bash": "find /workspace -name \"*.txt\" -exec ls -ld {} \\;"}
+{"nl": "move all files in the /workspace folder to / and do not move the files in the sub folder", "bash": "find /workspace -maxdepth 1 -type f -exec mv -t / {} +"}
+{"nl": "Move files in /workspace accessed less than one day ago to directory /.", "bash": "find /workspace -atime -1 -type f -exec mv {} / \\;"}
+{"nl": "print all filenames of files under /workspace/dir1 dir containing 'hello', case-insensitive", "bash": "find /workspace/dir1 -type f -exec grep -il 'hello' {} \\;"}
+{"nl": "print disk usage of files or folders in /workspace", "bash": "du -sh /workspace"}
+{"nl": "print the last word in /workspace/dir1/long.txt", "bash": "tac /workspace/dir1/long.txt | awk 'NF{print $NF; exit}'"}
+{"nl": "Print the 3 largest directories in /workspace.", "bash": "du -a /workspace | sort -nr | head -n 3"}
+{"nl": "prints first line of \"/workspace/dir1/long.txt\"", "bash": "head -n1 /workspace/dir1/long.txt"}
+{"nl": "prints the last non-empty line of \"/workspace/dir1/a.txt\"", "bash": "tac /workspace/dir1/a.txt | grep -m 1 '.'"}
+{"nl": "prune all the files in the /workspace directory", "bash": "find /workspace -type f -delete"}
+{"nl": "search for all the files in the  /workspace directory which have size greater than 1KB (approx) and less than 32KB(approx).", "bash": "find /workspace -type f -size +1k -size -32k"}
+{"nl": "search for all the files in the  /workspace folder and sort them in the order of their depth and display the file names", "bash": "find /workspace -type f | awk -F/ '{print NF, $0}' | sort -n"}
+{"nl": "Search for all the files in the /workspace folder which are bigger than 1KB and display the biggest file.", "bash": "find /workspace -type f -size +1k -exec ls -ls {} + | sort -n | tail -1"}
+{"nl": "search for text files in the  /workspace folder which do not have write access to others", "bash": "find  /workspace -type f \\( -iname \"*.txt\" -not -perm -o=w \\)"}
+{"nl": "Search for the directory \"mysql\" in the workspace directory.", "bash": "find  /workspace -name mysql -type d"}
+{"nl": "Print a list of all duplicate case insensitive filenames in the /workspace directory tree", "bash": "find /workspace -type f | awk -F/ '{print $NF}' | sort -f | uniq -i -d"}
+{"nl": "Search for the file old2.txt in the /workspace folder and list its permissions and creation time.", "bash": "find /workspace -name old2.txt | xargs ls -tl"}
+{"nl": "search for the word \"hello\" in all the regular/normal files in the  /workspace folder and display the matched file name", "bash": "find  /workspace -type f | xargs grep -l \"hello\""}
+{"nl": "Calculate the md5 sum of all files in the /workspace directory with the filename printed first", "bash": "find /workspace -type f -exec md5sum {} + | awk '{print $2 \" \" $1}'"}
+{"nl": "Calculate the md5 sum of all files in directory tree \"/workspace\"", "bash": "find /workspace -type f -exec md5sum {} + | sort"}
+{"nl": "Count the number of unique 3 to 6 character file extensions are in the /workspace directory tree", "bash": "find /workspace -type f -name '*.*' | awk -F. 'NF>1 {ext=tolower($NF); if (length(ext) >= 3 && length(ext) <= 6) print ext}' | sort | uniq -c | wc -l"}
+{"nl": "Create a copy of the /workspace directory structure in the /usr directory,", "bash": "find /workspace -type d -print|sed 's@^@/usr/@'|xargs mkdir -p"}
+{"nl": "Display a long listing of the oldest file under '/workspace' directory tree", "bash": "find /workspace -type f -printf '%T+ %p\\n' | sort | head -n 1 | awk '{print $2}' | xargs ls -l"}
+{"nl": "Find the largest 2 directories under /workspace directory", "bash": "find /workspace -type d -print0 | xargs -0 du | sort -n | tail -2 | cut -f2 | xargs -I{} du -sh {}"}
+{"nl": "List all files with their paths that have identical content in /workspace directory", "bash": "find /workspace -type f | xargs md5sum | sort | uniq -Dw32"}
+{"nl": "Make directories for each unique file path in \"/workspace/files.txt\"", "bash": "cat /workspace/files.txt |xargs -I {} dirname \"{}\"| sort -u | xargs -I{} mkdir -p \"{}\""}
+{"nl": "Print the total disk usage in bytes of all files listed in \"/workspace/files.txt\"", "bash": "cat /workspace/files.txt | xargs du -b | tail -1 | awk '{print $1}'"}
+{"nl": "Unhide all hidden files in the /workspace directory. Do not include subdirectories.", "bash": "find /workspace -maxdepth 1 -type f -name '.*' -exec sh -c 'mv \"$0\" \"${0%/\\.*}/${0##*/.}\"' {} \\;"}
+{"nl": "Count the number of differing lines in \"/workspace/dir1/long.txt\" and \"/workspace/dir1/terminate.txt\"", "bash": "diff /workspace/dir1/long.txt /workspace/dir1/terminate.txt | grep ^[\\>\\<] | wc -l"}
+{"nl": "Count the number of differing lines in \"/workspace/dir1/terminate.txt\" and \"/workspace/dir1/long.txt\" with 0 lines of unified context", "bash": "diff -U 0 /workspace/dir1/terminate.txt /workspace/dir1/long.txt | grep -v ^@ | wc -l"}
+{"nl": "Counts lines in file /workspace/dir1/a.txt ignoring empty lines and lines with spaces only.", "bash": "awk '!/^[[:space:]]*$/{++x} END{print x}' /workspace/dir1/a.txt"}
+{"nl": "Create a symbolic link in directory \"~/newlinks\" for each file listed in \"/workspace/results.txt\"", "bash": "cat /workspace/results.txt | xargs -I{} ln -s {} ~/newlinks"}
+{"nl": "Delete all hidden files under /workspace", "bash": "find /workspace -type f -name '.*' -delete"}
+{"nl": "Display a dump of \"/workspace/dir1/long.txt\" as floating point values of double size", "bash": "od -t fD /workspace/dir1/long.txt"}
+{"nl": "Display differences between list of files in /workspace/dir1 and /workspace/dir2.", "bash": "diff <(ls /workspace/dir1) <(ls /workspace/dir2)"}
+{"nl": "Display the file size of file '/workspace/dir1/sum.c' in bytes", "bash": "du -sb /workspace/dir1/sum.c | cut -f1"}
+{"nl": "Display the last slash-separated part of each filename path in /workspace/dir1/file.txt", "bash": "rev /workspace/dir1/file.txt | cut -d/ -f1 | rev"}
+{"nl": "Display the sizes and filepaths of all files/directories in /workspace directory sorted in descending order of size", "bash": "du /workspace -a -h | sort -hr"}
+{"nl": "Print percentage of the space used on the /workspace directory.", "bash": "df -k /workspace | tail -1 | awk '{print $5}'"}
+{"nl": "Print the contents of \"/workspace/dir1/long.txt\" in reverse order", "bash": "nl /workspace/dir1/long.txt | sort -nr | cut -b8-"}
+{"nl": "Create an empty file \"Icon\" in workspace/ with a carriage return character in the end of its name.", "bash": "echo $'workspace/Icon\\r' | xargs touch"}
+{"nl": "Create a symbolc link in the /workspace/dir1 to root folder", "bash": "ln /workspace/dir1 -s /"}
+{"nl": "Display permissions, user, group, and full path for each file in the /workspace directory tree", "bash": "tree /workspace -p -u -g -f"}
+{"nl": "Search for 'hello' case insensitively in all files under /workspace directory tree and show the matched lines with their filenames", "bash": "find /workspace -type f -print0  | xargs -0 grep -iH \"hello\""}
+{"nl": "Unpack all *.gz archives in the /workspace directory tree", "bash": "find /workspace -name '*.gz' -print0 | xargs -0 gunzip"}
+{"nl": "Uncompress \"/workspace/archive.tar.gz\" and extract the archive to \"/backup\"", "bash": "gzip -dc /workspace/archive.tar.gz | tar -xf - -C /backup"}
+{"nl": "Create a symbolic link to \"/workspace/dir1/terminate.txt\" named \"/workspace/test\"", "bash": "ln /workspace/dir1/terminate.txt /workspace/test"}
+{"nl": "Retrieve only build number of current kernel, ie. #104", "bash": "uname -v | grep -o '#[0-9]\\+'"}
+{"nl": "Print reverse lookup for adress 127.0.0.1", "bash": "dig -x 127.0.0.1"}
+{"nl": "List file information of the full path of command \"grep\"", "bash": "ls -ald `which grep`"}
+{"nl": "Extract host name part from \"http://www.google.com\"", "bash": "echo \"http://www.google.com\" | cut -d'/' -f3"}
+{"nl": "List environment variables and their values, escaping all semicolons with a backslash.", "bash": "env | sed 's/;/\\\\;/g'"}
+{"nl": "Displays a tree of all process alongside their command line arguments.", "bash": "pstree -a"}
+{"nl": "Create intermediate directories \"dir\" and \"subdir\" as required and create \"subsubdir\"", "bash": "mkdir -p dir/subdir/subsubdir"}
+{"nl": "Print numbers 1 through 10 separated by \":\"", "bash": "yes | head -n10 | grep -n . | cut -d: -f1 | paste -sd:"}
+{"nl": "print all readline bindings", "bash": "bind -P"}
+{"nl": "list names of bind functions containing \"p\"", "bash": "bind -l | grep p"}
+{"nl": "Save first IP address of domain 'google.com' in 'address' variable and display it", "bash": "address=$(dig +short google.com | grep -E '^[0-9.]+$' | head -n 1) && echo $address"}
+{"nl": "Remove all characters except \";\" and digits from the string \"  Hello world;876\t  \"", "bash": "echo '  Hello world;876\t  ' | tr -cd ';0-9'"}
+{"nl": "Remove leading and trailing spaces or tabs from \"  Hello world!\t  \"", "bash": "echo '  Hello world!\t  ' | sed -e 's/^[ \\t]*//' | sed -e 's/[ \\t]*$//'"}
+{"nl": "Remove the last 3 characters from \"987654321\"", "bash": "echo 987654321 | rev | cut -c 4- | rev"}
+{"nl": "Print source of the file system containing current working directory.", "bash": "df . | tail -1 | awk '{print $1}'"}
+{"nl": "List all variables (names only) with names containing \"H\".", "bash": "env | awk -F= '{if($1 ~ /H/) print $1}'"}
+{"nl": "Print a list of unique users who are logged in", "bash": "who | cut -d' ' -f1 | sort | uniq"}
+{"nl": "ping 192.168.1.1", "bash": "ping -w 1 192.168.1.1"}
+{"nl": "Print a line of 99 '=' characters", "bash": "seq -s= 100|tr -d '[:digit:]'"}
+{"nl": "Count number of users logged in", "bash": "who | awk -F' ' '{print $1}' | sort -u | wc -l"}
+{"nl": "Displays calendar of a previous, current and next month for December of 2120 year.", "bash": "cal -3 12 2120"}
+{"nl": "Extract, sort and print only group names from /etc/group.", "bash": "cut -d: -f1 /etc/group | sort"}
+{"nl": "Calculate the sum of all the numbers from 1 to 10", "bash": "seq 10 | jq -s 'add'"}
+{"nl": "Count the number of files and directories in the entire testbed directory", "bash": "find /testbed | wc -l"}
+{"nl": "Print the number of python files in the testbed directory.", "bash": "find testbed -type f -name \"*.py\" | wc -l"}
+{"nl": "Sort the lines of textfile1.txt in reverse alphabetical order and save the result to a new file named textfile1_reverse_sorted.txt", "bash": "sort -r /testbed/dir1/textfile1.txt > /testbed/dir1/textfile1_reverse_sorted.txt"}
+{"nl": "Search for all files containing the word 'Shell' in testbed.", "bash": "find /testbed -type f -exec grep -l 'Shell' {} +"}
+{"nl": "Find all symbolic links in the testbed directory.", "bash": "find /testbed -type l"}
+{"nl": "Get the total size of all files in testbed/ and save it to total_size.txt", "bash": "du -sh testbed/ | awk '{print $1}' > total_size.txt"}
+{"nl": "List all files in the directory /testbed/dir1 and sort them by size in human-readable format", "bash": "ls -lhS /testbed/dir1"}
+{"nl": "Count the number of lines in files under the directory /testbed/dir2.", "bash": "grep -rl . /testbed/dir2 | xargs wc -l"}
+{"nl": "Print the name and size of the 3 largest files in the directory /testbed/dir3", "bash": "find /testbed/dir3 -type f -exec ls -lhS {} + | sort -rh -k5 | head -n 3"}
+{"nl": "Find all files modified in the last 2 hours and compress them into a tarball named archive.tar.gz in the directory /testbed", "bash": "find /testbed -type f -mmin -120 -print0 | xargs -0 tar -czf /testbed/archive.tar.gz"}
+{"nl": "List all subdirectories of /testbed that are not named subdir1", "bash": "ls -d /testbed/*/ | grep -v /subdir1/"}
+{"nl": "Search for all files that contain the string 'text file' under the directory /testbed", "bash": "grep -r 'text file' /testbed"}
+{"nl": "Compute the MD5 hash of all files under the directory /testbed and store them in a file named hashes.txt in the same directory", "bash": "find /testbed -type f -exec md5sum {} + > /testbed/hashes.txt"}
+{"nl": "Print the last 10 lines of the file /testbed/dir3/subdir1/subsubdir1/textfile3.txt", "bash": "tail -n 10 /testbed/dir3/subdir1/subsubdir1/textfile3.txt"}
+{"nl": "Print the line number and contents of all lines containing the string 'value3' in the file /testbed/dir1/subdir1/jsonfile1.json", "bash": "grep -n 'value3' /testbed/dir1/subdir1/jsonfile1.json"}
+{"nl": "Find all files in the directory /testbed that have been modified in the last 24 hours and print their path", "bash": "find /testbed -type f -mtime -1 -print"}
+{"nl": "Search for all the files in /testbed directory and its subdirectories that contain the word 'Hello' and replace it with 'Hi' in-place.", "bash": "grep -rl \"Hello\" /testbed | xargs sed -i 's/Hello/Hi/g'"}
+{"nl": "Display the contents of textfile3.txt and textfile4.txt side by side, with line numbers and a separator between them.", "bash": "paste <(nl /testbed/dir3/subdir1/subsubdir1/textfile3.txt) <(nl /testbed/dir1/subdir1/textfile4.txt)"}

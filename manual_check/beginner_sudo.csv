@@ -1,0 +1,510 @@
+#,nl,bash
+1,lock this configuration file so it cant be changed at all,sudo chattr +i /etc/resolv.conf
+2,unlock the immutable flag on my hosts file,sudo chattr -i /etc/hosts
+3,I want to copy something into the etc folder but it says permission denied,sudo cp ~/Documents/nginx.conf /etc/nginx/nginx.conf
+4,save my new config file into etc but I cant write there,sudo cp ~/myresolv.conf /etc/resolv.conf
+5,edit the hosts file it wont let me save,sudo nano /etc/hosts
+6,I need to add a line to my fstab but it says read only,echo '/dev/sdb1 /mnt/data ext4 defaults 0 2' | sudo tee -a /etc/fstab
+7,write a new ssh config file to etc ssh I dont have permission,sudo cp ~/Documents/sshd_config /etc/ssh/sshd_config
+8,create a new file in etc cron daily called backup,sudo touch /etc/cron.daily/backup
+9,make this script in etc cron daily executable,sudo chmod +x /etc/cron.daily/backup
+10,delete the leftover old config file in etc nginx sites available,sudo rm /etc/nginx/sites-available/old_site.conf
+11,I want to remove a file from var log but it says operation not permitted,sudo rm /var/log/old_app.log
+12,rename the postgres config in etc postgresql to a backup name,sudo mv /etc/postgresql/14/main/postgresql.conf /etc/postgresql/14/main/postgresql.conf.bak
+13,move my custom motd into etc its blocked otherwise,sudo mv ~/motd /etc/motd
+14,change the owner of this folder under var www to my user,sudo chown -R $USER:$USER /var/www/html
+15,give myself ownership of the nginx html folder,sudo chown -R $USER:$USER /var/www/html
+16,change ownership of the logs folder to www-data,sudo chown -R www-data:www-data /var/log/nginx
+17,set the group of this system folder to admin,sudo chgrp -R admin /opt/myapp
+18,I cant change permissions on this system file,sudo chmod 644 /etc/ssh/sshd_config
+19,set the permissions of this protected file to 600,sudo chmod 600 /etc/ssh/ssh_host_ed25519_key
+20,make this binary in usr local bin executable I cant from my account,sudo chmod +x /usr/local/bin/myapp
+21,copy my new shell script to usr local bin so everyone can run it,sudo cp ~/scripts/sysinfo.sh /usr/local/bin/sysinfo && sudo chmod +x /usr/local/bin/sysinfo
+22,create a new folder under opt called myapp,sudo mkdir /opt/myapp
+23,make a folder called shared inside var,sudo mkdir /var/shared
+24,I want to install a script into etc profile.d to set environment variables for everyone,sudo cp ~/Documents/myenv.sh /etc/profile.d/myenv.sh && sudo chmod 644 /etc/profile.d/myenv.sh
+25,make this file immutable so even root cant accidentally change it,sudo chattr +i /etc/sysctl.conf
+26,lock the dns resolver so something doesnt keep rewriting it,sudo chattr +i /etc/resolv.conf
+27,I want to truncate this protected log file to zero,sudo truncate -s 0 /var/log/syslog
+28,make a hard link from my custom binary into usr local bin,sudo ln /opt/myapp/bin/myapp /usr/local/bin/myapp
+29,set up a symlink from etc nginx sites enabled to sites available,sudo ln -s /etc/nginx/sites-available/blog.conf /etc/nginx/sites-enabled/blog.conf
+30,delete the symlink in sites enabled it has a leftover,sudo rm /etc/nginx/sites-enabled/default
+31,extract this tar file into opt where I cant write,sudo tar xzf ~/Downloads/myapp.tar.gz -C /opt/
+32,I want to clean up old logs in var log it says permission denied,sudo find /var/log -type f -name '*.gz' -mtime +30 -delete
+33,delete every old archived log under var log nginx,sudo find /var/log/nginx -type f -name '*.gz' -mtime +60 -delete
+34,I need to wipe this log file but I cant edit it,sudo truncate -s 0 /var/log/auth.log
+35,edit the sudoers file safely,sudo visudo
+36,change the group of this system binary to staff,sudo chgrp staff /usr/local/bin/customtool
+37,compress this protected log into an archive in tmp,sudo tar czf /tmp/auth_backup.tar.gz /var/log/auth.log
+38,make this folder under etc readable by everyone but only writable by root,sudo chmod -R 755 /etc/myapp
+39,append a new line into my apt sources list,echo 'deb http://archive.ubuntu.com/ubuntu jammy-backports main' | sudo tee -a /etc/apt/sources.list
+40,write a new dns server line into resolv conf,echo 'nameserver 1.1.1.1' | sudo tee -a /etc/resolv.conf
+41,I want to install a script into etc that runs on every boot but it says read only,sudo cp ~/scripts/onboot.sh /etc/init.d/onboot && sudo chmod +x /etc/init.d/onboot
+42,delete the user home directory of a removed account,sudo rm -r /home/olduser
+43,create a new shared folder under srv with proper permissions,sudo mkdir /srv/shared && sudo chown root:users /srv/shared && sudo chmod 2775 /srv/shared
+44,make a new directory under usr local share for my fonts,sudo mkdir -p /usr/local/share/fonts/custom
+45,copy these font files into the system fonts folder,sudo cp ~/Downloads/*.ttf /usr/local/share/fonts/custom/
+46,set the permission so a folder under var lib is owned by the postgres user,sudo chown -R postgres:postgres /var/lib/postgresql
+47,write a quick file with my dns settings into etc systemd resolved.conf,sudo cp ~/Documents/resolved.conf /etc/systemd/resolved.conf
+48,create the folder under etc called myservice and a config file inside it,sudo mkdir -p /etc/myservice && sudo cp ~/Documents/myservice.conf /etc/myservice/config.yaml
+49,remove an old configuration directory under etc that I no longer use,sudo rm -r /etc/oldservice
+50,install a new udev rule into etc udev rules.d,sudo cp ~/Documents/99-mykeyboard.rules /etc/udev/rules.d/99-mykeyboard.rules
+51,the var lib docker folder is huge how do I clean it up safely,sudo find /var/lib/docker/tmp -type f -mtime +7 -delete
+52,delete every old crash report file in var crash,sudo find /var/crash -type f -name '*.crash' -mtime +14 -delete
+53,remove old kernel files from boot that I dont need,sudo apt autoremove --purge
+54,install nginx but it says i need permission,sudo apt install -y nginx
+55,i need to install vlc,sudo apt install -y vlc
+56,install git for me,sudo apt install -y git
+57,get firefox installed,sudo apt install -y firefox
+58,install python3 and pip,sudo apt install -y python3 python3-pip
+59,install node and npm,sudo apt install -y nodejs npm
+60,install build tools so i can compile stuff,sudo apt install -y build-essential
+61,install postgres database,sudo apt install -y postgresql postgresql-contrib
+62,install mysql server,sudo apt install -y mysql-server
+63,get docker installed,sudo apt install -y docker.io
+64,install the latest curl,sudo apt install -y curl
+65,apt says i dont have permission to install vim,sudo apt install -y vim
+66,install htop so i can see processes,sudo apt install -y htop
+67,get tmux installed,sudo apt install -y tmux
+68,install ffmpeg for video conversion,sudo apt install -y ffmpeg
+69,uninstall libreoffice i dont use it,sudo apt remove -y libreoffice-*
+70,remove the old version of php,sudo apt remove -y php7.4 php7.4-*
+71,get rid of snapd entirely,sudo apt remove --purge -y snapd
+72,update the list of available packages,sudo apt update
+73,install all available updates,sudo apt upgrade -y
+74,do a full system upgrade,sudo apt full-upgrade -y
+75,autoremove unused packages,sudo apt autoremove -y
+76,clean up the apt cache to save space,sudo apt clean
+77,fix broken packages it wont let me,sudo apt --fix-broken install
+78,reinstall the linux headers,sudo apt install --reinstall -y linux-headers-$(uname -r)
+79,add a new apt repository for vscode,sudo add-apt-repository -y 'deb [arch=amd64] https://packages.microsoft.com/repos/code stable main'
+80,install the .deb package i downloaded,sudo dpkg -i ~/Downloads/package.deb
+81,force remove this stuck package,sudo dpkg --remove --force-remove-reinstreq broken-package
+82,edit the apt sources list it says read only,sudo nano /etc/apt/sources.list
+83,modify my dns settings in resolv.conf,sudo nano /etc/resolv.conf
+84,edit the sudoers file,sudo visudo
+85,change the system hostname,sudo hostnamectl set-hostname mydesktop
+86,set the timezone to new york,sudo timedatectl set-timezone America/New_York
+87,sync clock with internet time,sudo timedatectl set-ntp true
+88,add a line to my system hosts file,echo '192.168.1.50 myserver.local' | sudo tee -a /etc/hosts
+89,update the motd login message,echo 'Welcome to the office server' | sudo tee /etc/motd
+90,edit the ssh server config,sudo nano /etc/ssh/sshd_config
+91,change the default editor system wide,sudo update-alternatives --config editor
+92,set vim as the default editor,sudo update-alternatives --set editor /usr/bin/vim.basic
+93,start nginx,sudo systemctl start nginx
+94,stop apache,sudo systemctl stop apache2
+95,restart the web server,sudo systemctl restart nginx
+96,reload nginx after my config change,sudo systemctl reload nginx
+97,restart the database,sudo systemctl restart postgresql
+98,enable docker to start at boot,sudo systemctl enable docker
+99,disable bluetooth from starting on boot,sudo systemctl disable bluetooth
+100,turn off the cups print service,sudo systemctl stop cups && sudo systemctl disable cups
+101,mask the snapd service so it never starts,sudo systemctl mask snapd.service
+102,unmask the firewall service,sudo systemctl unmask ufw
+103,start the firewall and enable at boot,sudo systemctl enable --now ufw
+104,reload systemd after editing a unit file,sudo systemctl daemon-reload
+105,flush my dns cache,sudo systemd-resolve --flush-caches
+106,renew my dhcp lease,sudo dhclient -r && sudo dhclient
+107,set a static ip address on eth0,sudo nmcli con mod 'Wired connection 1' ipv4.method manual ipv4.addresses 192.168.1.50/24 ipv4.gateway 192.168.1.1
+108,open port 80 in the firewall,sudo ufw allow 80/tcp
+109,open port 443 for https,sudo ufw allow 443/tcp
+110,allow ssh through the firewall,sudo ufw allow 22/tcp
+111,block port 8080,sudo ufw deny 8080/tcp
+112,see my firewall rules,sudo ufw status verbose
+113,enable the firewall,sudo ufw enable
+114,turn on rate limiting for ssh,sudo ufw limit 22/tcp
+115,add a new user named alice,sudo adduser alice
+116,delete the old user named bob,sudo deluser --remove-home bob
+117,add my user to the docker group,sudo usermod -aG docker $USER
+118,add myself to the sudo group,sudo usermod -aG sudo $USER
+119,remove alice from the sudo group,sudo gpasswd -d alice sudo
+120,create a new group called developers,sudo groupadd developers
+121,change alice's password,sudo passwd alice
+122,lock the bob account,sudo usermod -L bob
+123,unlock the bob account,sudo usermod -U bob
+124,change my login shell to zsh,sudo chsh -s /usr/bin/zsh $USER
+125,give myself ownership of opt myapp,sudo chown -R $USER:$USER /opt/myapp
+126,make this binary in usr local bin owned by root,sudo chown root:root /usr/local/bin/myapp
+127,set var www to be owned by www-data,sudo chown -R www-data:www-data /var/www
+128,fix the ownership of my postgres data dir,sudo chown -R postgres:postgres /var/lib/postgresql
+129,make /opt readable by everyone,sudo chmod -R o+r /opt/sharedapp
+130,set the setuid bit on this binary so it runs as root,sudo chmod u+s /usr/local/bin/myhelper
+131,remove the setuid bit from this binary,sudo chmod u-s /usr/local/bin/myhelper
+132,make the sticky bit set on /tmp,sudo chmod +t /tmp
+133,create a new systemd unit file for my app,sudo nano /etc/systemd/system/myapp.service
+134,write a new cron job in etc cron daily,sudo nano /etc/cron.daily/backup-task
+135,add a new udev rule for my usb device,sudo nano /etc/udev/rules.d/99-myusb.rules
+136,reload udev rules after editing,sudo udevadm control --reload-rules && sudo udevadm trigger
+137,regenerate the grub config after editing default,sudo update-grub
+138,edit the grub default settings,sudo nano /etc/default/grub
+139,add my ssh key to the root authorized keys,sudo mkdir -p /root/.ssh && cat ~/.ssh/id_ed25519.pub | sudo tee -a /root/.ssh/authorized_keys
+140,create a swap file 4gb in size,sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+141,turn off swap temporarily,sudo swapoff -a
+142,turn swap back on,sudo swapon -a
+143,mount my external drive sdb1 to /mnt/data,sudo mkdir -p /mnt/data && sudo mount /dev/sdb1 /mnt/data
+144,unmount the cdrom,sudo umount /media/cdrom
+145,force unmount this stuck drive,sudo umount -l /mnt/data
+146,format the usb as fat32,sudo mkfs.vfat -F 32 /dev/sdb1
+147,format the new disk as ext4,sudo mkfs.ext4 /dev/sdb1
+148,check the filesystem on this disk,sudo fsck -y /dev/sdb1
+149,show partition table for sda,sudo fdisk -l /dev/sda
+150,list all block devices with mount info,sudo lsblk -f
+151,clear out journalctl logs older than 2 weeks,sudo journalctl --vacuum-time=2weeks
+152,limit journal logs to 500mb total,sudo journalctl --vacuum-size=500M
+153,rotate the system logs now,sudo logrotate -f /etc/logrotate.conf
+154,read the auth log,sudo cat /var/log/auth.log
+155,see who tried to ssh in,sudo grep 'Failed password' /var/log/auth.log | tail -20
+156,watch the apache error log live,sudo tail -f /var/log/apache2/error.log
+157,clear the apache access log,sudo truncate -s 0 /var/log/apache2/access.log
+158,load the wireguard kernel module,sudo modprobe wireguard
+159,unload the bluetooth module,sudo modprobe -r btusb
+160,see all loaded kernel modules,sudo lsmod
+161,blacklist the nouveau module,echo 'blacklist nouveau' | sudo tee /etc/modprobe.d/blacklist-nouveau.conf
+162,update the initramfs,sudo update-initramfs -u
+163,reboot the machine,sudo reboot
+164,shut down the computer,sudo shutdown -h now
+165,schedule a shutdown in 30 minutes,sudo shutdown -h +30
+166,cancel the scheduled shutdown,sudo shutdown -c
+167,check disk health on sda,sudo smartctl -H /dev/sda
+168,run a quick disk self test,sudo smartctl -t short /dev/sda
+169,copy this script into /usr/local/bin so everyone can run it,sudo cp ~/scripts/deploy.sh /usr/local/bin/deploy && sudo chmod +x /usr/local/bin/deploy
+170,install this python package system wide,sudo pip3 install requests
+171,install a global npm package,sudo npm install -g typescript
+172,write to /etc/environment,echo 'EDITOR=vim' | sudo tee -a /etc/environment
+173,change the system locale to en_US,sudo update-locale LANG=en_US.UTF-8
+174,regenerate the ca certificates,sudo update-ca-certificates
+175,install a new font into the system fonts folder,sudo cp ~/Downloads/MyFont.ttf /usr/share/fonts/truetype/ && sudo fc-cache -fv
+176,set the default python to python3,sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+177,clear the systemd-resolve cache,sudo systemd-resolve --flush-caches
+178,delete the contents of /var/cache/apt/archives,sudo rm -rf /var/cache/apt/archives/*.deb
+179,clear the systemd journal for nginx unit,sudo journalctl --rotate && sudo journalctl --vacuum-time=1s --unit=nginx
+180,rename a system binary to a backup name,sudo mv /usr/local/bin/oldcli /usr/local/bin/oldcli.bak
+181,delete an unused systemd unit file,sudo rm /etc/systemd/system/oldapp.service && sudo systemctl daemon-reload
+182,change the boot splash background,sudo cp ~/Pictures/splash.png /usr/share/plymouth/themes/spinner/watermark.png && sudo update-initramfs -u
+183,add a new path to /etc/profile.d,echo 'export PATH=$PATH:/opt/mytool/bin' | sudo tee /etc/profile.d/mytool.sh
+184,set immutable flag on resolv.conf so nothing changes it,sudo chattr +i /etc/resolv.conf
+185,remove the immutable flag from resolv.conf,sudo chattr -i /etc/resolv.conf
+186,touch a file in /var/log,sudo touch /var/log/myapp.log
+187,change owner of /var/log/myapp.log to my user,sudo chown $USER:$USER /var/log/myapp.log
+188,install certbot for ssl,sudo apt install -y certbot python3-certbot-nginx
+189,get a new ssl certificate for my domain,sudo certbot --nginx -d example.com
+190,renew all my ssl certificates,sudo certbot renew
+191,install vscode it needs admin,sudo apt install -y code
+192,install zsh as the shell,sudo apt install -y zsh
+193,get the redis server installed,sudo apt install -y redis-server
+194,install rabbitmq,sudo apt install -y rabbitmq-server
+195,install wireguard vpn,sudo apt install -y wireguard
+196,install openvpn package,sudo apt install -y openvpn
+197,install fail2ban for security,sudo apt install -y fail2ban
+198,install net tools so i have ifconfig,sudo apt install -y net-tools
+199,install network manager,sudo apt install -y network-manager
+200,get the linux source headers,sudo apt install -y linux-source
+201,install nvidia drivers,sudo apt install -y nvidia-driver-535
+202,get the gnome desktop,sudo apt install -y ubuntu-desktop
+203,install the kde plasma desktop,sudo apt install -y kubuntu-desktop
+204,update my system and remove old kernels,sudo apt update && sudo apt full-upgrade -y && sudo apt autoremove --purge -y
+205,start the ssh server,sudo systemctl enable --now ssh
+206,disable ssh root login,sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config && sudo systemctl reload ssh
+207,change the ssh port to 2222,sudo sed -i 's/^#*Port .*/Port 2222/' /etc/ssh/sshd_config && sudo systemctl reload ssh
+208,disable ssh password login,sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && sudo systemctl reload ssh
+209,trust this self-signed cert system wide,sudo cp ~/Downloads/mycert.crt /usr/local/share/ca-certificates/mycert.crt && sudo update-ca-certificates
+210,add this nfs share to fstab so it mounts at boot,echo 'server.example.com:/data /mnt/data nfs defaults 0 0' | sudo tee -a /etc/fstab
+211,mount everything in fstab now,sudo mount -a
+212,enable ip forwarding,echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-ipforward.conf && sudo sysctl --system
+213,increase the max file watches,echo 'fs.inotify.max_user_watches=524288' | sudo tee /etc/sysctl.d/99-watches.conf && sudo sysctl --system
+214,disable ipv6 system wide,echo 'net.ipv6.conf.all.disable_ipv6=1' | sudo tee /etc/sysctl.d/99-disable-ipv6.conf && sudo sysctl --system
+215,remove old kernel versions,sudo apt autoremove --purge -y
+216,change a user's home directory,sudo usermod -d /home/newhome -m alice
+217,set account expiration for alice,sudo chage -E 2026-12-31 alice
+218,force alice to change password on next login,sudo passwd -e alice
+219,enable site config in nginx,sudo ln -s /etc/nginx/sites-available/mysite /etc/nginx/sites-enabled/mysite && sudo nginx -t && sudo systemctl reload nginx
+220,disable a nginx site,sudo rm /etc/nginx/sites-enabled/oldsite && sudo systemctl reload nginx
+221,test the nginx config is valid,sudo nginx -t
+222,enable an apache module,sudo a2enmod rewrite && sudo systemctl reload apache2
+223,enable apache site config,sudo a2ensite mysite && sudo systemctl reload apache2
+224,create a new postgres user,sudo -u postgres createuser alice
+225,create a postgres database,sudo -u postgres createdb mydb
+226,access the postgres prompt,sudo -u postgres psql
+227,reset the mysql root password,sudo mysqladmin -u root password 'newSecurePass123'
+228,install vlc via snap,sudo snap install vlc
+229,block ssh from a specific ip in hosts.deny,echo 'sshd: 203.0.113.55' | sudo tee -a /etc/hosts.deny
+230,trying to save changes to the hosts file and it says read-only,sudo nano /etc/hosts
+231,I get permission denied when editing fstab,sudo nano /etc/fstab
+232,it won't let me open the ssh config to edit it,sudo nano /etc/ssh/sshd_config
+233,can't write to the nginx config file says access denied,sudo nano /etc/nginx/nginx.conf
+234,I'm getting read only filesystem error trying to edit crontab,sudo nano /etc/crontab
+235,won't let me edit the resolv.conf file,sudo nano /etc/resolv.conf
+236,access denied when trying to change the sudoers file,sudo visudo
+237,I need to add a line to the hosts file but it won't save,echo '192.168.1.50 myserver.local' | sudo tee -a /etc/hosts
+238,can't append my mount entry to fstab it says permission denied,echo '/dev/sdc1 /mnt/backup ext4 defaults 0 2' | sudo tee -a /etc/fstab
+239,trying to add a custom DNS server but the file won't save,echo 'nameserver 1.1.1.1' | sudo tee -a /etc/resolv.conf
+240,won't let me edit the apache config file,sudo nano /etc/apache2/apache2.conf
+241,permission denied trying to edit the postgres config,sudo nano /etc/postgresql/14/main/postgresql.conf
+242,I can't modify the mysql config file,sudo nano /etc/mysql/my.cnf
+243,it says I can't write to the redis config,sudo nano /etc/redis/redis.conf
+244,won't save my changes to the docker daemon config,sudo nano /etc/docker/daemon.json
+245,trying to edit the kernel parameters file but it won't let me,sudo nano /etc/sysctl.conf
+246,access denied when I try to edit the network interfaces file,sudo nano /etc/network/interfaces
+247,I can't write to the netplan yaml file,sudo nano /etc/netplan/01-netcfg.yaml
+248,won't let me edit the bash profile in etc,sudo nano /etc/profile
+249,the environment file won't save my changes,sudo nano /etc/environment
+250,permission denied editing the motd login message,sudo nano /etc/motd
+251,I get read-only error on the issue file,sudo nano /etc/issue
+252,can't save my changes to the timezone config,sudo nano /etc/timezone
+253,trying to update the locale file but no write permission,sudo nano /etc/locale.gen
+254,won't let me edit the pam config,sudo nano /etc/pam.d/common-auth
+255,"I can't restart nginx, says access denied",sudo systemctl restart nginx
+256,the postgres service won't restart for me,sudo systemctl restart postgresql
+257,trying to stop redis but says permission denied,sudo systemctl stop redis
+258,I can't start the docker service,sudo systemctl start docker
+259,ssh service won't restart says I need to be root,sudo systemctl restart sshd
+260,I need to enable apache to start on boot but it won't let me,sudo systemctl enable apache2
+261,trying to disable the bluetooth service but access denied,sudo systemctl disable bluetooth
+262,the mysql service is stuck and I can't restart it,sudo systemctl restart mysql
+263,can't reload nginx after editing the config,sudo systemctl reload nginx
+264,I want to mask the snap service but no permission,sudo systemctl mask snapd
+265,trying to check the status of the firewall service but access denied,sudo systemctl status ufw
+266,won't let me start the cron service,sudo systemctl start cron
+267,I can't restart the network manager,sudo systemctl restart NetworkManager
+268,trying to stop the avahi daemon and it says permission denied,sudo systemctl stop avahi-daemon
+269,the containerd service won't restart,sudo systemctl restart containerd
+270,I can't reload the systemd daemon,sudo systemctl daemon-reload
+271,permission denied trying to install python3,sudo apt install -y python3
+272,I get an error saying I need admin rights to install nodejs,sudo apt install -y nodejs
+273,can't install git it asks for permission,sudo apt install -y git
+274,trying to install docker but says I need to be root,sudo apt install -y docker.io
+275,won't let me update the package list,sudo apt update
+276,permission denied trying to upgrade the system,sudo apt update && sudo apt upgrade -y
+277,I can't install vlc says I need elevated rights,sudo apt install -y vlc
+278,trying to remove a package but access denied,sudo apt remove -y firefox
+279,I need to install a deb file but it won't let me,sudo dpkg -i ~/Downloads/google-chrome-stable_current_amd64.deb
+280,can't install build tools without root permission,sudo apt install -y build-essential
+281,won't let me autoremove unused packages,sudo apt autoremove -y
+282,permission denied trying to add a new apt repo,sudo add-apt-repository -y ppa:deadsnakes/ppa
+283,I can't run apt-get install without sudo error,sudo apt-get install -y htop
+284,trying to install snap but it says permission denied,sudo snap install spotify
+285,permission denied trying to read the system log,sudo cat /var/log/syslog
+286,I can't view the kernel log it says access denied,sudo dmesg
+287,won't let me tail the nginx error log,sudo tail -f /var/log/nginx/error.log
+288,I get permission denied trying to read the apache access log,sudo tail -n 200 /var/log/apache2/access.log
+289,can't open the auth log to see who logged in,sudo cat /var/log/auth.log
+290,permission denied reading the mail log,sudo cat /var/log/mail.log
+291,I can't see the failed login attempts in the secure log,sudo grep 'Failed password' /var/log/auth.log
+292,trying to read the dpkg log but no access,sudo cat /var/log/dpkg.log
+293,won't let me view the boot log,sudo cat /var/log/boot.log
+294,can't read the journal entries for nginx,sudo journalctl -u nginx
+295,access denied trying to follow the systemd journal,sudo journalctl -f
+296,permission denied looking at today's journal logs,sudo journalctl --since today
+297,I can't see what errors happened during boot,sudo journalctl -b -p err
+298,won't let me read the postgres logs,sudo tail -n 100 /var/log/postgresql/postgresql-14-main.log
+299,I get permission denied reading the mysql error log,sudo tail -n 100 /var/log/mysql/error.log
+300,trying to look at the docker daemon logs but no access,sudo journalctl -u docker
+301,can't read the cron log,sudo grep CRON /var/log/syslog
+302,won't let me view the fail2ban log,sudo tail -f /var/log/fail2ban.log
+303,permission denied trying to clear the syslog,sudo truncate -s 0 /var/log/syslog
+304,I can't search the system log for errors,sudo grep -i error /var/log/syslog
+305,access denied reading the ufw log,sudo tail -n 100 /var/log/ufw.log
+306,trying to see the sshd connection logs,sudo journalctl -u ssh --since '1 hour ago'
+307,I get permission denied looking at the apache error log,sudo tail -f /var/log/apache2/error.log
+308,won't let me see kernel messages from last boot,sudo journalctl -k -b -1
+309,I can't list files in /root,sudo ls -la /root
+310,permission denied trying to write to /var/www/html,sudo chown -R $USER:$USER /var/www/html
+311,the app can't create files in this folder because it's owned by root,sudo chown -R www-data:www-data /var/app/data
+312,I can't make my script executable in /usr/local/bin,sudo chmod +x /usr/local/bin/deploy.sh
+313,trying to create a folder in /opt but access denied,sudo mkdir -p /opt/myapp/logs
+314,won't let me delete this file owned by root,sudo rm /var/log/old_install.log
+315,permission denied trying to copy a file to /etc,sudo cp ~/Documents/myapp.conf /etc/myapp.conf
+316,I can't move this file to /usr/local/bin,sudo mv ~/bin/mytool /usr/local/bin/mytool
+317,trying to rename a system file but it says read only,sudo mv /etc/oldconfig.conf /etc/newconfig.conf
+318,I need to give myself ownership of this directory,sudo chown -R $USER:$USER /opt/myproject
+319,the web server can't write to its data folder,sudo chown -R www-data:www-data /var/www/html/uploads
+320,won't let me set the right permissions on the ssh keys,sudo chmod 600 /etc/ssh/ssh_host_rsa_key
+321,permission denied creating a symlink in /usr/bin,sudo ln -s /opt/myapp/bin/run /usr/local/bin/run
+322,I can't make this folder world-readable,sudo chmod -R 755 /opt/myapp/public
+323,trying to change the group on /etc/ssl/private but no permission,sudo chgrp ssl-cert /etc/ssl/private
+324,I get permission denied moving files to /var/lib,sudo mv ~/data/cache /var/lib/myapp/cache
+325,won't let me open port 80 in the firewall,sudo ufw allow 80/tcp
+326,I can't open port 443 for HTTPS,sudo ufw allow 443/tcp
+327,permission denied trying to enable the firewall,sudo ufw enable
+328,trying to allow ssh through the firewall but it says no permission,sudo ufw allow 22/tcp
+329,won't let me check the firewall rules,sudo ufw status verbose
+330,I can't block an IP address from connecting,sudo ufw deny from 203.0.113.45
+331,trying to add an iptables rule for port 3000 but access denied,sudo iptables -A INPUT -p tcp --dport 3000 -j ACCEPT
+332,permission denied trying to flush the nat table,sudo iptables -t nat -L
+333,I can't see what's listening on the network,sudo netstat -tlnp
+334,won't let me bind my server to port 80,sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/myserver
+335,trying to mount my USB drive but access denied,sudo mount /dev/sdb1 /mnt/usb
+336,I can't unmount the external drive,sudo umount /mnt/external
+337,permission denied trying to format the USB stick,sudo mkfs.ext4 /dev/sdb1
+338,won't let me create a new directory under /mnt,sudo mkdir -p /mnt/storage
+339,I can't mount the network share it says I need root,sudo mount -t cifs //192.168.1.100/share /mnt/share -o username=alice
+340,trying to format the second drive as ntfs but no permission,sudo mkfs.ntfs -f /dev/sdc1
+341,I can't see the disk partitions,sudo fdisk -l
+342,permission denied trying to run gparted,sudo gparted
+343,won't let me check the filesystem on /dev/sda1,sudo fsck /dev/sda1
+344,I can't extend the logical volume,sudo lvextend -L +5G /dev/mapper/ubuntu--vg-root
+345,trying to mount an iso file but it says permission denied,sudo mount -o loop ~/Downloads/ubuntu-22.04.iso /mnt/iso
+346,I get permission denied creating a swap file,sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+347,won't let me write to the mounted volume,sudo chown -R $USER:$USER /mnt/data
+348,I can't add a new user account,sudo useradd -m alice
+349,permission denied trying to change someone else's password,sudo passwd bob
+350,won't let me delete a user account,sudo userdel -r olduser
+351,I can't add myself to the docker group,sudo usermod -aG docker $USER
+352,trying to add a user to sudoers but access denied,sudo usermod -aG sudo alice
+353,I can't create a new group called developers,sudo groupadd developers
+354,won't let me delete a group,sudo groupdel oldgroup
+355,I get permission denied trying to lock a user account,sudo passwd -l baduser
+356,trying to change my login shell but access denied,sudo chsh -s /bin/zsh $USER
+357,won't let me update a user's home directory,sudo usermod -d /home/newalice -m alice
+358,I can't see the contents of /etc/shadow,sudo cat /etc/shadow
+359,permission denied trying to start apache2,sudo systemctl start apache2
+360,I can't stop the apache web server,sudo systemctl stop apache2
+361,won't let me reload the apache config,sudo systemctl reload apache2
+362,I can't stop nginx says I'm not allowed,sudo systemctl stop nginx
+363,trying to start the mysql server but access denied,sudo systemctl start mysql
+364,won't let me stop the mysql service,sudo systemctl stop mysql
+365,I can't restart elasticsearch,sudo systemctl restart elasticsearch
+366,permission denied trying to start mongodb,sudo systemctl start mongod
+367,won't let me restart the rabbitmq server,sudo systemctl restart rabbitmq-server
+368,I can't start the kubelet service,sudo systemctl start kubelet
+369,trying to enable docker on boot but access denied,sudo systemctl enable docker
+370,won't let me disable the postfix mail service,sudo systemctl disable postfix
+371,I can't install zsh without admin rights,sudo apt install -y zsh
+372,trying to install neovim but it says I need elevated privileges,sudo apt install -y neovim
+373,won't let me install curl,sudo apt install -y curl
+374,permission denied installing tmux,sudo apt install -y tmux
+375,I can't install the nginx web server,sudo apt install -y nginx
+376,trying to install postgresql but admin permission needed,sudo apt install -y postgresql postgresql-contrib
+377,won't let me install python pip,sudo apt install -y python3-pip
+378,I can't install ssh server without sudo error,sudo apt install -y openssh-server
+379,permission denied trying to install npm,sudo apt install -y npm
+380,won't let me install make and gcc,sudo apt install -y gcc make
+381,I can't install certbot for ssl,sudo apt install -y certbot python3-certbot-nginx
+382,trying to install java but no admin rights,sudo apt install -y openjdk-17-jdk
+383,won't let me run apt full-upgrade,sudo apt full-upgrade -y
+384,I can't fix broken packages it says permission denied,sudo apt --fix-broken install -y
+385,I can't edit the grub config file,sudo nano /etc/default/grub
+386,permission denied trying to update grub,sudo update-grub
+387,won't let me edit the limits file,sudo nano /etc/security/limits.conf
+388,I can't write to the apt sources list,sudo nano /etc/apt/sources.list
+389,trying to add a new repo to apt but no permission,echo 'deb https://apt.example.com/ stable main' | sudo tee /etc/apt/sources.list.d/example.list
+390,won't let me edit the cron jobs file,sudo crontab -e
+391,I need to add a daily cron job but it won't save,echo '0 3 * * * /usr/local/bin/backup.sh' | sudo tee -a /etc/crontab
+392,permission denied creating a new cron job file,sudo nano /etc/cron.d/myapp
+393,I can't make a script run weekly,sudo cp ~/scripts/weekly_cleanup.sh /etc/cron.weekly/cleanup && sudo chmod +x /etc/cron.weekly/cleanup
+394,won't let me edit another user's crontab,sudo crontab -e -u alice
+395,trying to view root's cron jobs but access denied,sudo crontab -l
+396,I can't add a hostname mapping to my hosts file,echo '10.0.0.5 db.internal' | sudo tee -a /etc/hosts
+397,won't let me set a static hostname,sudo hostnamectl set-hostname webserver-01
+398,I can't change the system timezone,sudo timedatectl set-timezone America/New_York
+399,permission denied trying to enable ntp,sudo timedatectl set-ntp true
+400,won't let me change the keyboard layout settings,sudo dpkg-reconfigure keyboard-configuration
+401,I get permission denied reconfiguring tzdata,sudo dpkg-reconfigure tzdata
+402,trying to regenerate the locales but no access,sudo locale-gen en_US.UTF-8
+403,I can't update the initramfs,sudo update-initramfs -u
+404,won't let me install a kernel module,sudo modprobe wireguard
+405,trying to remove a kernel module but access denied,sudo rmmod bluetooth
+406,I can't load my custom kernel module,sudo insmod /lib/modules/$(uname -r)/extra/mymod.ko
+407,permission denied trying to add a route,sudo ip route add 10.0.0.0/24 via 192.168.1.1
+408,won't let me bring up the network interface,sudo ip link set eth0 up
+409,I can't assign an IP address to the network card,sudo ip addr add 192.168.1.50/24 dev eth0
+410,trying to renew my dhcp lease but no permission,sudo dhclient -r && sudo dhclient
+411,won't let me restart the networking service,sudo systemctl restart systemd-networkd
+412,I can't apply the netplan config,sudo netplan apply
+413,permission denied trying to flush dns cache,sudo systemd-resolve --flush-caches
+414,won't let me set wifi country code,sudo iw reg set US
+415,I can't capture network traffic with tcpdump,sudo tcpdump -i eth0 -n
+416,trying to use nmap but it says I need root for some scans,sudo nmap -sS 192.168.1.0/24
+417,won't let me view arp table entries,sudo arp -a
+418,permission denied trying to install a snap package,sudo snap install code --classic
+419,I can't remove a snap package,sudo snap remove obs-studio
+420,won't let me refresh all my snaps,sudo snap refresh
+421,trying to install with flatpak but it says I need admin,sudo flatpak install -y flathub org.gimp.GIMP
+422,permission denied installing with pip globally,sudo pip3 install requests
+423,I can't install a global npm package,sudo npm install -g typescript
+424,won't let me install a gem system-wide,sudo gem install rails
+425,I can't read the messages log,sudo cat /var/log/messages
+426,permission denied trying to view the kern log,sudo tail -n 200 /var/log/kern.log
+427,won't let me see the unattended upgrades log,sudo tail -n 100 /var/log/unattended-upgrades/unattended-upgrades.log
+428,I can't see what services failed at boot,sudo systemctl --failed
+429,trying to look at logs from a specific time but no access,sudo journalctl --since '2026-05-20 09:00' --until '2026-05-20 17:00'
+430,won't let me read logs in /var/log/private,sudo ls -la /var/log/private
+431,I can't see who is currently logged in to the system in detail,sudo lastlog
+432,permission denied looking at the wtmp file,sudo last -n 50
+433,won't let me see bad login attempts,sudo lastb -n 20
+434,I can't read the rsyslog config,sudo cat /etc/rsyslog.conf
+435,I can't kill this process it says operation not permitted,sudo kill -9 4521
+436,trying to terminate a system service process but access denied,sudo pkill -f postgres
+437,won't let me change the priority of this process,sudo renice -n -5 -p 3322
+438,I can't run strace on this process,sudo strace -p 8821
+439,permission denied trying to see open files for a system process,sudo lsof -p 1234
+440,won't let me see all running processes with full info,sudo ps auxf
+441,I get permission denied trying to install vim,sudo apt install -y vim
+442,trying to install rsync but no admin rights,sudo apt install -y rsync
+443,won't let me install jq,sudo apt install -y jq
+444,I can't install net-tools,sudo apt install -y net-tools
+445,permission denied installing wireshark,sudo apt install -y wireshark
+446,trying to install go but admin needed,sudo apt install -y golang-go
+447,won't let me install rust,sudo apt install -y rustc cargo
+448,I can't install ruby,sudo apt install -y ruby-full
+449,permission denied installing php and modules,sudo apt install -y php php-fpm php-mysql
+450,won't let me install the firewall package,sudo apt install -y ufw
+451,I can't reload the firewall rules,sudo ufw reload
+452,trying to delete a firewall rule but access denied,sudo ufw delete allow 8080/tcp
+453,won't let me allow traffic from a specific IP,sudo ufw allow from 192.168.1.100
+454,permission denied setting default deny policy,sudo ufw default deny incoming
+455,I can't save iptables rules,sudo iptables-save | sudo tee /etc/iptables/rules.v4
+456,won't let me list current iptables rules,sudo iptables -L -n -v
+457,I get permission denied checking nftables,sudo nft list ruleset
+458,trying to mount a samba share but access denied,"sudo mount -t cifs //fileserver/docs /mnt/docs -o username=alice,uid=$(id -u),gid=$(id -g)"
+459,won't let me mount an nfs share,sudo mount -t nfs 192.168.1.200:/exports/data /mnt/data
+460,I can't remount the root filesystem as writable,"sudo mount -o remount,rw /"
+461,permission denied trying to add a swap partition,sudo swapon /dev/sda3
+462,won't let me disable swap,sudo swapoff -a
+463,I can't resize a filesystem on /dev/sdb1,sudo resize2fs /dev/sdb1
+464,trying to view smart info on my disk but access denied,sudo smartctl -a /dev/sda
+465,won't let me trim the ssd,sudo fstrim -av
+466,I can't update the postgres password for another user,"sudo -u postgres psql -c ""ALTER USER alice WITH PASSWORD 'newpass';"""
+467,permission denied running a command as the www-data user,sudo -u www-data php /var/www/html/cli.php
+468,won't let me run a command as the redis user,sudo -u redis redis-cli
+469,I can't list the home directories of all users,sudo ls /home
+470,trying to reset my forgotten user password but no access,sudo passwd $USER
+471,won't let me see when the password was last changed,sudo chage -l alice
+472,I get permission denied setting password expiration,sudo chage -E 2026-12-31 alice
+473,trying to view ssh authorized keys for root but access denied,sudo cat /root/.ssh/authorized_keys
+474,won't let me copy my ssh key to root's authorized keys,cat ~/.ssh/id_ed25519.pub | sudo tee -a /root/.ssh/authorized_keys
+475,I can't generate new ssh host keys,sudo ssh-keygen -A
+476,permission denied trying to write to /var/spool/cron,sudo cp ~/mycron /var/spool/cron/crontabs/$USER && sudo chmod 600 /var/spool/cron/crontabs/$USER
+477,won't let me delete files from /tmp owned by root,sudo find /tmp -user root -name 'session_*' -delete
+478,I can't clean out old kernel packages,sudo apt autoremove --purge -y
+479,permission denied trying to clean apt cache,sudo apt clean
+480,won't let me hold a package version,sudo apt-mark hold nginx
+481,I can't unhold a package,sudo apt-mark unhold nginx
+482,trying to install certificates but no admin permission,sudo update-ca-certificates
+483,won't let me copy a certificate to the system store,sudo cp ~/Downloads/company-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates
+484,I can't generate a self-signed certificate in /etc/ssl,sudo openssl req -x509 -nodes -days 365 -newkey rsa:4096 -keyout /etc/ssl/private/myapp.key -out /etc/ssl/certs/myapp.crt
+485,permission denied trying to view a private ssl key,sudo cat /etc/ssl/private/server.key
+486,won't let me set the system time manually,sudo date -s '2026-05-28 14:30:00'
+487,I get permission denied trying to sync the hardware clock,sudo hwclock --systohc
+488,trying to reboot the system but it says I need permission,sudo reboot
+489,won't let me shutdown the system,sudo shutdown -h now
+490,I can't schedule a shutdown in an hour,sudo shutdown -h +60
+491,permission denied trying to cancel a scheduled shutdown,sudo shutdown -c
+492,I can't put the system into suspend,sudo systemctl suspend
+493,won't let me hibernate the laptop,sudo systemctl hibernate
+494,I can't add my user to the www-data group,sudo usermod -aG www-data $USER
+495,trying to add myself to the dialout group but access denied,sudo usermod -aG dialout $USER
+496,permission denied giving alice access to the plugdev group,sudo usermod -aG plugdev alice
+497,won't let me remove a user from a group,sudo gpasswd -d bob developers
+498,I can't enable password authentication for ssh,sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && sudo systemctl restart sshd
+499,won't let me disable root ssh login,sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config && sudo systemctl restart sshd
+500,I can't change the ssh port,sudo sed -i 's/^#\?Port .*/Port 2222/' /etc/ssh/sshd_config && sudo systemctl restart sshd
+501,permission denied trying to test the nginx config,sudo nginx -t
+502,I can't enable a new apache site,sudo a2ensite blog.conf && sudo systemctl reload apache2
+503,won't let me disable the default apache site,sudo a2dissite 000-default.conf && sudo systemctl reload apache2
+504,trying to enable an apache module but no access,sudo a2enmod headers && sudo systemctl reload apache2
+505,I can't tail two log files at once they are owned by root,sudo tail -f /var/log/nginx/access.log /var/log/nginx/error.log
+506,won't let me write a value to /sys/class,echo 1 | sudo tee /sys/class/leds/input0::capslock/brightness
+507,I get permission denied writing to /proc/sys,echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
+508,trying to apply sysctl changes but access denied,sudo sysctl -p
+509,won't let me set a kernel parameter at runtime,sudo sysctl -w net.core.somaxconn=1024

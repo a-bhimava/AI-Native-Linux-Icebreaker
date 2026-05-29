@@ -19,9 +19,14 @@ privileged-brain/colab/valid.jsonl
 privileged-brain/gcloud/train.jsonl
 privileged-brain/gcloud/valid.jsonl
 
-# GGUF models (large binaries — kept locally)
+# GGUF models and LoRA adapter weights (large binaries — kept locally)
 *.gguf
 *.bin
+*.safetensors
+training_args.bin
+
+# Claude Code local config (tool permissions, not project state)
+.claude/
 
 # macOS
 .DS_Store

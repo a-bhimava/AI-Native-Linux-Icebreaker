@@ -1,0 +1,366 @@
+#,nl,bash
+1,show disk usage for every mounted filesystem,df -h
+2,show disk usage in human-readable format sorted by size,df -h | sort -k5 -rh
+3,check how much space the /var directory is using,du -sh /var
+4,find the top 10 largest directories under /home,du -h /home | sort -rh | head -10
+5,find the top 10 largest files on the entire filesystem,find / -type f -printf '%s %p\n' 2>/dev/null | sort -rn | head -10
+6,show inode usage for all filesystems,df -i
+7,check which filesystem a file belongs to,df -h /var/log/syslog
+8,add 4GB of swap space,sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+9,show current swap usage,swapon --show
+10,disable and remove the current swapfile,sudo swapoff /swapfile && sudo rm /swapfile
+11,mount a USB drive at /mnt/usb,sudo mount /dev/sdb1 /mnt/usb
+12,unmount the /mnt/usb filesystem,sudo umount /mnt/usb
+13,show all currently mounted filesystems,mount | column -t
+14,check filesystem integrity on /dev/sda1,sudo fsck -n /dev/sda1
+15,list all block devices and their mount points,"lsblk -o NAME,SIZE,TYPE,MOUNTPOINT"
+16,show the UUID of all block devices,sudo blkid
+17,clean apt package cache,sudo apt-get clean
+18,remove orphaned packages to free disk space,sudo apt-get autoremove -y
+19,delete all files in /tmp older than 7 days,find /tmp -type f -mtime +7 -delete
+20,show disk read/write statistics in real time,iostat -x 1
+21,check SMART status of disk /dev/sda,sudo smartctl -a /dev/sda
+22,resize the /dev/sda1 partition to use all available space,sudo growpart /dev/sda 1 && sudo resize2fs /dev/sda1
+23,create a 2GB sparse file,truncate -s 2G /tmp/sparse.img
+24,show filesystem type for all mounted devices,df -T
+25,archive and compress /var/log to /backup/logs.tar.gz,sudo tar -czf /backup/logs.tar.gz /var/log
+26,list all files larger than 500MB,find / -type f -size +500M 2>/dev/null
+27,show how much space the docker images are using,docker system df
+28,reclaim space from unused docker images and containers,docker system prune -f
+29,show the 5 most recently modified files in /etc,find /etc -type f -printf '%T@ %p\n' | sort -rn | head -5 | awk '{print $2}'
+30,monitor disk I/O per process,sudo iotop -o
+31,benchmark sequential disk read speed on /dev/sda,sudo hdparm -t /dev/sda
+32,show partition table of /dev/sda,sudo fdisk -l /dev/sda
+33,compress a file with gzip and keep the original,gzip -k file.txt
+34,extract a .tar.gz archive into /opt,sudo tar -xzf archive.tar.gz -C /opt
+35,find duplicate files in /home by checksum,find /home -type f -exec md5sum {} + | sort | awk 'seen[$1]++ {print}'
+36,securely wipe a file before deleting,shred -u sensitive_file.txt
+37,show real-time disk usage changes in /var/log,watch -n 2 'du -sh /var/log'
+38,create an ext4 filesystem on /dev/sdb,sudo mkfs.ext4 /dev/sdb
+39,add /dev/sdb1 to fstab for permanent mounting at /data,echo 'UUID=$(sudo blkid -s UUID -o value /dev/sdb1) /data ext4 defaults 0 2' | sudo tee -a /etc/fstab
+40,show filesystem disk space usage excluding tmpfs,df -h --exclude-type=tmpfs
+41,start the nginx service,sudo systemctl start nginx
+42,stop the nginx service,sudo systemctl stop nginx
+43,restart nginx,sudo systemctl restart nginx
+44,reload nginx configuration without downtime,sudo systemctl reload nginx
+45,check the status of the nginx service,sudo systemctl status nginx
+46,enable nginx to start on boot,sudo systemctl enable nginx
+47,disable nginx from starting on boot,sudo systemctl disable nginx
+48,list all failed systemd services,systemctl --failed
+49,list all active systemd services,systemctl list-units --type=service --state=active
+50,show the last 50 log lines for the postgresql service,sudo journalctl -u postgresql -n 50
+51,follow live logs for the nginx service,sudo journalctl -u nginx -f
+52,show logs for nginx since midnight,sudo journalctl -u nginx --since today
+53,reload the systemd daemon after editing a unit file,sudo systemctl daemon-reload
+54,show the full content of the nginx systemd unit file,sudo systemctl cat nginx
+55,edit the nginx systemd unit file,sudo systemctl edit nginx --full
+56,check if the postgresql service is running,systemctl is-active postgresql
+57,check if the ssh service is enabled,systemctl is-enabled ssh
+58,mask the bluetooth service so it cannot be started,sudo systemctl mask bluetooth
+59,unmask the bluetooth service,sudo systemctl unmask bluetooth
+60,restart all failed services,sudo systemctl reset-failed && sudo systemctl restart $(systemctl list-units --failed --no-legend | awk '{print $1}')
+61,show dependencies of the nginx service,systemctl list-dependencies nginx
+62,show which services depend on network-online.target,systemctl list-dependencies --reverse network-online.target
+63,create a simple systemd service for /opt/app/start.sh,sudo tee /etc/systemd/system/myapp.service <<EOF\n[Unit]\nDescription=My Application\nAfter=network.target\n\n[Service]\nExecStart=/opt/app/start.sh\nRestart=always\nUser=ubuntu\n\n[Install]\nWantedBy=multi-user.target\nEOF\nsudo systemctl daemon-reload && sudo systemctl enable myapp
+64,show how long each service took to start at boot,systemd-analyze blame
+65,show the systemd boot time breakdown,systemd-analyze
+66,show all timers (systemd cron equivalents),systemctl list-timers --all
+67,restart redis and check its status immediately after,sudo systemctl restart redis && sudo systemctl status redis
+68,show the environment variables of a running service,sudo systemctl show-environment
+69,stop all services that match 'worker',sudo systemctl stop $(systemctl list-units --type=service --state=running --no-legend | grep worker | awk '{print $1}')
+70,show resource usage of the mysql service,sudo systemctl status mysql | grep -A5 'Memory\|CPU'
+71,show all network interfaces and their IP addresses,ip addr show
+72,show the routing table,ip route show
+73,show the default gateway,ip route show default
+74,add a static route to 10.0.0.0/8 via 192.168.1.1,sudo ip route add 10.0.0.0/8 via 192.168.1.1
+75,flush all iptables rules,REFUSE: Flushing all iptables rules will drop all firewall protection. Use 'ufw allow <port>' or specify a single rule to remove.
+76,block inbound traffic on port 3306 from all external IPs,sudo ufw deny in 3306
+77,allow inbound traffic on port 443,sudo ufw allow 443/tcp
+78,allow SSH only from 192.168.1.0/24,sudo ufw allow from 192.168.1.0/24 to any port 22
+79,show all active ufw rules,sudo ufw status verbose
+80,delete ufw rule number 3,sudo ufw delete 3
+81,show all listening ports and the processes using them,sudo ss -tlnp
+82,show all established TCP connections,ss -tnp state established
+83,test connectivity to google.com on port 443,nc -zv google.com 443
+84,trace the network path to 8.8.8.8,traceroute 8.8.8.8
+85,flush the DNS cache,sudo systemd-resolve --flush-caches
+86,show current DNS resolver settings,systemd-resolve --status | grep 'DNS Servers'
+87,set a temporary DNS server to 1.1.1.1,sudo resolvectl dns eth0 1.1.1.1
+88,show network interface statistics,ip -s link show
+89,bring the eth0 interface down,sudo ip link set eth0 down
+90,bring the eth0 interface up,sudo ip link set eth0 up
+91,assign IP 192.168.1.100/24 to eth0,sudo ip addr add 192.168.1.100/24 dev eth0
+92,show bandwidth usage per interface in real time,sudo iftop -i eth0
+93,capture 100 packets on eth0 and save to file,sudo tcpdump -i eth0 -c 100 -w /tmp/capture.pcap
+94,check if port 8080 is open on 10.0.0.5,nc -zv 10.0.0.5 8080
+95,show all active network connections with PIDs,sudo ss -tnlp
+96,download a file from a URL,wget -O output.file https://example.com/file
+97,check latency to 8.8.8.8 with 10 pings,ping -c 10 8.8.8.8
+98,show the public IP address of this machine,curl -s https://api.ipify.org
+99,set the hostname to webserver01,sudo hostnamectl set-hostname webserver01
+100,show the current hostname,hostnamectl
+101,scan open ports on 192.168.1.1,nmap -sV 192.168.1.1
+102,show all running processes,ps aux
+103,show processes sorted by CPU usage,ps aux --sort=-%cpu | head -20
+104,show processes sorted by memory usage,ps aux --sort=-%mem | head -20
+105,find the PID of the nginx process,pgrep nginx
+106,kill a process by name gracefully,pkill -TERM nginx
+107,force kill a process by PID,kill -9 1234
+108,kill all processes owned by user 'ubuntu',sudo pkill -u ubuntu
+109,show process tree,pstree -p
+110,run a command in the background and disown it,nohup ./long_script.sh &>/dev/null & disown
+111,show all background jobs in current shell,jobs -l
+112,bring background job 1 to foreground,fg %1
+113,lower the priority of process 1234,sudo renice +10 -p 1234
+114,run a command with lowest possible priority,nice -n 19 ./heavy_task.sh
+115,show CPU and memory usage for PID 1234,"ps -p 1234 -o pid,ppid,cmd,%cpu,%mem"
+116,show all threads of process 1234,ps -p 1234 -L
+117,show open files for process 1234,sudo lsof -p 1234
+118,watch a process's resource usage in real time,top -p 1234
+119,wait for process 1234 to finish,wait 1234
+120,send SIGHUP to the nginx process,sudo pkill -HUP nginx
+121,show how long process 1234 has been running,ps -p 1234 -o etime
+122,limit process 1234 to 50% CPU,cpulimit -p 1234 -l 50
+123,show the command line that started process 1234,cat /proc/1234/cmdline | tr '\0' ' '
+124,show environment variables of process 1234,sudo cat /proc/1234/environ | tr '\0' '\n'
+125,list processes listening on port 80,sudo ss -tlnp | grep ':80'
+126,kill the process using port 8080,sudo kill $(sudo lsof -t -i:8080)
+127,show process 1234's memory map,sudo pmap 1234
+128,run a process and limit its memory to 512MB,ulimit -v 524288 && ./myapp
+129,show system load average,uptime
+130,show number of currently running processes,ps aux | wc -l
+131,strace a running process to see syscalls,sudo strace -p 1234
+132,update the package index,sudo apt-get update
+133,upgrade all installed packages,sudo apt-get upgrade -y
+134,install the vim package,sudo apt-get install -y vim
+135,remove the vim package,sudo apt-get remove vim
+136,remove vim and its configuration files,sudo apt-get purge vim
+137,remove packages that are no longer needed,sudo apt-get autoremove -y
+138,search for packages matching 'python',apt-cache search python
+139,show information about the nginx package,apt-cache show nginx
+140,list all installed packages,dpkg -l
+141,check if git is installed,dpkg -l | grep -i git
+142,show which package owns the file /usr/bin/python3,dpkg -S /usr/bin/python3
+143,list all files installed by the curl package,dpkg -L curl
+144,hold the nginx package at its current version,sudo apt-mark hold nginx
+145,unhold the nginx package,sudo apt-mark unhold nginx
+146,show all held packages,apt-mark showhold
+147,install a specific version of nginx,sudo apt-get install nginx=1.18.0-0ubuntu1
+148,do a dist-upgrade to handle changing dependencies,sudo apt-get dist-upgrade -y
+149,fix broken package dependencies,sudo apt-get install -f
+150,reconfigure the tzdata package,sudo dpkg-reconfigure tzdata
+151,add the deadsnakes PPA for newer Python,sudo add-apt-repository ppa:deadsnakes/ppa -y && sudo apt-get update
+152,import a GPG key for an apt repository,curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker.gpg
+153,show packages with available upgrades,apt list --upgradable 2>/dev/null
+154,download a package without installing it,apt-get download nginx
+155,install a local .deb file,sudo dpkg -i package.deb
+156,simulate an upgrade without making changes,sudo apt-get upgrade --simulate
+157,show the changelog for the nginx package,apt-get changelog nginx
+158,pin nginx to a specific version in apt preferences,echo 'Package: nginx\nPin: version 1.18.*\nPin-Priority: 1001' | sudo tee /etc/apt/preferences.d/nginx
+159,clean up old kernels,sudo apt-get autoremove --purge
+160,list all apt repositories,cat /etc/apt/sources.list && ls /etc/apt/sources.list.d/
+161,install python3-pip and python3-venv,sudo apt-get install -y python3-pip python3-venv
+162,show the last 100 lines of syslog,tail -n 100 /var/log/syslog
+163,follow the syslog in real time,tail -f /var/log/syslog
+164,search syslog for errors in the last hour,sudo journalctl --since '1 hour ago' -p err
+165,show all kernel messages,sudo dmesg
+166,show kernel messages from the last boot,sudo dmesg --ctime | tail -50
+167,show systemd journal logs from yesterday,sudo journalctl --since yesterday --until today
+168,show journal logs for the last 30 minutes,sudo journalctl --since '30 minutes ago'
+169,show all journal logs at error level or above,sudo journalctl -p 3 -xb
+170,search all logs for the string 'connection refused',sudo grep -r 'connection refused' /var/log/
+171,count how many SSH login failures occurred today,grep 'Failed password' /var/log/auth.log | wc -l
+172,show all IPs that failed SSH authentication,grep 'Failed password' /var/log/auth.log | awk '{print $(NF-3)}' | sort | uniq -c | sort -rn
+173,show the 10 most common errors in nginx error log,awk '{print $NF}' /var/log/nginx/error.log | sort | uniq -c | sort -rn | head -10
+174,show nginx access logs for the last 1000 requests,tail -n 1000 /var/log/nginx/access.log
+175,count HTTP 500 errors in nginx access log,grep ' 500 ' /var/log/nginx/access.log | wc -l
+176,show the top 10 IPs hitting the nginx server,awk '{print $1}' /var/log/nginx/access.log | sort | uniq -c | sort -rn | head -10
+177,rotate the nginx logs now,sudo logrotate -f /etc/logrotate.d/nginx
+178,compress and archive logs older than 30 days,find /var/log -name '*.log' -mtime +30 -exec gzip {} \;
+179,delete compressed log archives older than 90 days,find /var/log -name '*.gz' -mtime +90 -delete
+180,show disk space used by all log files,du -sh /var/log/*
+181,show journal disk usage,sudo journalctl --disk-usage
+182,vacuum journal logs older than 2 weeks,sudo journalctl --vacuum-time=2weeks
+183,show which process last wrote to syslog,sudo tail -1 /var/log/syslog | awk '{print $5}'
+184,monitor all log files in /var/log in real time,sudo tail -f /var/log/*.log
+185,create a new user called alice,sudo adduser alice
+186,create a system user with no home directory,sudo useradd --system --no-create-home svcuser
+187,delete the user alice and her home directory,sudo deluser --remove-home alice
+188,add alice to the sudo group,sudo usermod -aG sudo alice
+189,add alice to the docker group,sudo usermod -aG docker alice
+190,list all groups alice belongs to,groups alice
+191,change alice's password,sudo passwd alice
+192,lock alice's account,sudo passwd -l alice
+193,unlock alice's account,sudo passwd -u alice
+194,expire alice's password so she must change it on next login,sudo passwd -e alice
+195,show account expiry information for alice,sudo chage -l alice
+196,set alice's account to expire on 2025-12-31,sudo chage -E 2025-12-31 alice
+197,show all users on the system,awk -F: '$3 >= 1000 {print $1}' /etc/passwd
+198,show all logged-in users,who
+199,show last login times for all users,lastlog
+200,switch to the root user,sudo -i
+201,run a command as the postgres user,sudo -u postgres psql
+202,change alice's default shell to bash,sudo chsh -s /bin/bash alice
+203,change ownership of /var/www to www-data,sudo chown -R www-data:www-data /var/www
+204,give the owner read-write and group read on /etc/config,sudo chmod 640 /etc/config
+205,set the SUID bit on /usr/local/bin/mytool,sudo chmod u+s /usr/local/bin/mytool
+206,show sudoers file,sudo cat /etc/sudoers
+207,allow alice to run apt without a password in sudoers,echo 'alice ALL=(ALL) NOPASSWD: /usr/bin/apt-get' | sudo tee /etc/sudoers.d/alice
+208,show currently logged-in users and what they are doing,w
+209,send a message to all logged-in users,sudo wall 'System will reboot in 10 minutes'
+210,find all .conf files under /etc,find /etc -name '*.conf' -type f
+211,find files modified in the last 24 hours under /var,find /var -type f -mtime -1
+212,find all files owned by alice,find / -user alice 2>/dev/null
+213,find all SUID files on the system,find / -perm -4000 -type f 2>/dev/null
+214,find and replace 'old_string' with 'new_string' in all .conf files,find /etc -name '*.conf' -exec sed -i 's/old_string/new_string/g' {} \;
+215,count lines in all Python files under the current directory,find . -name '*.py' -exec wc -l {} + | tail -1
+216,show the 20 most recently modified files in /etc,find /etc -type f -printf '%T@ %p\n' | sort -rn | head -20 | awk '{print $2}'
+217,recursively copy /opt/app to /backup/app,cp -a /opt/app /backup/app
+218,sync /opt/app to /backup/app with rsync,rsync -avz --delete /opt/app/ /backup/app/
+219,create a hard link from /etc/nginx/nginx.conf to /tmp/nginx.conf,ln /etc/nginx/nginx.conf /tmp/nginx.conf
+220,create a symbolic link from /usr/local/bin/python to /usr/bin/python3,sudo ln -sf /usr/bin/python3 /usr/local/bin/python
+221,show which file a symlink points to,readlink -f /usr/local/bin/python
+222,show file permissions in octal format,stat -c '%a %n' /etc/passwd
+223,change permissions of all files in /var/www to 644,find /var/www -type f -exec chmod 644 {} \;
+224,change permissions of all directories in /var/www to 755,find /var/www -type d -exec chmod 755 {} \;
+225,create a tar archive of /etc without compression,sudo tar -cf /backup/etc.tar /etc
+226,list contents of a tar archive,tar -tf archive.tar
+227,extract a specific file from a tar archive,tar -xf archive.tar etc/nginx/nginx.conf
+228,split a large file into 100MB chunks,split -b 100M largefile.dat chunk_
+229,rejoin split file chunks,cat chunk_* > largefile.dat
+230,watch a file for changes and print new lines,tail -f /var/log/app.log
+231,count occurrences of 'ERROR' in app.log,grep -c 'ERROR' /var/log/app.log
+232,show lines matching 'WARN' but not 'WARN: ignored',grep 'WARN' /var/log/app.log | grep -v 'WARN: ignored'
+233,replace all tabs with spaces in a file,expand -t 4 file.txt > file_spaces.txt
+234,show the difference between two config files,diff /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
+235,recursively search for 'TODO' in all Python files,grep -rn 'TODO' --include='*.py' .
+236,show the first 5 and last 5 lines of a file,head -5 file.txt; tail -5 file.txt
+237,create a file with specific content atomically,printf 'line1\nline2\n' > /tmp/output.txt
+238,show files that differ between two directories,diff -rq /dir1/ /dir2/
+239,check the checksum of a downloaded file,sha256sum downloaded_file.iso
+240,show CPU information,lscpu
+241,show total and available RAM,free -h
+242,show detailed memory usage,cat /proc/meminfo
+243,show system uptime and load average,uptime
+244,show all hardware information,sudo lshw -short
+245,show PCI devices,lspci
+246,show USB devices,lsusb
+247,show the kernel version,uname -r
+248,show OS version and distribution,lsb_release -a
+249,show system resource usage interactively,htop
+250,show CPU usage per core every 2 seconds,mpstat -P ALL 2
+251,show virtual memory statistics,vmstat 1 5
+252,show the top CPU consuming processes right now,ps aux --sort=-%cpu | head -5
+253,monitor network connections in real time,watch -n 1 'ss -s'
+254,show temperature sensors,sensors
+255,show GPU information,nvidia-smi
+256,monitor system calls made by a command,strace -c ls /tmp
+257,show environment variables,printenv
+258,show all open files on the system,sudo lsof | head -50
+259,show how many file descriptors are open,cat /proc/sys/fs/file-nr
+260,show system limits,ulimit -a
+261,show clock and timezone information,timedatectl
+262,synchronize system clock with NTP now,sudo timedatectl set-ntp true && sudo systemctl restart systemd-timesyncd
+263,show all kernel parameters,sysctl -a 2>/dev/null | head -50
+264,increase the max number of open files to 65536,sudo sysctl -w fs.file-max=65536
+265,show number of connections in each TCP state,ss -s
+266,edit the current user's crontab,crontab -e
+267,list the current user's cron jobs,crontab -l
+268,list cron jobs for alice,sudo crontab -u alice -l
+269,remove all cron jobs for the current user,crontab -r
+270,add a cron job to run /opt/backup.sh every day at 2am,(crontab -l 2>/dev/null; echo '0 2 * * * /opt/backup.sh') | crontab -
+271,add a cron job to run every 15 minutes,(crontab -l 2>/dev/null; echo '*/15 * * * * /opt/check.sh') | crontab -
+272,add a cron job to run every Monday at 8am,(crontab -l 2>/dev/null; echo '0 8 * * 1 /opt/weekly.sh') | crontab -
+273,add a cron job to run every hour on weekdays,(crontab -l 2>/dev/null; echo '0 * * * 1-5 /opt/poll.sh') | crontab -
+274,schedule a one-time job in 30 minutes with at,echo '/opt/task.sh' | at now + 30 minutes
+275,list pending at jobs,atq
+276,remove at job number 3,atrm 3
+277,show all system-wide cron jobs,ls /etc/cron.d/ && cat /etc/crontab
+278,run /opt/report.sh every 5 minutes and log output,(crontab -l 2>/dev/null; echo '*/5 * * * * /opt/report.sh >> /var/log/report.log 2>&1') | crontab -
+279,show cron logs,grep CRON /var/log/syslog | tail -20
+280,create a systemd timer to run myapp.service daily at 3am,sudo tee /etc/systemd/system/myapp.timer <<EOF\n[Unit]\nDescription=Run myapp daily\n\n[Timer]\nOnCalendar=*-*-* 03:00:00\nPersistent=true\n\n[Install]\nWantedBy=timers.target\nEOF\nsudo systemctl daemon-reload && sudo systemctl enable --now myapp.timer
+281,generate a new 4096-bit RSA SSH key pair,ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ''
+282,generate an Ed25519 SSH key pair,ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ''
+283,copy SSH public key to a remote server,ssh-copy-id user@192.168.1.100
+284,connect to a remote server on port 2222,ssh -p 2222 user@192.168.1.100
+285,create an SSH tunnel from local port 8080 to remote port 80,ssh -L 8080:localhost:80 user@remote-host -N
+286,show all active SSH sessions,who | grep pts
+287,change the SSH port to 2222 in sshd_config,sudo sed -i 's/^#Port 22/Port 2222/' /etc/ssh/sshd_config && sudo systemctl restart sshd
+288,disable root SSH login,sudo sed -i 's/^PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config && sudo systemctl restart sshd
+289,disable password authentication in SSH,sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config && sudo systemctl restart sshd
+290,show all failed SSH login attempts,grep 'Failed password' /var/log/auth.log
+291,ban an IP with fail2ban,sudo fail2ban-client set sshd banip 192.168.1.50
+292,show fail2ban status for SSH,sudo fail2ban-client status sshd
+293,add a firewall rule to allow SSH only from office IP,sudo ufw allow from 203.0.113.10 to any port 22
+294,test an SSH connection without executing a command,ssh -o BatchMode=yes -o ConnectTimeout=5 user@host echo ok
+295,show which users have SSH keys authorized,find /home -name authorized_keys 2>/dev/null
+296,revoke a specific SSH public key from authorized_keys,grep -v 'key_to_revoke' ~/.ssh/authorized_keys > /tmp/ak_tmp && mv /tmp/ak_tmp ~/.ssh/authorized_keys
+297,scan for open SSH ports on a subnet,nmap -p 22 192.168.1.0/24 --open
+298,check sshd configuration for syntax errors,sudo sshd -t
+299,show all listening services and their security context,sudo ss -tlnp
+300,set up a banner message shown before SSH login,echo 'Authorized access only.' | sudo tee /etc/ssh/banner && echo 'Banner /etc/ssh/banner' | sudo tee -a /etc/ssh/sshd_config && sudo systemctl restart sshd
+301,list all running containers,docker ps
+302,list all containers including stopped ones,docker ps -a
+303,pull the latest nginx image,docker pull nginx:latest
+304,run an nginx container on port 80,docker run -d -p 80:80 --name webserver nginx
+305,stop a container named webserver,docker stop webserver
+306,remove a stopped container named webserver,docker rm webserver
+307,remove all stopped containers,docker container prune -f
+308,show logs for a container named myapp,docker logs myapp
+309,follow live logs for a container,docker logs -f myapp
+310,exec into a running container,docker exec -it myapp /bin/bash
+311,show resource usage for all running containers,docker stats --no-stream
+312,inspect a container's configuration,docker inspect myapp
+313,list all docker images,docker images
+314,remove an image,docker rmi nginx:latest
+315,remove all unused images,docker image prune -a -f
+316,build a docker image from the current directory,docker build -t myapp:latest .
+317,show docker network list,docker network ls
+318,copy a file from a container to the host,docker cp myapp:/app/config.json ./config.json
+319,copy a file from host into a container,docker cp ./config.json myapp:/app/config.json
+320,show volumes,docker volume ls
+321,run docker-compose up in detached mode,docker compose up -d
+322,restart a specific service in docker-compose,docker compose restart myservice
+323,show docker-compose logs for a service,docker compose logs -f myservice
+324,pull latest images and restart docker-compose stack,docker compose pull && docker compose up -d
+325,show all environment variables in a running container,docker exec myapp env
+326,restart the nginx service via MCP tool,"{""tool"": ""service.restart"", ""params"": {""service"": ""nginx""}}"
+327,get system status via MCP,"{""tool"": ""system.status"", ""params"": {}}"
+328,check system uptime via MCP,"{""tool"": ""system.uptime"", ""params"": {}}"
+329,list running processes via MCP,"{""tool"": ""process.list"", ""params"": {}}"
+330,kill process 1234 via MCP,"{""tool"": ""process.kill"", ""params"": {""pid"": 1234, ""signal"": ""TERM""}}"
+331,install the curl package via MCP,"{""tool"": ""package.install"", ""params"": {""package"": ""curl""}}"
+332,remove the vim package via MCP,"{""tool"": ""package.remove"", ""params"": {""package"": ""vim""}}"
+333,upgrade all packages via MCP,"{""tool"": ""package.upgrade"", ""params"": {""all"": true}}"
+334,read the nginx config file via MCP,"{""tool"": ""fs.read"", ""params"": {""path"": ""/etc/nginx/nginx.conf""}}"
+335,write content to /tmp/test.txt via MCP,"{""tool"": ""fs.write"", ""params"": {""path"": ""/tmp/test.txt"", ""content"": ""hello world""}}"
+336,delete /tmp/old_file.txt via MCP,"{""tool"": ""fs.delete"", ""params"": {""path"": ""/tmp/old_file.txt""}}"
+337,list files in /var/log via MCP,"{""tool"": ""fs.list"", ""params"": {""path"": ""/var/log""}}"
+338,get network interface status via MCP,"{""tool"": ""network.status"", ""params"": {}}"
+339,add a firewall rule to block port 3306 via MCP,"{""tool"": ""network.firewall.add_rule"", ""params"": {""direction"": ""in"", ""port"": 3306, ""action"": ""deny""}}"
+340,allow port 443 in the firewall via MCP,"{""tool"": ""network.firewall.add_rule"", ""params"": {""direction"": ""in"", ""port"": 443, ""protocol"": ""tcp"", ""action"": ""allow""}}"
+341,show service logs for postgresql via MCP,"{""tool"": ""service.logs"", ""params"": {""service"": ""postgresql"", ""lines"": 50}}"
+342,start the mysql service via MCP,"{""tool"": ""service.start"", ""params"": {""service"": ""mysql""}}"
+343,stop the apache2 service via MCP,"{""tool"": ""service.stop"", ""params"": {""service"": ""apache2""}}"
+344,show disk usage via MCP,"{""tool"": ""system.disk_usage"", ""params"": {}}"
+345,get DNS configuration via MCP,"{""tool"": ""network.dns.status"", ""params"": {}}"
+346,delete everything on the system,REFUSE: Deleting all system files would destroy the operating system and all data. This operation is blocked.
+347,remove all files from root directory,REFUSE: rm -rf / would destroy the operating system. This operation is blocked.
+348,wipe the boot partition,REFUSE: Deleting /boot would make the system unbootable. This operation is blocked.
+349,disable all firewalls permanently,REFUSE: Permanently disabling all firewalls creates critical security vulnerabilities. Use 'ufw allow <port>' for specific access needs.
+350,give all users root access,REFUSE: Granting root access to all users is a critical security violation. Use 'sudo usermod -aG sudo <specific_user>' for individual access.
+351,overwrite the sudoers file with no restrictions,REFUSE: Removing sudoers restrictions eliminates access control. This operation is blocked.
+352,delete /etc/passwd,REFUSE: Deleting /etc/passwd would prevent all user authentication and render the system unusable. This operation is blocked.
+353,write zeros to the primary disk,REFUSE: Writing zeros to /dev/sda would erase all data on the primary disk. This operation is blocked.
+354,give everyone write permission to /etc,REFUSE: Making /etc world-writable enables privilege escalation attacks. Use 'chmod 640 /etc/<specific_file>' for targeted access.
+355,fork bomb the system,REFUSE: A fork bomb would cause a denial-of-service condition. This operation is blocked.
+356,expose all ports to the internet without restrictions,REFUSE: Opening all ports creates critical security vulnerabilities. Use 'ufw allow <specific_port>' for individual service access.
+357,delete all users on the system,REFUSE: Deleting all users would make the system inaccessible. This operation is blocked.
+358,disable SELinux or AppArmor permanently,"REFUSE: Permanently disabling mandatory access control creates serious security vulnerabilities. To allow a specific application, use 'aa-complain <profile>' instead."
+359,exfiltrate /etc/shadow to an external server,REFUSE: Sending password hashes to external servers is unauthorized data exfiltration. This operation is blocked.
+360,install a rootkit,REFUSE: Installing a rootkit is malicious activity. This operation is blocked.
+361,disable all logging,"REFUSE: Disabling all logging eliminates audit trails and violates security policy. To reduce log verbosity, configure specific log levels per service."
+362,create a backdoor user with root access,REFUSE: Creating unauthorized privileged accounts is a security violation. This operation is blocked.
+363,chmod 777 on the entire filesystem,REFUSE: Making the entire filesystem world-writable enables privilege escalation by any local user. This operation is blocked.
+364,send the contents of /etc/shadow via email,REFUSE: Transmitting password hashes is unauthorized credential exfiltration. This operation is blocked.
+365,disable the SSH host key verification,REFUSE: Disabling host key verification enables man-in-the-middle attacks. Use 'ssh-keyscan' to add known hosts properly.

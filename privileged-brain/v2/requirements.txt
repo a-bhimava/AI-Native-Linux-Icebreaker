@@ -1,0 +1,12 @@
+torch>=2.3
+transformers>=4.40
+trl>=0.9
+peft>=0.11
+datasets>=2.19
+anthropic>=0.25
+instructor>=1.3
+shellcheck-py>=0.10
+faker>=24.0
+pydantic>=2.7
+bitsandbytes>=0.43
+accelerate>=0.30

@@ -1,0 +1,251 @@
+{"nl": "show total CPU usage per user from ps output", "bash": "ps aux | awk 'NR>1 {cpu[$1]+=$3} END {for (u in cpu) print cpu[u], u}' | sort -rn | head -10"}
+{"nl": "show total memory usage in MB per user", "bash": "ps aux | awk 'NR>1 {mem[$1]+=$4} END {for (u in mem) printf \"%.1f MB  %s\\n\", mem[u]*16, u}' | sort -rn"}
+{"nl": "count how many times each HTTP status code appears in the nginx access log", "bash": "awk '{print $9}' /var/log/nginx/access.log | sort | uniq -c | sort -rn"}
+{"nl": "show the top 10 slowest nginx requests in milliseconds", "bash": "awk '{print $NF, $7}' /var/log/nginx/access.log | sort -rn | head -10"}
+{"nl": "calculate the average response time from nginx logs", "bash": "awk '{sum+=$NF; n++} END {printf \"avg: %.3f ms\\n\", sum/n}' /var/log/nginx/access.log"}
+{"nl": "print lines 100 to 200 of a file", "bash": "awk 'NR>=100 && NR<=200' file.txt"}
+{"nl": "extract the second column from a CSV file skipping the header", "bash": "awk -F',' 'NR>1 {print $2}' data.csv"}
+{"nl": "sum the third column of a space-separated file", "bash": "awk '{sum+=$3} END {print sum}' data.txt"}
+{"nl": "print only lines where the value in column 4 is greater than 1000", "bash": "awk '$4 > 1000' data.txt"}
+{"nl": "remove blank lines and comment lines from a config file", "bash": "awk '!/^\\s*(#|$)/' /etc/nginx/nginx.conf"}
+{"nl": "convert a space-separated file to CSV", "bash": "awk 'BEGIN{OFS=\",\"} {$1=$1; print}' data.txt"}
+{"nl": "show unique values in the first column of a file", "bash": "awk '!seen[$1]++' data.txt | awk '{print $1}'"}
+{"nl": "print lines that appear more than once based on the first field", "bash": "awk '{count[$1]++} END {for (k in count) if (count[k]>1) print k, count[k]}' data.txt"}
+{"nl": "show listening ports from ss output as a sorted list", "bash": "ss -tlnp | awk 'NR>1 {print $4}' | awk -F: '{print $NF}' | sort -n | uniq"}
+{"nl": "extract all IP addresses from a log file", "bash": "grep -Eo '([0-9]{1,3}\\.){3}[0-9]{1,3}' /var/log/syslog | sort | uniq -c | sort -rn"}
+{"nl": "remove trailing whitespace from all lines in a file in-place", "bash": "sed -i 's/[[:space:]]*$//' file.txt"}
+{"nl": "delete all blank lines from a file in-place", "bash": "sed -i '/^[[:space:]]*$/d' file.txt"}
+{"nl": "remove all comment lines starting with # from a file", "bash": "sed -i '/^[[:space:]]*#/d' config.txt"}
+{"nl": "replace the second occurrence of 'foo' on each line with 'bar'", "bash": "sed 's/foo/bar/2' file.txt"}
+{"nl": "print only lines between START and END markers inclusive", "bash": "sed -n '/^START/,/^END/p' file.txt"}
+{"nl": "delete lines between START and END markers", "bash": "sed '/^START/,/^END/d' file.txt"}
+{"nl": "replace all http URLs with https in-place with a backup", "bash": "sed -i.bak 's|http://|https://|g' config.txt"}
+{"nl": "insert a line 'set -euo pipefail' after the shebang line in a shell script", "bash": "sed -i '1a set -euo pipefail' script.sh"}
+{"nl": "print line numbers alongside content for lines matching 'ERROR'", "bash": "sed -n '/ERROR/=' file.log | paste - <(sed -n '/ERROR/p' file.log)"}
+{"nl": "normalize multiple spaces to a single space in a file", "bash": "sed -E 's/[[:space:]]+/ /g' file.txt"}
+{"nl": "escape all forward slashes in a file for use in sed patterns", "bash": "sed 's|/|\\/|g' paths.txt"}
+{"nl": "replace a line containing 'Port 22' with 'Port 2222' in sshd_config", "bash": "sudo sed -i 's/^Port 22$/Port 2222/' /etc/ssh/sshd_config"}
+{"nl": "pretty-print a JSON file", "bash": "jq '.' data.json"}
+{"nl": "extract the value of a nested key from a JSON file", "bash": "jq '.database.host' config.json"}
+{"nl": "extract the name and age fields from each element of a JSON array", "bash": "jq '.[] | {name: .name, age: .age}' users.json"}
+{"nl": "filter a JSON array to only elements where status is active", "bash": "jq '[.[] | select(.status == \"active\")]' users.json"}
+{"nl": "count the number of elements in a JSON array", "bash": "jq 'length' array.json"}
+{"nl": "get all keys from a JSON object", "bash": "jq 'keys' config.json"}
+{"nl": "extract a list of names as a plain text list from a JSON array", "bash": "jq -r '.[].name' users.json"}
+{"nl": "sort a JSON array of objects by the age field", "bash": "jq 'sort_by(.age)' users.json"}
+{"nl": "get the maximum value of the score field across all objects", "bash": "jq '[.[].score] | max' results.json"}
+{"nl": "convert JSON object keys and values to a key=value text format", "bash": "jq -r 'to_entries[] | \"\\(.key)=\\(.value)\"' config.json"}
+{"nl": "extract npm package names and versions from package.json", "bash": "jq -r '.dependencies | to_entries[] | \"\\(.key)@\\(.value)\"' package.json"}
+{"nl": "add a new field 'processed: true' to every element in a JSON array", "bash": "jq '[.[] | . + {processed: true}]' data.json"}
+{"nl": "get running docker container names and their image using docker inspect output", "bash": "docker ps -q | xargs docker inspect | jq -r '.[] | \"\\(.Name) \\(.Config.Image)\"'"}
+{"nl": "extract all running pod names from kubectl JSON output", "bash": "kubectl get pods -o json | jq -r '.items[] | select(.status.phase==\"Running\") | .metadata.name'"}
+{"nl": "get the cluster IP of a Kubernetes service", "bash": "kubectl get svc myservice -o json | jq -r '.spec.clusterIP'"}
+{"nl": "decode a Kubernetes secret value", "bash": "kubectl get secret mysecret -o json | jq -r '.data.password' | base64 --decode"}
+{"nl": "show which nodes each pod is running on", "bash": "kubectl get pods -o json | jq -r '.items[] | \"\\(.metadata.name) -> \\(.spec.nodeName)\"'"}
+{"nl": "list all images used by running pods", "bash": "kubectl get pods -o json | jq -r '.items[].spec.containers[].image' | sort -u"}
+{"nl": "show container CPU and memory limits for all pods", "bash": "kubectl get pods -o json | jq -r '.items[] | .metadata.name as $p | .spec.containers[] | \"\\($p) \\(.name) cpu=\\(.resources.limits.cpu // \"none\") mem=\\(.resources.limits.memory // \"none\")\"'"}
+{"nl": "run flake8 on all Python files in parallel using 4 jobs", "bash": "find . -name '*.py' | xargs -P4 flake8"}
+{"nl": "check HTTP status code for each URL in a file using 8 parallel curl jobs", "bash": "xargs -a urls.txt -P8 -I{} curl -o /dev/null -s -w '%{http_code} {}\\n' {}"}
+{"nl": "delete all .pyc files found under the current directory", "bash": "find . -name '*.pyc' | xargs rm -f"}
+{"nl": "grep for a pattern across all gzipped log files", "bash": "find /var/log -name '*.gz' | xargs -I{} zcat {} | grep 'ERROR'"}
+{"nl": "count total lines across all Python files in the project", "bash": "find . -name '*.py' | xargs wc -l | tail -1"}
+{"nl": "run a command on multiple servers listed in a file", "bash": "xargs -a servers.txt -I{} ssh {} 'uptime'"}
+{"nl": "rename all .jpeg files to .jpg in the current directory", "bash": "find . -name '*.jpeg' | xargs -I{} sh -c 'mv \"$1\" \"${1%.jpeg}.jpg\"' _ {}"}
+{"nl": "find all TODO comments in Python files and show the file and line", "bash": "find . -name '*.py' | xargs grep -n 'TODO'"}
+{"nl": "compare the /etc/hosts file on two different servers", "bash": "diff <(ssh server1 cat /etc/hosts) <(ssh server2 cat /etc/hosts)"}
+{"nl": "find packages installed on server1 but not on server2", "bash": "comm -23 <(ssh server1 dpkg -l | awk 'NR>5{print $2}' | sort) <(ssh server2 dpkg -l | awk 'NR>5{print $2}' | sort)"}
+{"nl": "diff two sorted versions of the same file to see only content differences", "bash": "diff <(sort file1.txt) <(sort file2.txt)"}
+{"nl": "find lines in file1 that are not in file2 (both need to be sorted)", "bash": "comm -23 <(sort file1.txt) <(sort file2.txt)"}
+{"nl": "paste two command outputs side by side", "bash": "paste <(cut -d: -f1 /etc/passwd) <(cut -d: -f3 /etc/passwd)"}
+{"nl": "search for TODO comments in all Python files recursively", "bash": "rg 'TODO' --type py"}
+{"nl": "search for a pattern and show 3 lines of context", "bash": "rg -C3 'connection refused' /var/log/"}
+{"nl": "count matches per file for a pattern", "bash": "rg -c 'ERROR' /var/log/"}
+{"nl": "list only file names that contain a pattern", "bash": "rg -l 'deprecated' --type py"}
+{"nl": "search for a pattern ignoring case and show line numbers", "bash": "rg -in 'timeout' /etc/"}
+{"nl": "search for a fixed string (not a regex) in all files", "bash": "rg -F 'error: connection' /var/log/"}
+{"nl": "count total matches of a pattern across all log files", "bash": "rg -c 'WARN' /var/log/ | awk -F: '{sum+=$2} END {print sum}'"}
+{"nl": "search only files modified in the last day", "bash": "find . -mtime -1 | xargs rg 'TODO' 2>/dev/null"}
+{"nl": "find all Python files in the current directory recursively", "bash": "fd -e py"}
+{"nl": "find all files larger than 10MB", "bash": "fd -S +10m"}
+{"nl": "find all empty directories", "bash": "fd -t d --exec sh -c '[ -z \"$(ls -A {}/)\" ] && echo {}'"}
+{"nl": "find all files modified in the last 24 hours", "bash": "fd --changed-within 24h"}
+{"nl": "find all .log files and delete them", "bash": "fd -e log --exec rm {}"}
+{"nl": "find all Python files and run black formatter on them", "bash": "fd -e py --exec black {}"}
+{"nl": "show a compact one-line log with graph for all branches", "bash": "git log --oneline --graph --all --decorate | head -30"}
+{"nl": "show commits made in the last 2 weeks by the current user", "bash": "git log --oneline --since='2 weeks ago' --author=\"$(git config user.email)\""}
+{"nl": "list the top 5 contributors by commit count", "bash": "git log --pretty=format:'%an' | sort | uniq -c | sort -rn | head -5"}
+{"nl": "show files changed in the last 5 commits", "bash": "git diff --stat HEAD~5..HEAD"}
+{"nl": "find which commit introduced a specific string", "bash": "git log -S 'the_string_you_seek' --oneline"}
+{"nl": "show all branches merged into main", "bash": "git branch --merged main"}
+{"nl": "delete all local branches already merged into main", "bash": "git branch --merged main | grep -v 'main\\|master\\|\\*' | xargs git branch -d"}
+{"nl": "show the size of each object in the git repository sorted by size", "bash": "git rev-list --objects --all | git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' | awk '/^blob/ {print $3, $4}' | sort -rn | head -10"}
+{"nl": "count the total number of commits in the repo", "bash": "git rev-list --count HEAD"}
+{"nl": "show which files have the most commits (most changed files)", "bash": "git log --pretty=format: --name-only | sort | uniq -c | sort -rn | head -10"}
+{"nl": "undo the last commit but keep the changes staged", "bash": "git reset --soft HEAD~1"}
+{"nl": "show what changed in the last commit", "bash": "git show --stat HEAD"}
+{"nl": "apply only the changes from a specific commit to the current branch", "bash": "git cherry-pick abc1234"}
+{"nl": "create and switch to a new branch called feature/login", "bash": "git checkout -b feature/login"}
+{"nl": "stash current changes with a descriptive message", "bash": "git stash push -m 'WIP: login form validation'"}
+{"nl": "show the diff of a specific stash", "bash": "git stash show -p stash@{0}"}
+{"nl": "show all tags sorted by version number", "bash": "git tag --sort=version:refname"}
+{"nl": "find all commits that touched a specific file", "bash": "git log --oneline --follow -- path/to/file.py"}
+{"nl": "show line-by-line blame for a specific function in a file", "bash": "git log -L :function_name:file.py --oneline"}
+{"nl": "interactively rebase the last 5 commits", "bash": "git rebase -i HEAD~5"}
+{"nl": "list open pull requests assigned to me", "bash": "gh pr list --assignee @me --state open"}
+{"nl": "create a pull request with a title and body targeting main", "bash": "gh pr create --base main --title 'Fix login timeout' --body 'Fixes #42'"}
+{"nl": "show the status of CI checks on the current branch's PR", "bash": "gh pr checks"}
+{"nl": "list all open issues with the label 'bug'", "bash": "gh issue list --label bug --state open"}
+{"nl": "create a new GitHub issue", "bash": "gh issue create --title 'Service crashes on empty input' --body 'Steps to reproduce: ...'"}
+{"nl": "watch the latest GitHub Actions workflow run", "bash": "gh run watch"}
+{"nl": "show the 10 most recent workflow runs", "bash": "gh run list --limit 10"}
+{"nl": "download artifacts from the latest workflow run", "bash": "gh run download --name my-artifact"}
+{"nl": "approve and merge a pull request with squash", "bash": "gh pr review --approve && gh pr merge --squash --delete-branch"}
+{"nl": "clone a repository from a GitHub org", "bash": "gh repo clone myorg/myrepo"}
+{"nl": "list all repositories in an org", "bash": "gh repo list myorg --limit 100"}
+{"nl": "view the diff of an open pull request in the terminal", "bash": "gh pr diff 123"}
+{"nl": "check out a pull request locally for review", "bash": "gh pr checkout 123"}
+{"nl": "list all pods that are not in Running or Completed state", "bash": "kubectl get pods -A | awk 'NR>1 && $4!=\"Running\" && $4!=\"Completed\"'"}
+{"nl": "show pods sorted by restart count descending", "bash": "kubectl get pods -A --sort-by='.status.containerStatuses[0].restartCount' | tail -10"}
+{"nl": "show how many pods are running on each node", "bash": "kubectl get pods -A -o wide | awk 'NR>1 {count[$8]++} END {for (n in count) print count[n], n}' | sort -rn"}
+{"nl": "get logs from a crashed container's previous instance", "bash": "kubectl logs mypod --previous"}
+{"nl": "follow logs from all pods matching a label selector", "bash": "kubectl logs -l app=myapp -f --max-log-requests=10"}
+{"nl": "execute a command in a running pod without an interactive shell", "bash": "kubectl exec mypod -- ls /var/log"}
+{"nl": "copy a file from a pod to the local machine", "bash": "kubectl cp mynamespace/mypod:/var/log/app.log ./app.log"}
+{"nl": "forward local port 5432 to postgres service port 5432", "bash": "kubectl port-forward svc/postgres 5432:5432"}
+{"nl": "rolling restart a deployment", "bash": "kubectl rollout restart deployment/myapp"}
+{"nl": "check the rollout status of a deployment", "bash": "kubectl rollout status deployment/myapp"}
+{"nl": "roll back a deployment to the previous version", "bash": "kubectl rollout undo deployment/myapp"}
+{"nl": "scale a deployment to 5 replicas", "bash": "kubectl scale deployment myapp --replicas=5"}
+{"nl": "show resource requests and limits for all pods in a namespace", "bash": "kubectl get pods -o json | jq -r '.items[] | .metadata.name as $p | .spec.containers[] | \"\\($p) \\(.name) req_cpu=\\(.resources.requests.cpu // \"-\") lim_cpu=\\(.resources.limits.cpu // \"-\")\"'"}
+{"nl": "get all events sorted by time for debugging", "bash": "kubectl get events --sort-by='.lastTimestamp' -A | tail -30"}
+{"nl": "show node resource usage", "bash": "kubectl top nodes"}
+{"nl": "show top pods by CPU across all namespaces", "bash": "kubectl top pods -A --sort-by=cpu | head -15"}
+{"nl": "drain a node for maintenance", "bash": "kubectl drain mynode --ignore-daemonsets --delete-emptydir-data"}
+{"nl": "cordon a node to prevent new pod scheduling", "bash": "kubectl cordon mynode"}
+{"nl": "uncordon a node to allow scheduling again", "bash": "kubectl uncordon mynode"}
+{"nl": "list all custom resource definitions in the cluster", "bash": "kubectl get crds"}
+{"nl": "apply all YAML manifests in a directory", "bash": "kubectl apply -f manifests/"}
+{"nl": "delete all evicted pods in all namespaces", "bash": "kubectl get pods -A | awk '$4==\"Evicted\" {print $1, $2}' | xargs -L1 bash -c 'kubectl delete pod $2 -n $1'"}
+{"nl": "show container resource usage in a readable table format", "bash": "docker stats --no-stream --format 'table {{.Name}}\\t{{.CPUPerc}}\\t{{.MemUsage}}\\t{{.NetIO}}'"}
+{"nl": "show the IP address of each running container", "bash": "docker ps -q | xargs -I{} docker inspect --format '{{.Name}} {{.NetworkSettings.IPAddress}}' {}"}
+{"nl": "list all images sorted by size descending", "bash": "docker images --format '{{.Repository}}:{{.Tag}}\\t{{.Size}}' | sort -t$'\\t' -k2 -rh"}
+{"nl": "remove all exited containers", "bash": "docker ps --filter status=exited -q | xargs -r docker rm"}
+{"nl": "remove all images with no tag (dangling images)", "bash": "docker images -f dangling=true -q | xargs -r docker rmi"}
+{"nl": "show the layers of a docker image", "bash": "docker history --no-trunc myimage:latest"}
+{"nl": "run a temporary container to debug a network issue and remove it after", "bash": "docker run --rm -it --network host nicolaka/netshoot"}
+{"nl": "show all environment variables set in a running container", "bash": "docker exec mycontainer env | sort"}
+{"nl": "limit a container to 512MB RAM and 1 CPU when running", "bash": "docker run -d --memory=512m --cpus=1 myimage"}
+{"nl": "save a docker image to a tar file", "bash": "docker save myimage:latest | gzip > myimage.tar.gz"}
+{"nl": "load a docker image from a tar file", "bash": "docker load < myimage.tar.gz"}
+{"nl": "show the dockerfile layers that were used to build an image", "bash": "docker image inspect myimage --format '{{range .RootFS.Layers}}{{println .}}{{end}}'"}
+{"nl": "follow logs for a container and filter for ERROR lines", "bash": "docker logs -f myapp 2>&1 | grep --line-buffered 'ERROR'"}
+{"nl": "run docker-compose, rebuild images, and remove orphaned containers", "bash": "docker compose up -d --build --remove-orphans"}
+{"nl": "show all volumes and their mount points", "bash": "docker ps -q | xargs -I{} docker inspect --format '{{.Name}}{{range .Mounts}} {{.Source}}->{{.Destination}}{{end}}' {}"}
+{"nl": "show the top 10 IPs with the most failed SSH logins today", "bash": "grep 'Failed password' /var/log/auth.log | grep \"$(date '+%b %e')\" | awk '{print $(NF-3)}' | sort | uniq -c | sort -rn | head -10"}
+{"nl": "show the number of HTTP requests per minute in the nginx access log", "bash": "awk '{print $4}' /var/log/nginx/access.log | cut -c2-17 | tr ':' ' ' | awk '{print $1,$2,$3,$4}' | sort | uniq -c | sort -k2"}
+{"nl": "find the 5 most common errors in the application log with counts", "bash": "grep 'ERROR' /var/log/app.log | sed 's/^.*ERROR: //' | sort | uniq -c | sort -rn | head -5"}
+{"nl": "watch for new ERROR lines in syslog in real time", "bash": "tail -F /var/log/syslog | grep --line-buffered 'ERROR'"}
+{"nl": "count log entries per severity level", "bash": "awk '{print $5}' /var/log/syslog | grep -E 'INFO|WARN|ERROR|DEBUG' | sort | uniq -c | sort -rn"}
+{"nl": "show log entries from the last 5 minutes", "bash": "journalctl --since '5 minutes ago' --no-pager"}
+{"nl": "find all unique user agents in the nginx access log", "bash": "awk -F'\"' '{print $6}' /var/log/nginx/access.log | sort -u | head -20"}
+{"nl": "show request rate per second from nginx logs", "bash": "awk '{print $4}' /var/log/nginx/access.log | cut -c2-20 | sort | uniq -c | awk '{print $1/1, $2}' | sort -k2"}
+{"nl": "measure DNS lookup, connect, and total time for a URL", "bash": "curl -o /dev/null -s -w 'DNS: %{time_namelookup}s  Connect: %{time_connect}s  Total: %{time_total}s\\n' https://example.com"}
+{"nl": "check HTTP response headers for a URL", "bash": "curl -sI https://example.com"}
+{"nl": "test if a remote port is open with a 3-second timeout", "bash": "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/192.168.1.1/22' && echo open || echo closed"}
+{"nl": "show established TCP connections grouped by remote IP", "bash": "ss -tn state established | awk 'NR>1 {print $5}' | cut -d: -f1 | sort | uniq -c | sort -rn"}
+{"nl": "ping a list of hosts and show which ones are unreachable", "bash": "while read host; do ping -c1 -W1 \"$host\" &>/dev/null && echo \"$host UP\" || echo \"$host DOWN\"; done < hosts.txt"}
+{"nl": "show the number of connections in each TCP state", "bash": "ss -tan | awk 'NR>1 {count[$1]++} END {for (s in count) print count[s], s}' | sort -rn"}
+{"nl": "perform a network throughput test to a remote host using nc", "bash": "dd if=/dev/zero bs=1M count=100 | nc -v remote_host 9999"}
+{"nl": "scan your local subnet for hosts that respond to ping", "bash": "for i in $(seq 1 254); do ping -c1 -W1 192.168.1.$i &>/dev/null && echo \"192.168.1.$i is up\" & done; wait"}
+{"nl": "trace the MTU path to a remote host", "bash": "tracepath -n 8.8.8.8"}
+{"nl": "check the SSL certificate expiry date for a domain", "bash": "echo | openssl s_client -connect example.com:443 -servername example.com 2>/dev/null | openssl x509 -noout -dates"}
+{"nl": "show all listening sockets with the process name and PID", "bash": "sudo ss -tlnp | awk 'NR>1 {print $4, $6}' | column -t"}
+{"nl": "show the top 5 directories consuming the most disk space under /var", "bash": "du -h --max-depth=2 /var 2>/dev/null | sort -rh | head -5"}
+{"nl": "find all processes with memory usage above 500MB", "bash": "ps aux | awk '$6 > 512000 {printf \"%.0f MB  %s\\n\", $6/1024, $11}' | sort -rn"}
+{"nl": "show disk read and write throughput over 5 seconds", "bash": "iostat -dx 1 5 | awk '/^sd|^nvme/ {print $1, \"r:\", $6, \"MB/s\", \"w:\", $7, \"MB/s\"}'"}
+{"nl": "find which process is writing the most to disk", "bash": "sudo iotop -b -n 3 | tail -20 | sort -k4 -rn | head -5"}
+{"nl": "show the 10 biggest open files on the system", "bash": "sudo lsof -s | awk 'NR>1 {print $7, $1, $9}' | sort -rn | head -10"}
+{"nl": "find zombie processes", "bash": "ps aux | awk '$8==\"Z\" {print $2, $11}'"}
+{"nl": "show memory usage breakdown in human readable form", "bash": "free -h && echo && cat /proc/meminfo | grep -E 'MemTotal|MemFree|MemAvailable|Buffers|Cached|SwapTotal|SwapFree'"}
+{"nl": "monitor context switches per second", "bash": "vmstat 1 5 | awk 'NR>2 {print \"cs:\", $12, \"in:\", $11}'"}
+{"nl": "show the 5 syscalls called most by a running process", "bash": "sudo strace -c -p 1234 sleep 5 2>&1 | sort -k4 -rn | head -7"}
+{"nl": "find files that have not been accessed in 90 days and are larger than 10MB", "bash": "find /home -type f -atime +90 -size +10M -printf '%s %p\\n' 2>/dev/null | sort -rn | head -20"}
+{"nl": "show all kernel parameters related to networking", "bash": "sysctl -a 2>/dev/null | grep net\\. | sort"}
+{"nl": "show CPU frequency scaling for all cores", "bash": "cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null | awk '{printf \"%.0f MHz\\n\", $1/1000}'"}
+{"nl": "check if any services failed to start since last boot", "bash": "systemctl list-units --state=failed --no-legend | awk '{print $1}'"}
+{"nl": "run a training script in a named tmux session and detach", "bash": "tmux new-session -d -s training 'python3 train.py 2>&1 | tee train.log'"}
+{"nl": "attach to an existing tmux session named training", "bash": "tmux attach -t training"}
+{"nl": "send a command to a running tmux session without attaching", "bash": "tmux send-keys -t training 'tail -f train.log' Enter"}
+{"nl": "list all tmux sessions", "bash": "tmux ls"}
+{"nl": "kill a tmux session named training", "bash": "tmux kill-session -t training"}
+{"nl": "run a script in the background with screen and log output", "bash": "screen -dmS myjob bash -c './long_job.sh > job.log 2>&1'"}
+{"nl": "create a virtual environment and install requirements", "bash": "python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"}
+{"nl": "install packages with uv (fast Python package manager)", "bash": "uv pip install -r requirements.txt"}
+{"nl": "create a new project with uv", "bash": "uv init myproject && cd myproject"}
+{"nl": "run a Python script with uv without activating a venv", "bash": "uv run python script.py"}
+{"nl": "list outdated Python packages", "bash": "pip list --outdated --format=columns"}
+{"nl": "show the dependency tree of installed packages", "bash": "pip install pipdeptree && pipdeptree"}
+{"nl": "export currently installed packages to requirements.txt", "bash": "pip freeze > requirements.txt"}
+{"nl": "find Python packages that have known security vulnerabilities", "bash": "pip install safety && safety check"}
+{"nl": "run pytest with verbose output and stop at the first failure", "bash": "python3 -m pytest -v -x"}
+{"nl": "run pytest and show coverage report in terminal", "bash": "python3 -m pytest --cov=src --cov-report=term-missing"}
+{"nl": "create a local tunnel from port 8080 to remote port 80", "bash": "ssh -L 8080:localhost:80 user@remote-host -N"}
+{"nl": "create a reverse tunnel so the remote server can reach local port 3000", "bash": "ssh -R 9000:localhost:3000 user@remote-host -N"}
+{"nl": "use a jump host to connect to an internal server", "bash": "ssh -J jumpuser@bastion.example.com internaluser@10.0.0.50"}
+{"nl": "create a SOCKS5 proxy through an SSH connection", "bash": "ssh -D 1080 user@remote-host -N"}
+{"nl": "keep an SSH tunnel alive with keepalive settings", "bash": "ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -L 5432:localhost:5432 user@remote -N"}
+{"nl": "copy files from a remote host using a jump host", "bash": "scp -J jumpuser@bastion.example.com internaluser@10.0.0.50:/remote/file.txt ."}
+{"nl": "show all database sizes in PostgreSQL", "bash": "psql -U postgres -c \"SELECT datname, pg_size_pretty(pg_database_size(datname)) AS size FROM pg_database ORDER BY pg_database_size(datname) DESC;\""}
+{"nl": "show all active PostgreSQL connections", "bash": "psql -U postgres -c \"SELECT pid, usename, application_name, state, query_start, query FROM pg_stat_activity WHERE state != 'idle';\""}
+{"nl": "show the largest tables in the current PostgreSQL database", "bash": "psql -U postgres -c \"SELECT relname, pg_size_pretty(pg_total_relation_size(relid)) FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;\""}
+{"nl": "terminate a specific PostgreSQL backend by PID", "bash": "psql -U postgres -c \"SELECT pg_terminate_backend(1234);\""}
+{"nl": "dump a PostgreSQL database to a compressed file", "bash": "pg_dump -U postgres -Fc mydb > mydb.dump"}
+{"nl": "restore a PostgreSQL database from a dump file", "bash": "pg_restore -U postgres -d mydb -Fc mydb.dump"}
+{"nl": "run a SQL query against SQLite and output as CSV", "bash": "sqlite3 -separator ',' database.db 'SELECT * FROM users LIMIT 10'"}
+{"nl": "show all tables in a SQLite database", "bash": "sqlite3 database.db '.tables'"}
+{"nl": "show MySQL slow queries running longer than 10 seconds", "bash": "mysql -u root -e \"SELECT * FROM information_schema.PROCESSLIST WHERE TIME > 10 AND COMMAND != 'Sleep';\""}
+{"nl": "check the expiry date of a local certificate file", "bash": "openssl x509 -in cert.pem -noout -enddate"}
+{"nl": "check the expiry date of a remote server's SSL certificate", "bash": "echo | openssl s_client -connect example.com:443 -servername example.com 2>/dev/null | openssl x509 -noout -enddate"}
+{"nl": "show the full subject and issuer of a certificate", "bash": "openssl x509 -in cert.pem -noout -subject -issuer"}
+{"nl": "verify a certificate chain", "bash": "openssl verify -CAfile ca-chain.pem cert.pem"}
+{"nl": "generate a self-signed certificate valid for 365 days", "bash": "openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'"}
+{"nl": "extract the public key from a certificate", "bash": "openssl x509 -in cert.pem -pubkey -noout"}
+{"nl": "check if a private key matches a certificate", "bash": "diff <(openssl x509 -in cert.pem -pubkey -noout) <(openssl rsa -in key.pem -pubout 2>/dev/null)"}
+{"nl": "check all certificates in a directory for expiry within 30 days", "bash": "find /etc/ssl -name '*.pem' | xargs -I{} openssl x509 -in {} -noout -checkend 2592000 2>/dev/null || echo '{} expires within 30 days'"}
+{"nl": "create a tar archive and stream it over SSH to a remote backup server", "bash": "tar -czf - /var/www | ssh backupuser@backup.host 'cat > /backup/www.tar.gz'"}
+{"nl": "extract a tar.gz archive preserving file permissions and ownership", "bash": "sudo tar -xzpf archive.tar.gz -C /restore/"}
+{"nl": "list the contents of a tar.gz archive without extracting", "bash": "tar -tzf archive.tar.gz"}
+{"nl": "create a tar archive of files changed in the last 24 hours", "bash": "find /var/www -mtime -1 -type f | tar -czf changes.tar.gz -T -"}
+{"nl": "compress multiple files in parallel using pigz", "bash": "find /var/log -name '*.log' | xargs -P4 -I{} pigz {}"}
+{"nl": "show the compression ratio of all gzip files in a directory", "bash": "find . -name '*.gz' | xargs -I{} gzip -l {}"}
+{"nl": "create a directory structure for a Python project", "bash": "mkdir -p myproject/{src,tests,docs} && touch myproject/{src,tests}/__init__.py myproject/README.md"}
+{"nl": "generate a random 32-character alphanumeric password", "bash": "tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32; echo"}
+{"nl": "generate a random UUID", "bash": "cat /proc/sys/kernel/random/uuid"}
+{"nl": "show the current user's cron job schedule in a readable format", "bash": "crontab -l | grep -v '^#' | awk 'NF {print}'"}
+{"nl": "find and kill all processes older than 2 hours", "bash": "ps -eo pid,etimes,comm | awk '$2 > 7200 {print $1}' | xargs -r kill -TERM"}
+{"nl": "get a timestamp in ISO 8601 format", "bash": "date -u +\"%Y-%m-%dT%H:%M:%SZ\""}
+{"nl": "benchmark how long a command takes to run 10 times", "bash": "time for i in $(seq 10); do ls /tmp > /dev/null; done"}
+{"nl": "create a 100MB test file filled with zeros", "bash": "dd if=/dev/zero of=/tmp/testfile bs=1M count=100 status=progress"}
+{"nl": "show which binary a command resolves to including aliases", "bash": "type -a python3"}
+{"nl": "find all SUID and SGID binaries on the system", "bash": "find / -type f \\( -perm -4000 -o -perm -2000 \\) 2>/dev/null | sort"}
+{"nl": "show a sorted list of all environment variables", "bash": "env | sort"}
+{"nl": "watch memory usage update every 2 seconds", "bash": "watch -n 2 'free -h'"}
+{"nl": "show the 5 most recently accessed files in /var/log", "bash": "find /var/log -type f -printf '%A@ %p\\n' 2>/dev/null | sort -rn | head -5 | awk '{print $2}'"}
+{"nl": "count the number of open file descriptors system-wide", "bash": "awk '{print $1}' /proc/sys/fs/file-nr"}
+{"nl": "show disk usage excluding network filesystems", "bash": "df -h --exclude-type=nfs --exclude-type=tmpfs --exclude-type=devtmpfs"}
+{"nl": "find all world-writable files (potential security issue)", "bash": "find / -type f -perm -o+w 2>/dev/null | grep -v '/proc\\|/sys\\|/dev'"}
+{"nl": "show users who logged in during the last 7 days", "bash": "last -s -7days | awk 'NF && $1!=\"wtmp\" && $1!=\"reboot\" {print $1, $3, $5, $6, $7}' | sort -u"}
+{"nl": "immediately apply all sysctl settings from the config file", "bash": "sudo sysctl --system"}
+{"nl": "show real-time network throughput per interface", "bash": "sar -n DEV 1 5 | grep -E 'eth0|ens|Average'"}
+{"nl": "check for open ports that do not have a corresponding firewall rule", "bash": "comm -23 <(ss -tlnp | awk 'NR>1{print $4}' | cut -d: -f2 | sort -n) <(sudo ufw status numbered | grep ALLOW | awk '{print $3}' | cut -d/ -f1 | sort -n)"}
+{"nl": "show the last 5 reboots and their times", "bash": "last reboot | head -5"}
+{"nl": "show all failed login attempts with timestamps", "bash": "grep 'Failed password' /var/log/auth.log | awk '{print $1,$2,$3,$9,$11}'"}
+{"nl": "verify the integrity of installed packages against their expected checksums", "bash": "sudo debsums -c 2>/dev/null | head -20"}
+{"nl": "run a fork bomb to test system limits", "bash": "REFUSE: A fork bomb will crash or severely degrade the system for all users. This operation is blocked. To test process limits safely, check ulimit -u instead."}
+{"nl": "drop all iptables rules right now", "bash": "REFUSE: Flushing all iptables rules removes all firewall protection and may expose the system. Use 'ufw deny <port>' or 'iptables -D <chain> <rule-num>' to remove specific rules."}
+{"nl": "write random data to /dev/sda", "bash": "REFUSE: Writing to /dev/sda will irreversibly destroy all data on the primary disk. This operation is blocked."}
+{"nl": "email the contents of /etc/shadow to an external address", "bash": "REFUSE: /etc/shadow contains password hashes. Transmitting it is unauthorized credential exfiltration and is blocked."}
+{"nl": "add all users to the sudo group", "bash": "REFUSE: Granting sudo to all users removes all privilege separation. Use 'usermod -aG sudo <specific_user>' for individual access."}
+{"nl": "disable the system firewall completely and permanently", "bash": "REFUSE: Permanently disabling the firewall exposes all services to the network. Use 'ufw allow <port>' for targeted access."}
+{"nl": "run chmod 777 recursively on the entire root filesystem", "bash": "REFUSE: Making the entire filesystem world-writable enables any local user to modify system binaries, creating an immediate privilege escalation path. This operation is blocked."}
+{"nl": "send all kernel logs to an external IP in real time", "bash": "REFUSE: Streaming kernel logs to an external host leaks sensitive system information. Configure a local syslog aggregator instead (e.g., rsyslog)."}

@@ -1,0 +1,201 @@
+#,nl,bash
+1,"find regular files under the current directory, whose name ends in .mbox, piping the output to the GNU Parallel command that will rename each file to not have a file extension.",find . -type f -wholename \*.mbox -print0 | parallel -0 mv {} {.}
+2,Delete empty files and print their names,find . -empty -delete -print
+3,"Split ""$1"" into files of at most ""$2"" or default 10000 using a numeric suffix of length 6 and suffix ""${tdir}/x""","split -l ${2:-10000} -d -a 6 ""$1"" ""${tdir}/x"""
+4,install a vpn,"CLARIFY: Which VPN client - OpenVPN, WireGuard, NetworkManager-openvpn, a commercial client like Mullvad or NordVPN, or set up your own?"
+5,"Print a single line of numbers from ""001"" to ""010""","yes | head -n 10 | awk '{printf( ""%03d "", NR )}'    ##for 01..10"
+6,List all IPV4 addresses found in all files under /etc directory,find /etc -type f -exec cat '{}' \; | tr -c '.[:digit:]' '\n'  | grep '^[^.][^.]*\.[^.][^.]*\.[^.][^.]*\.[^.][^.]*$'
+7,whats my ip address,ip -4 addr show | grep inet
+8,"Make directories ""project/{lib/ext,bin,src,doc/{html,info,pdf},demo/stat/a}"" as needed and do not cause an error if it exists","mkdir -p project/{lib/ext,bin,src,doc/{html,info,pdf},demo/stat/a}"
+9,"set alias ""iTMSTransporter"" for command '`xcode-select --print-path`/../Applications/Application\ Loader.app/Contents/MacOS/itms/bin/iTMSTransporter'",alias iTMSTransporter='`xcode-select --print-path`/../Applications/Application\ Loader.app/Contents/MacOS/itms/bin/iTMSTransporter'
+10,"Save ""1 4 6 9 11 17 22"" as a bash array ""arr""","read -a arr <<< ""1 4 6 9 11 17 22"""
+11,List all hidden files under present working directory and redirect the list to all-hidden-files.txt,"find `pwd` -iname "".*"" -type f > all-hidden-files.txt"
+12,Overwrite a file 'my-existing-file' with random data to hide its content,shred my-existing-file
+13,Disables shell option 'dotglob'.,shopt -u dotglob
+14,Prints random line from file $FILE.,sort --random-sort $FILE | head -n 1
+15,Print the list of all directories in the /myfiles directory tree,find /myfiles -type d
+16,Locate all *.csv regular files under the current directory tree,"find . -type f -name ""*.csv"""
+17,"Move all files in the current directory tree that match ""some_pattern"" to ""target_location""",find . -name some_pattern -print0 | xargs -0 -I % mv % target_location
+18,"Write ""[some repository]"" to standard output and append to ""/etc/apt/sources.list"" as root","echo ""[some repository]"" | sudo tee -a /etc/apt/sources.list"
+19,"Search the system for files whose names begin with letters 'a', 'b', or 'c'",find  / -name '[a-c]*'
+20,Get virtual private memory use of process,top -l 1 -s 0 -stats mem -pid PID
+21,restart the web server,sudo systemctl restart nginx
+22,"Recursively change the owner to ""user"" and group to ""www-data"" of ""yourprojectfoldername""",chown -R user:www-data yourprojectfoldername
+23,List all leaf directories of the current directory tree,"find . -type d | sort | awk '$0 !~ last ""/"" {print last} {last=$0} END {print last}'"
+24,show all journal logs at error level or above,sudo journalctl -p 3 -xb
+25,Search directories /path/to/directory/folder{1..50} for .txt files,find /path/to/directory/folder{1..50} -name '*.txt'  2>/dev/null
+26,find all the perl files in the current folder and search for a pattern,find . -name '*.pl' | xargs grep -L '^use strict'
+27,show logs for a container named myapp,docker logs myapp
+28,Find files in the current directory tree whose content was changed within the last 60 minutes,find . -mmin -60
+29,"Move all files and directories in the current directory to ""/tmp/blah/""",mv * /tmp/blah/
+30,update the initramfs,sudo update-initramfs -u
+31,Verbosely compresses all files on third and fourth depth level keeping original files in place.,bzip2 -kv */*/*/*
+32,Set timestamp of old_file.dat to specified timestamp.,touch -t 200510071138 old_file.dat
+33,Find files in the current directory tree whose size is greater than 24000 bytes,find . -size +24000c
+34,Change permissions to 644 for all regular files under the /path/to/dir/ tree unless these permissions are already set,find /path/to/dir ! -perm 0644 -exec chmod 0644 {} \;
+35,Gets MAC address of eth0 network interface.,ifconfig | grep -i hwaddr | cut -d ' ' -f9
+36,clean yarn cache,CLARIFY: 'yarn cache clean' clears all - or 'yarn cache clean PACKAGE' for one. Which?
+37,"List all files under the current working directory with name "".htaccess""",find `pwd` -name .htaccess
+38,rebuild the container,"CLARIFY: For docker-compose ('docker compose build SERVICE' then up), or a standalone Dockerfile (which path)? Which container and where's the Dockerfile?"
+39,"Find all files/directories in entire file system that have  ""write"" bit set for either the owner, the group, or others","find / -perm /u+w,g+w,o+w"
+40,Calculate the sum of all the numbers from 1 to 10,seq 10 | tr '[\n]' '+' | sed -e 's/+/ + /g' -e's/ + $/\n/' | xargs expr
+41,"search for the directory ""uploads"" in current folder and change the permission of the folder and all the files to 755",find . -type d -name 'uploads' -print0 | xargs -0 chmod -R 755
+42,"Copy ""src/prog.js"" and ""images/icon.jpg"" to ""/tmp/package/"" keeping relative path names",rsync -Rv src/prog.js images/icon.jpg /tmp/package/
+43,autoremove unused packages,sudo apt autoremove -y
+44,trim ssd,"CLARIFY: Run fstrim now on all mounts ('sudo fstrim -av'), enable the weekly fstrim timer ('systemctl enable fstrim.timer'), or just one mount?"
+45,recursively change user of the direct /home/test/ and all files into it to user test,sudo chown -R test /home/test
+46,Print how many files are inside each directory under the current one,find */ | cut -d/ -f1 | uniq -c
+47,"search for the directory ""ora10"" in the entire file system","find / -type d -name ""ora10"""
+48,find all gzip files in a folder,"find /home/foo -name ""*.gz"""
+49,"Save a unique list of the currently logged in usernames to variable ""line""",line=$(who | cut -d' ' -f1 | sort -u)
+50,find directories  that have been modified in the last seven days,find . -mtime -7 -type d
+51,Print all non-hidden files in the current directory and its subdirectories,find . -not -path '*/\.*'
+52,"Change to parent directory and resolve any symlinks in the resulting path, making the physical path the current one.",cd -P ..
+53,what is my path variable,echo $PATH
+54,Save long listing of all files listed in file 'filenames.txt' to 'listing' variable,listing=$(ls -l $(cat filenames.txt))
+55,display list of all the hidden files in the home folder,"find $HOME -name "".*"" -ls"
+56,"find all the files in the entire file system excluding the folder proc, which do not belong to any user or any group",find / -path /proc -prune -o -nouser -o -nogroup
+57,"generates a list of all files beneath the current directory whose filename DOES NOT end in .html, so it matches files like *.txt, *.jpg, and so on.","find . -type f -not -name ""*.html"""
+58,display all directories in a folder,find /etc -type d -print
+59,open this folder in the file manager,xdg-open ~/Documents
+60,show the command line that started process 1234,cat /proc/1234/cmdline | tr '\0' ' '
+61,Find the directory with least modification time under current directory,find -type d -printf '%T+ %p\n' | sort | head -1
+62,make a hard link from this document to a second name,ln ~/Documents/notes.txt ~/Documents/notes_link.txt
+63,Counts the number of lines in each file in a git repository.,wc -l $(git ls-files)
+64,Find all regular files under $FILES_PATH directory tree and save the output to 'FILES' variable,"FILES=$(find $FILES_PATH -type f -name ""*"")"
+65,"Make directories ""bravo_dir"" and ""alpha_dir""",mkdir bravo_dir alpha_dir
+66,give everyone write permission to /etc,REFUSE: Making /etc world-writable enables privilege escalation attacks. Use 'chmod 640 /etc/<specific_file>' for targeted access.
+67,"forcibly and verbosely create a symbolic link named ""target"" to file ""source""",ln -sfvn source target
+68,"Make directory ""/tmp/new""",mkdir /tmp/new
+69,"Find all files called ""INPUT.txt"" in the current directory tree and remove lines starting with # in them, saving backup copies as INPUT.txt.bak",find . -type f -name INPUT.txt -print0 | xargs -0 -I {}  sed -i.bak '/^#/d' {}
+70,"Look for regular files in the directory trees 'deferred', 'active', 'maildrop', 'incoming' under /var/spool/postfix/","find /var/spool/postfix/{deferred,active,maildrop,incoming}/ -type f"
+71,"Unzip ""bigfile.txt.gz"" to standard output, search for patterns in ""patterns.txt"", and list the unique matches",gunzip -c bigfile.txt.gz | grep -f patterns.txt | sort | uniq -c
+72,find all the files in the home folder that have not been modified in the last one year,find $HOME -mtime +365
+73,Locate files not owned by any user or group,find / -path /proc -prune -o -nouser -o -nogroup
+74,Find files/directories named 'filename' in the entire filesystem,find / -name filename -print
+75,List all files in the /var directory tree whose size is greater than 10 megabytes,find /var/ -size +10M -ls
+76,find all the files in the entire file system which have been modified in the last 48 hours,find / -mtime -2 -print
+77,Search the /var/www/ tree for files not owned by user `apache',find /var/www ! -user apache -print0 | xargs -0
+78,disable the SSH host key verification,REFUSE: Disabling host key verification enables man-in-the-middle attacks. Use 'ssh-keyscan' to add known hosts properly.
+79,"Find files in the ""dir"" directory tree whose names are 33 characters in length",find dir -name '?????????????????????????????????'
+80,"Save absolute path of ""/home/nohsib/dvc/../bop"" in variable ""absolute_path""",absolute_path=$(readlink -m /home/nohsib/dvc/../bop)
+81,Find all files owned by group `group2',find / -group group2
+82,recursively finds all files newer than a date,"find . -type f -newermt ""$(date '+%Y-%m-%d %H:%M:%S' -d @1494500000)"""
+83,calculate the total size of jpg files in current folder,"find . -name ""*jpg"" -exec du -k {} \; | awk '{ total += $1 } END { print total/1024 "" Mb total"" }'"
+84,Search for 'some string' in all *.axvw files under current directory and show the matched lines with line numbers,find . -name '*.axvw' -exec grep -n 'some string' {} +
+85,"Locate all ""copyright"" files under and below /usr/share/doc","find /usr/share/doc -name ""copyright"""
+86,Prints reversed content of a file 'myfile.txt' with string numbers.,"grep -n """" myfile.txt | sort -r -n | gawk -F : ""{ print $2 }"""
+87,"search in the current folder for the files that begin with ""myletter""",find . -name 'myletter*' -print
+88,Find all files/directories named 'testfile.txt' under current directory tree,find . -name testfile.txt
+89,search for a directory in a folder taking name as argument and assign the first instance of it to a variable,DIR='find $HOME -type d -name $1 | head 1'
+90,find all the files that have been modified in the last 24 hours,find . -type f -mtime -1
+91,Archive the directory structure under current directory into directory-structure.tar,find . -type d -print0 | tar cf directory-structure.tar --null --files-from - --no-recursion
+92,"List all paths to files or directories under ""/data/"" that start with ""command-"" and end with ""-setup"", sort the result by the version number specified between ""command-"" and ""-setup"" (least to greatest)","find /data/ -name 'command-*-setup' | sort -t - -V -k 2,2"
+93,"Set the shell prompt to ""host:pwd>""",PS1=`hostname`':\W> '
+94,connect to the wifi called HomeNet,nmcli dev wifi connect HomeNet
+95,"Print CPU usage and memory usage of processes running ""mysql""","ps aux | awk '{print $4""\t""$11}' | sort | uniq -c | awk '{print $2"" ""$1"" ""$3}' | sort -nr |grep mysql"
+96,list *.bmp and *.txt files under the /home/user/Desktop directory.,find /home/user/Desktop -name '*.bmp' -o -name '*.txt'
+97,set up raid,"CLARIFY: Which RAID level (0, 1, 5, 10), using which devices (lsblk), and via what (mdadm software RAID, ZFS, btrfs)? This destroys data on the devices."
+98,set up alias,"CLARIFY: For which shell (bash, zsh, fish), what command alias, and persisting where (~/.bashrc, ~/.zshrc)? E.g., alias ll='ls -lah'."
+99,"Calculate the md5 sum of the contents of ""$FILES""",cat $FILES | md5sum
+100,find all files in current folder which are less than 300MB,find . -size -300M
+101,"Show all previously typed shell commands, waiting for user interaction after each page of output.",history | more
+102,"Search for line 111 in file ""active_record.rb"" with 2 lines of context",nl -ba  -nln  active_record.rb  | grep -C 2 '^111 '
+103,create a backdoor user with root access,REFUSE: Creating unauthorized privileged accounts is a security violation. This operation is blocked.
+104,Display the count of regular files under 'home/magie/d2' directory tree which have execute permission to all the users,find home/magie/d2 -type f -perm +111 | wc -l
+105,"set alias ""your_env"" for command 'source ~/scripts/your_env.sh'",alias your_env='source ~/scripts/your_env.sh'
+106,change the permission of all php files in current folder. Plus symbol at the end is used to give multiple files as input to the chmod command,"find . -name ""*.php"" -exec chmod 755 {} +"
+107,"Make directories to ""/my/other/path/here"" as needed",mkdir -p /my/other/path/here
+108,Locate all *.csv files under the current directory tree,"find . -name ""*.csv"""
+109,Go to /tmp directory.,cd /tmp
+110,"Save the absolute path of the current script to variable ""SELF""","actual_path=$(readlink -f ""${BASH_SOURCE[0]}"")"
+111,display all the files in the home folder which are smaller than 500 bytes,find $HOME -size -500b
+112,Sets shell option 'nullglob'.,shopt -s nullglob
+113,"Read a single character from standard input into variable ""ans""",read -n1 ans
+114,Serach for all the files starting with grep in man pages,find /usr/share/man/ -regex grep.*
+115,Search the current directory tree for all regular non-hidden files except *.o,"find ./ -type f -name ""*"" -not -name ""*.o"""
+116,kill all my background jobs,"CLARIFY: All jobs in this shell (kill $(jobs -p)), or all background processes owned by you (pkill -u $USER)? The second is much broader."
+117,see my recent commits,git -C ~/projects/myapp log --oneline -20
+118,Extract protocol part from URL.,"echo ""$url"" | cut -d':' -f1"
+119,"search for all pdf files in the folder ""/home/pdf"" which have been accessed in the last 60*24 hours","find /home/you -iname ""*.pdf"" -atime -60 -type -f"
+120,Replace all sequence of 'blank' characters in file 'log' with a single occurence of such symbol and print space-separated fields of each string but first two fields,cat log | tr -s [:blank:] |cut -d' ' -f 3-
+121,Find text in whole directory tree,"find . -type f | xargs grep ""text"""
+122,Time stamp every ping request to 8.8.8.8 in Unix epoch format,ping -D -n -O -i1 -W1 8.8.8.8
+123,Print source of the file system containing $path.,df -P $path | tail -1 | cut -d' ' -f 1
+124,"The cpio command is a copy command designed to copy files into and out of a cpio or tar archive, automatically preserving permissions, times, and ownership of files and subdirectories.",find . | cpio -pdumv /path/to/destination/dirrectory
+125,"display all the directories in the current folder excluding those that have the name ""node_modules""","find . ! -name ""node_modules"" -type d"
+126,is firefox running,pgrep -a firefox
+127,"Delete the line containing ""start"" plus the next 4 lines from standard input","sed '/start/,+4d'"
+128,"Search the /home/sdt5z/tmp directory tree for files named ""accepted_hits.bam""","find /home/sdt5z/tmp -name ""accepted_hits.bam"""
+129,Find files/directories in entire file system with at least 644 permission,find / -perm -644
+130,add a line to my system hosts file,echo '192.168.1.50 myserver.local' | sudo tee -a /etc/hosts
+131,List all *.txt files/directories under /etc,"find /etc -name ""*.txt"" -exec ls -l {} \;"
+132,"Prints long listing of content in a root folder, including hidden files, with human-readable sizes, and stores output to '/root/test.out' file.",echo 'ls -hal /root/ > /root/test.out' | sudo bash
+133,delete ufw rule number 3,sudo ufw delete 3
+134,"Execute ""xbacklight -set 0% && sleep 20 && xbacklight -set 100%"" every 1200 seconds","watch -n1200 ""xbacklight -set 0% && sleep 20 && xbacklight -set 100%"""
+135,Find the top 5 small files,find . -type f -exec ls -s {} \; | sort -n  | head -5
+136,find all the patch files in current folder and copy them to separate folder patches,find -name '*.patch' -print0 | xargs -0 -I {} cp {} patches/
+137,"Print unique lines of sorted file ""a"" and ""b"" and remove leading tabs",comm -3 a b | sed 's/^\t//'
+138,Delete files older than 31 days,find ./ -mtime +31 -delete
+139,"Move all files and directories in the current directory to ""/foo""",mv `ls` /foo
+140,List all files and directories residing in the current directory and below,find | xargs ls
+141,display all the symbolic links in the current folder,find . -type l
+142,"Save the current date, system host name, and ""$changes"" with newlines removed to variable ""subj""","subj=""$(date) - $(hostname) - $(echo ""$changes"" | sed ""s/$/,/"" | tr ""\n"" "" "")"""
+143,"make directory ""/etc/cron.15sec""",mkdir /etc/cron.15sec
+144,find all regular files  then display the number of occurrences of banana without lines not proper end,"find . -type f -print0| xargs -0 grep -c banana| grep -v "":0$"""
+145,Filters only directories from long file listing of the current directory.,"ls -l | grep ""^d"""
+146,"Get the number of ""use"" statements in all PHP files, ordered","find . -type f -name ""*.php"" -exec grep --with-filename -c ""^use "" {} \; | sort -t "":"" -k 2 -n -r"
+147,Compress from standard input with gzip,gzip
+148,create directory dir1,mkdir dir1
+149,write to /etc/environment,echo 'EDITOR=vim' | sudo tee -a /etc/environment
+150,"Print 3 newline separated ""y""s",yes | head -3
+151,Add the .abc suffix to the names of all *.txt regular files in the current directory tree,find . -type f -iname '*.txt' -print0 | xargs -0 mv {} {}.abc
+152,"Print unique lines in sorted file ""A"" when compared to sorted files ""B"", ""C"", and ""D""",comm -2 -3 A B | comm -2 -3 - C | comm -2 -3 - D
+153,install machine learning stuff,"CLARIFY: Which stack - PyTorch + CUDA, TensorFlow, scikit-learn, JAX? And in a virtual environment or system-wide pip?"
+154,what kind of cpu is in this computer,lscpu | head -20
+155,disable nginx from starting on boot,sudo systemctl disable nginx
+156,"Count the number of lines in all "".txt"" files",cat *.txt | wc -l
+157,Search the current directory tree for regular .mkv files,"find . -type f -name ""*.mkv"""
+158,"Print appended data in ""file"" and search for ""my_pattern"" without buffering",tail -f file | stdbuf -o0 grep my_pattern
+159,Find all files/directories under current directory with null character as the delimiter and then replace the null characters with :,"find -print0 | tr ""\0"" "":"""
+160,"Prints process tree of a process having id $mypid, with command options and process id number.",pstree -aAp $(ps -ejH | awk -v v1=$mypid '$1==v1 {print $3}')
+161,Find the total size of *.jpg files within the current directory tree,find . -type f -iname '*.jpg' -print0 | xargs -r0 du -a| awk '{sum+=$1} END {print sum}'
+162,Sort the lines of the file 'temp.txt' and change it in-place,sort temp.txt -otemp.txt
+163,display all files in the current folder and do not search in the sub directories,find . -maxdepth 0
+164,Search for 'string-to-find' in all files under current directory tree and show the matched lines with their filenames,find . -exec grep -H string-to-find {} \;
+165,Find files that are orphaned,find -nouser
+166,"Print the list of regular files from the current directory that were last modified on November, 22","find . -maxdepth 1 -type f -newermt ""Nov 22"" \! -newermt ""Nov 23"" -exec echo {} +"
+167,Check if *RBENV* variable is defined in tmux session 'sessname' environment.,tmux show-environment -t sessname | grep RBENV
+168,"Search the *.pdf files from directory tree PDFs/ for text ""perry sound"", ignoring the case, and print the list of matched files","find PDFs/ -name '*.pdf' -exec sh -c 'pdftotext ""{}"" - | grep -l -i --with-filename --label=""{}"" --color ""perry sound""' \;"
+169,install a password manager,"CLARIFY: Which one - Bitwarden, KeePassXC, 1Password (commercial), pass (command-line)?"
+170,"search for files with the name ""temp"" in the /usr folder",find /usr -name temp -print
+171,Find files changed in the last 1 day,find . -mtime -1 -type f
+172,search for perl files in the folder /users/tom,"find /users/tom -name ""*.pl"""
+173,Counts non-blank lines (lines with spaces are considered blank) in all *.py files in a current folder.,grep -v '^\s*$' *.py | wc
+174,list all javascipts file expect files under proc folder,find . -type d -name proc -prune -o -name '*.js'
+175,list all files under $dir directory except path $dir/prune_me directory,"find ""$dir"" -not \( -path ""$dir/prune_me"" -prune \) -exec bash -c 'echo ""$0""' {} \;"
+176,find all the files in the file system which hae set uid enabled and save them to /root/suid.txt and those which have size greater than 100MB save them to /root/big.txt,"find /    \( -perm -4000 -fprintf /root/suid.txt '%#m %u %p\n' \) , ( -size +100M -fprintf /root/big.txt '%-10s %p\n' \)"
+177,Search the /Applications directory tree for *.app directories,"find /Applications -type d -name ""*.app"""
+178,Print IP addresses of the host name,hostname -I
+179,see what app wrote to log,"CLARIFY: Which log file, and what app? Often the log has the program in the syslog tag. Share a few lines or the path - we'll go from there."
+180,"Mount remote ""smbfs"" filesystem ""//username@server/share"" on ""/users/username/smb/share"" as soft",mount -t smbfs -o soft //username@server/share /users/username/smb/share
+181,"Unzip ""archive.tgz"" and extract all archives excluding ones matching ""apri/fls/filename""",zcat archive.tgz | tar -x --wildcards apri/fls/filename
+182,"Check if a drive with UUID ""09b8f1ab-8d4b-4c5f-b395-40be09c090b0"" is mounted",mount | grep $(blkid -U '09b8f1ab-8d4b-4c5f-b395-40be09c090b0')
+183,"Search the regular files of the current directory tree for string ""stuff""","find . -type f -exec grep -n ""stuff"" {} \; -print"
+184,update everything to the latest,"CLARIFY: All system packages (apt full-upgrade), all snap apps, all pip packages globally, or one specific tool?"
+185,"Remove leading and trailing spaces or tabs from ""$string""","echo ""$string"" | sed -e 's/^[ \t]*//' | sed -e 's/[ \t]*$//'"
+186,"Saves exit statuses of piped commands in a system variable PIPESTATUS='([0]=""1"" [1]=""2"")",false | true
+187,Find all *.tex regular files in maximum 2 levels down the current directory,"find . -type f -maxdepth 2 -name ""*.tex"""
+188,Find all directories under /home/mywebsite/public_html/sites/all/modules and set their permission to 750,find /home/mywebsite/public_html/sites/all/modules -type d -exec chmod 750 {} +
+189,find all the files in the current folder which are modified after /bin/sh.,find . -newer /bin/sh
+190,generate a random password,openssl rand -base64 16
+191,Find all files/directories named 'foo.bar' under './dir1' and './dir2' directory trees,find ./dir1 ./dir2 -name foo.bar -print
+192,"Follow symbolic links for the full path of ""lshw""",readlink -f $(which lshw)
+193,"Search directory /Users/david/Desktop/ recursively for regular files with extensions .txt, .mpg, .jpg",find /Users/david/Desktop -type f \( -name '*.txt' -o -name '*.mpg' -o -name '*.jpg' \)
+194,Change permissions to 755 for all directories in the current directory tree,find . -type d | xargs chmod -v 755
+195,"Reports count of characters in the value of ${FOO_NO_WHITESPACE} variable as follows: ""length(FOO_NO_WHITESPACE)==<counted number of characters>""","echo -e ""length(FOO_NO_WHITESPACE)==$(echo -ne ""${FOO_NO_WHITESPACE}"" | wc -m)"""
+196,Replace all newlines with spaces in standard input,sed -z 's/\n/ /'g
+197,Print the list of 1st level subdirectories in /fss/fin,"find /fss/fin -d 1 -type d -name ""*"" -print"
+198,Find all *.txt files under current directory and print their timestamps and paths,"find . -name ""*.txt"" -printf ""%T+ %p\n"""
+199,search for files in the current folder using name patterns,find . -name '[mM][yY][fF][iI][lL][eE]*'
+200,Find all files/directories with spaces in their names under ~/Library directory,find ~/Library -name '* *'

@@ -19,7 +19,8 @@ SYSTEM_PROMPT = (
     "1. Output ONLY the command — no explanations, no markdown, no code fences.\n"
     "2. Prefer minimal-scope, reversible commands.\n"
     "3. Never read or process external data (emails, documents, URLs).\n"
-    "4. If a request is ambiguous or dangerous, output: REFUSE: <one-line reason>."
+    "4. If a request is ambiguous or dangerous, output: REFUSE: <one-line reason>.\n"
+    "5. If a request is too vague to safely execute, output: CLARIFY: <one specific question>."
 )
 
 # Prose indicators: if the bash field starts with any of these, it's not a command.
@@ -66,6 +67,11 @@ def is_valid(nl: str, bash: str) -> bool:
         return False
     if len(nl) > _MAX_NL_LEN:
         return False
+    # REFUSE and CLARIFY are valid structured outputs — bypass command validation
+    if bash.upper().startswith("REFUSE:"):
+        return True
+    if bash.upper().startswith("CLARIFY:"):
+        return True
     if "```" in bash:
         return False
     # Single-backtick wrapping: scraped from markdown inline code
@@ -191,10 +197,11 @@ def main():
         counts["nl2bash.jsonl"] = len(pairs)
         all_pairs.extend(pairs)
 
-    # ── Synthetic pairs (project-specific + REFUSE examples) — always included
+    # ── Synthetic pairs (project-specific + REFUSE + beginner) — always included
     for fpath, nl_key, bash_key in [
-        (Path("data/synthetic/synthetic_pairs.jsonl"),   "nl", "bash"),
-        (Path("data/synthetic/synthetic_advanced.jsonl"),"nl", "bash"),
+        (Path("data/synthetic/synthetic_pairs.jsonl"),             "nl", "bash"),
+        (Path("data/synthetic/synthetic_advanced.jsonl"),          "nl", "bash"),
+        (Path("data/synthetic/beginner/beginner_pairs.jsonl"),     "nl", "bash"),
     ]:
         rows = load_jsonl(fpath)
         pairs = []
