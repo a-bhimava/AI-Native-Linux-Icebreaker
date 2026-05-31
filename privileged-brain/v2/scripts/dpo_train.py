@@ -48,7 +48,7 @@ def main():
     model_id = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
     if args.cot:
         sft_adapter = args.sft_adapter or "training/adapters/run7_cot/final"
-        output_dir = "training/adapters/run7_cot_dpo"
+        output_dir = "training/adapters/run7_cot_dpo_v2"
         data_file = "data/processed/dpo_pairs_cot.jsonl"
     else:
         sft_adapter = args.sft_adapter or "training/adapters/sft/final"
@@ -69,7 +69,7 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
-    # --- Load SFT-finetuned model as starting point ---
+    # --- Policy model: SFT adapter (trainable) ---
     print(f"Loading SFT adapter from: {sft_adapter}")
     base_model = AutoModelForCausalLM.from_pretrained(
         model_id,
@@ -81,13 +81,21 @@ def main():
     model.config.use_cache = False
     model.enable_input_require_grads()
 
-    # Reference model (frozen — base model without adapters)
-    ref_model = AutoModelForCausalLM.from_pretrained(
+    # --- Reference model: SFT adapter merged and frozen ---
+    # Must be the SFT model, not bare base — base model assigns near-zero probability
+    # to REFUSE/CoT format, which inverts the DPO reward signal.
+    print("Loading reference model (SFT merged, frozen)...")
+    ref_base = AutoModelForCausalLM.from_pretrained(
         model_id,
         torch_dtype=torch.bfloat16,
         device_map={"": device},
         trust_remote_code=True,
     )
+    ref_model = PeftModel.from_pretrained(ref_base, sft_adapter)
+    ref_model = ref_model.merge_and_unload()
+    ref_model.eval()
+    for param in ref_model.parameters():
+        param.requires_grad = False
 
     # --- Dataset ---
     dpo_data = load_dataset("json", data_files=data_file, split="train")

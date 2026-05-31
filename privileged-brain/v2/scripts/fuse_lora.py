@@ -19,15 +19,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--adapter",
-        choices=["sft", "dpo"],
+        choices=["sft", "dpo", "run7_cot"],
         default="dpo",
-        help="Which adapter to fuse (dpo = after DPO training, sft = after SFT only)",
+        help="Which adapter to fuse (run7_cot = CoT SFT adapter, dpo = after DPO, sft = SFT only)",
     )
-    parser.add_argument("--output-dir", default="conversion/fused_model")
+    parser.add_argument("--output-dir", default=None)
     args = parser.parse_args()
 
     model_id = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
     adapter_path = f"training/adapters/{args.adapter}/final"
+    if args.output_dir is None:
+        args.output_dir = f"conversion/{args.adapter}_fused"
 
     if not Path(adapter_path).exists():
         print(f"ERROR: Adapter not found at {adapter_path}")
