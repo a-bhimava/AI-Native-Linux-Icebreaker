@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# pb-serve — Privileged Brain inference daemon
+#
+# Keeps the model resident in memory so pb() queries take ~300ms instead of ~5s.
+# The model loads once at startup; subsequent calls hit the resident server.
+#
+# Usage:
+#   pb-serve start    # start server in background (idempotent)
+#   pb-serve stop     # kill the server
+#   pb-serve status   # print UP or DOWN
+#   pb-serve restart  # stop then start
+#
+# Quick setup — add to ~/.bashrc or ~/.zshrc:
+#   export PB_MODEL_PATH="$HOME/models/privileged-brain-awq.gguf"
+#   pb-serve start
+#   source /path/to/pb_trigger.bash   # or pb_trigger.zsh
+#
+# Environment variables:
+#   PB_MODEL_PATH   GGUF model file  (default: ~/models/privileged-brain-awq.gguf)
+#   PB_GRAMMAR      GBNF grammar file (default: auto-detected from script location)
+#   PB_PORT         Server port       (default: 8765)
+#   PB_THREADS      CPU threads       (default: 4)
+#   PB_CTX          Context size      (default: 512)
+
+set -euo pipefail
+
+PB_MODEL_PATH="${PB_MODEL_PATH:-"$HOME/models/privileged-brain-awq.gguf"}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PB_GRAMMAR="${PB_GRAMMAR:-"$SCRIPT_DIR/../inference/grammar/bash_cot.gbnf"}"
+PB_PORT="${PB_PORT:-8765}"
+PB_THREADS="${PB_THREADS:-4}"
+PB_CTX="${PB_CTX:-512}"
+PB_LOG="${PB_LOG:-/tmp/pb-serve.log}"
+
+_RED='\033[0;31m'
+_GRN='\033[0;32m'
+_CYN='\033[0;36m'
+_YLW='\033[0;33m'
+_RST='\033[0m'
+
+_server_running() {
+    curl -sf "http://127.0.0.1:${PB_PORT}/health" &>/dev/null
+}
+
+_start() {
+    if _server_running; then
+        echo -e "${_CYN}pb-serve:${_RST} already running on port ${PB_PORT}"
+        return 0
+    fi
+
+    if ! command -v llama-server &>/dev/null; then
+        echo -e "${_RED}Error:${_RST} llama-server not found. Install llama.cpp first."
+        echo "  https://github.com/ggml-org/llama.cpp"
+        exit 1
+    fi
+    if [[ ! -f "$PB_MODEL_PATH" ]]; then
+        echo -e "${_RED}Error:${_RST} Model not found at: $PB_MODEL_PATH"
+        echo "Set PB_MODEL_PATH to the location of your privileged-brain GGUF file."
+        exit 1
+    fi
+
+    local grammar_args=()
+    if [[ -f "$PB_GRAMMAR" ]]; then
+        grammar_args=("--grammar-file" "$PB_GRAMMAR")
+    fi
+
+    llama-server \
+        --model "$PB_MODEL_PATH" \
+        --port "$PB_PORT" \
+        --host 127.0.0.1 \
+        --threads "$PB_THREADS" \
+        --ctx-size "$PB_CTX" \
+        --n-predict 160 \
+        --log-disable \
+        "${grammar_args[@]}" \
+        &>"$PB_LOG" &
+    disown
+
+    # Wait for the server to become ready (up to 15s for model load)
+    local i=0
+    while ! _server_running; do
+        (( i++ ))
+        if (( i > 30 )); then
+            echo -e "${_RED}Error:${_RST} pb-serve failed to start after 15s. Check: $PB_LOG"
+            exit 1
+        fi
+        sleep 0.5
+    done
+
+    echo -e "${_GRN}pb-serve:${_RST} ready on port ${PB_PORT} (model loaded)"
+}
+
+_stop() {
+    if ! _server_running; then
+        echo -e "${_YLW}pb-serve:${_RST} not running"
+        return 0
+    fi
+    pkill -f "llama-server.*${PB_PORT}" 2>/dev/null || true
+    echo -e "${_CYN}pb-serve:${_RST} stopped"
+}
+
+_status() {
+    if _server_running; then
+        echo -e "${_GRN}UP${_RST} — pb-serve listening on port ${PB_PORT}"
+    else
+        echo -e "${_RED}DOWN${_RST} — pb-serve not running (run: pb-serve start)"
+    fi
+}
+
+case "${1:-start}" in
+    start)   _start ;;
+    stop)    _stop ;;
+    restart) _stop; _start ;;
+    status)  _status ;;
+    *)
+        echo "Usage: pb-serve {start|stop|restart|status}"
+        exit 1
+        ;;
+esac

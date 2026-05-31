@@ -310,6 +310,8 @@ All model inference runs through **llama.cpp**, a high-performance C++ inference
 - Exposes an OpenAI-compatible API endpoint locally
 - Supports speculative decoding (see below)
 
+For the v1 shell interface, `llama-server` is launched as a background daemon (`pb-serve`) at shell login. The `pb_trigger` function queries the resident server via its local API endpoint rather than spawning a new process per invocation — this reduces per-command latency from ~5s (cold-start model load) to ~300ms (resident model). The daemon starts once; every subsequent `pb` call is near-instant.
+
 ### Speculative Decoding for Terminal-Speed Responses
 
 The biggest UX challenge is latency. Large models generate tokens slowly on CPU. **Speculative Decoding** solves this by pairing a tiny "draft" model with the main "target" model:

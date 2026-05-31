@@ -137,16 +137,21 @@ User types NL in terminal
         ▼
 pb_trigger.bash / pb_trigger.zsh
         │
-        ▼
-llama.cpp + bash_cot.gbnf (grammar-constrained)
+        ├─── pb-serve running? ──YES──▶  llama-server :8765 (resident, ~300ms)
+        │
+        └─── NO ──────────────────────▶  llama-cli cold-start (~5s, warns user)
         │
         ▼
 Model output: "REASONING: ...\nCOMMAND: ..."
         │
-        ├─ Strip REASONING line (write to audit log)
+        ├─ Extract REASONING (write to stderr/audit)
+        │
+        ├─ Semantic consistency check: REASONING flags danger + COMMAND ≠ REFUSE → force REFUSE
+        │
+        ├─ Pattern-filter: known dangerous patterns → force REFUSE
         │
         ▼
-COMMAND line extracted
+COMMAND line
         │
         ▼
 shellcheck validation (~5ms)
@@ -165,7 +170,8 @@ Execute
 **Model artifacts:**
 - `models/privileged-brain-awq.gguf` — AWQ-quantized, ~870MB
 - `inference/grammar/bash_cot.gbnf` — GBNF grammar enforcing output format
-- `shell/pb_trigger.bash` + `shell/pb_trigger.zsh` — the complete shell interface
+- `shell/pb_trigger.bash` + `shell/pb_trigger.zsh` — shell interface
+- `shell/pb-serve` — inference daemon launcher (keeps model resident for fast queries)
 
 **What V1 is explicitly NOT:**
 - Not the full Dual-Brain architecture (Phase 2)
@@ -212,7 +218,7 @@ After training passes all gates:
 | **Phase A** | CoT pipeline: grammar, data processing, refuse pairs, DPO pairs | Weeks 1–2 |
 | **Phase B** | Run 7 on VM (SFT + DPO + eval) | Weeks 2–3 |
 | **Phase C** | Evaluate Run 7. Branch: pass → Phase D. Partial → Run 8. | Week 3–4 |
-| **Phase D** | Shell trigger (`pb_trigger.bash/zsh`) + shellcheck integration | Weeks 4–6 |
+| **Phase D** | Shell trigger (`pb_trigger.bash/zsh`) + shellcheck + pb-serve daemon | Weeks 4–6 |
 | **Phase E** | AWQ quantization, fuse LoRA, verify on quantized model | Month 2 |
 | **Phase F** | Integration testing: 100 diverse prompts, macOS + Ubuntu | Month 2–3 |
 | **Phase G** | V1 sign-off: all 3 gates pass on quantized model | Month 3–4 |
@@ -244,7 +250,8 @@ privileged-brain/
 │       └── bash_cot.gbnf          # NEW — CoT REASONING:/COMMAND: format
 ├── shell/
 │   ├── pb_trigger.bash            # NEW — end-to-end shell trigger (bash)
-│   └── pb_trigger.zsh             # NEW — end-to-end shell trigger (zsh)
+│   ├── pb_trigger.zsh             # NEW — end-to-end shell trigger (zsh)
+│   └── pb-serve                   # NEW — inference daemon launcher (llama-server)
 ├── v2/
 │   ├── scripts/
 │   │   ├── process_datasets.py    # MODIFY — add --cot flag + to_chatml_cot()
