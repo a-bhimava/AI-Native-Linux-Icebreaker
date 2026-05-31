@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
 SFT fine-tuning of Qwen 2.5 Coder 1.5B on NL2SH data.
-Runs on Apple M4 via PyTorch MPS backend.
+Runs on Apple M4 via PyTorch MPS backend, or CUDA on GCP L4.
 
 Usage:
   python3 scripts/sft_train.py
+  python3 scripts/sft_train.py --cot              # CoT format (REASONING:/COMMAND:)
   python3 scripts/sft_train.py --epochs 5 --lr 1e-4
 """
 
 import argparse
+import json
 import os
+import sys
 import torch
 
 
@@ -27,6 +30,8 @@ def main():
                         help="Enable memory-saving mode: batch=1, grad_checkpointing, seq=256")
     parser.add_argument("--resume", action="store_true",
                         help="Resume from latest checkpoint in output-dir")
+    parser.add_argument("--cot", action="store_true",
+                        help="Train on CoT-format data from data/processed/cot/")
     args = parser.parse_args()
 
     # Low-memory overrides — apply before any torch allocations
@@ -95,11 +100,33 @@ def main():
     model.print_trainable_parameters()
 
     # --- Dataset ---
-    print("Loading datasets...")
-    train_ds = load_dataset("json", data_files="data/processed/train.jsonl", split="train")
-    valid_ds = load_dataset("json", data_files="data/processed/valid.jsonl", split="train")
+    data_dir = "data/processed/cot" if args.cot else "data/processed/clean"
+    print(f"Loading datasets from: {data_dir}/")
+    train_ds = load_dataset("json", data_files=f"{data_dir}/train.jsonl", split="train")
+    valid_ds = load_dataset("json", data_files=f"{data_dir}/valid.jsonl", split="train")
     print(f"  Train: {len(train_ds)} examples")
     print(f"  Valid: {len(valid_ds)} examples")
+    print(f"  Format: {'CoT (REASONING:/COMMAND:)' if args.cot else 'standard (bare command)'}")
+
+    if args.cot:
+        # Verify format on 50 samples before spending GPU hours on malformed data
+        sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
+        from process_datasets import assert_cot_format
+        errors = 0
+        with open(f"{data_dir}/train.jsonl") as f:
+            for i, line in enumerate(f):
+                if i >= 50:
+                    break
+                try:
+                    assert_cot_format(json.loads(line))
+                except ValueError as e:
+                    print(f"  [CoT format ERROR sample {i+1}]: {e}")
+                    errors += 1
+        if errors:
+            print(f"\nABORTING: {errors}/50 samples failed CoT format check.")
+            print("Run: python3 scripts/process_datasets.py --cot  to regenerate.")
+            raise SystemExit(1)
+        print("  CoT format pre-check: 50/50 OK — starting training")
 
     def format_example(example):
         return {
@@ -151,6 +178,7 @@ def main():
     )
 
     print(f"\nStarting SFT training ({args.epochs} epochs)...")
+    print(f"Format               : {'CoT (REASONING:/COMMAND:)' if args.cot else 'standard'}")
     print(f"Effective batch size : {args.batch_size * args.grad_accum}")
     print(f"LoRA rank            : {args.lora_rank}")
     print(f"Max seq length       : {args.max_seq_len}")
