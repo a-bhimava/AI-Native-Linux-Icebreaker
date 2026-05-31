@@ -5,7 +5,7 @@
 # locally-running Privileged Brain model, validates it, and (optionally) executes it.
 #
 # Dependencies:
-#   - llama-cli or llama-server (llama.cpp)
+#   - pb-serve (recommended) or llama-cli / llama-run (fallback)
 #   - shellcheck (optional but recommended — brew install shellcheck / apt install shellcheck)
 #   - The Privileged Brain GGUF model at $PB_MODEL_PATH
 #
@@ -14,10 +14,15 @@
 #   pb "restart nginx"                # same
 #   pb --dry-run "restart nginx"      # generate only, do not execute
 #
+# Fast setup (add to ~/.bashrc):
+#   pb-serve start                    # starts resident inference daemon (~300ms/query)
+#   source /path/to/pb_trigger.bash   # loads pb() function
+#
 # Environment variables:
 #   PB_MODEL_PATH   Path to the GGUF model file (default: ~/models/privileged-brain-awq.gguf)
 #   PB_GRAMMAR      Path to the GBNF grammar file (default: auto-detected)
-#   PB_THREADS      Number of CPU threads for inference (default: 4)
+#   PB_PORT         Port for pb-serve resident server (default: 8765)
+#   PB_THREADS      Number of CPU threads for cold-start fallback (default: 4)
 #   PB_CTX          Context size tokens (default: 512)
 
 set -euo pipefail
@@ -26,6 +31,7 @@ set -euo pipefail
 PB_MODEL_PATH="${PB_MODEL_PATH:-"$HOME/models/privileged-brain-awq.gguf"}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PB_GRAMMAR="${PB_GRAMMAR:-"$SCRIPT_DIR/../inference/grammar/bash_cot.gbnf"}"
+PB_PORT="${PB_PORT:-8765}"
 PB_THREADS="${PB_THREADS:-4}"
 PB_CTX="${PB_CTX:-512}"
 
@@ -66,8 +72,15 @@ _usage() {
 
 # ── Check dependencies ─────────────────────────────────────────────────────────
 _check_deps() {
+    # If the resident server is up, no other deps required
+    if curl -sf "http://127.0.0.1:${PB_PORT}/health" &>/dev/null; then
+        return 0
+    fi
+    # Server not running — need llama-cli for cold-start fallback
     if ! command -v llama-cli &>/dev/null && ! command -v llama-run &>/dev/null; then
-        echo -e "${_RED}Error:${_RST} llama-cli not found. Install llama.cpp first."
+        echo -e "${_RED}Error:${_RST} pb-serve is not running and llama-cli was not found."
+        echo "Start the inference server: pb-serve start"
+        echo "Or install llama.cpp: https://github.com/ggml-org/llama.cpp"
         exit 1
     fi
     if [[ ! -f "$PB_MODEL_PATH" ]]; then
@@ -96,6 +109,29 @@ Rules you must always follow:
 5. If a request is ambiguous or dangerous: COMMAND: REFUSE: <one-line reason>
 6. If a request is too vague to safely execute: COMMAND: CLARIFY: <one specific question>"
 
+    # ── Fast path: resident pb-serve server (~300ms) ───────────────────────────
+    if curl -sf "http://127.0.0.1:${PB_PORT}/health" &>/dev/null; then
+        local json_payload
+        json_payload=$(PB_SYS="$system_prompt" PB_NL="$nl" python3 -c "
+import os, json
+print(json.dumps({
+    'messages': [
+        {'role': 'system', 'content': os.environ['PB_SYS']},
+        {'role': 'user',   'content': os.environ['PB_NL']},
+    ],
+    'max_tokens': 160,
+    'temperature': 0.0,
+}))
+")
+        curl -sf "http://127.0.0.1:${PB_PORT}/v1/chat/completions" \
+            -H "Content-Type: application/json" \
+            -d "$json_payload" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])"
+        return
+    fi
+
+    # ── Cold-start fallback: spawn llama-cli (~5s) ────────────────────────────
+    echo -e "${_YLW}Note: pb-serve not running — cold-start (~5s). Run: pb-serve start${_RST}" >&2
     local llama_bin
     llama_bin=$(command -v llama-cli 2>/dev/null || command -v llama-run 2>/dev/null)
 
@@ -176,6 +212,15 @@ main() {
     local reasoning
     reasoning=$(echo "$raw_output" | grep "^REASONING:" | head -1 | sed 's/^REASONING: //')
     [[ -n "$reasoning" ]] && echo -e "${_CYN}Reasoning:${_RST} $reasoning" >&2
+
+    # Semantic consistency check: REASONING flags danger but model didn't REFUSE → override
+    if [[ "${command^^}" != REFUSE:* ]] && [[ "${command^^}" != CLARIFY:* ]]; then
+        if echo "$reasoning" | grep -qiE \
+           "permanent|destroy|irreversible|unrecoverable|wipe.*drive|root access|bypass.*password|malicious|cannot be undone"; then
+            echo -e "${_RED}Warning: REASONING flags danger but model did not refuse — forcing REFUSE${_RST}" >&2
+            command="REFUSE: model contradiction (REASONING flagged danger without refusing)"
+        fi
+    fi
 
     # Apply pattern-filter fallback
     command=$(_pattern_check "$command")

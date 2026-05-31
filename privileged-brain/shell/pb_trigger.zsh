@@ -8,6 +8,7 @@
 : "${PB_MODEL_PATH:="$HOME/models/privileged-brain-awq.gguf"}"
 PB_SCRIPT_DIR="${0:A:h}"
 : "${PB_GRAMMAR:="$PB_SCRIPT_DIR/../inference/grammar/bash_cot.gbnf"}"
+: "${PB_PORT:=8765}"
 : "${PB_THREADS:=4}"
 : "${PB_CTX:=512}"
 
@@ -53,13 +54,19 @@ pb() {
         return 1
     fi
 
-    if ! command -v llama-cli &>/dev/null && ! command -v llama-run &>/dev/null; then
-        print -u2 "\033[0;31mError:\033[0m llama-cli not found. Install llama.cpp first."
-        return 1
-    fi
-    if [[ ! -f "$PB_MODEL_PATH" ]]; then
-        print -u2 "\033[0;31mError:\033[0m Model not found at: $PB_MODEL_PATH"
-        return 1
+    # If the resident server is up, no other deps required
+    if curl -sf "http://127.0.0.1:${PB_PORT}/health" &>/dev/null; then
+        : # server is running, all good
+    else
+        if ! command -v llama-cli &>/dev/null && ! command -v llama-run &>/dev/null; then
+            print -u2 "\033[0;31mError:\033[0m pb-serve is not running and llama-cli was not found."
+            print -u2 "Start the inference server: pb-serve start"
+            return 1
+        fi
+        if [[ ! -f "$PB_MODEL_PATH" ]]; then
+            print -u2 "\033[0;31mError:\033[0m Model not found at: $PB_MODEL_PATH"
+            return 1
+        fi
     fi
 
     local system_prompt="You are the Privileged Brain — a system execution engine for an AI-native OS. \
@@ -77,29 +84,49 @@ Rules you must always follow:
 5. If a request is ambiguous or dangerous: COMMAND: REFUSE: <one-line reason>
 6. If a request is too vague to safely execute: COMMAND: CLARIFY: <one specific question>"
 
-    local llama_bin
-    llama_bin=$(command -v llama-cli 2>/dev/null || command -v llama-run 2>/dev/null)
-
-    local grammar_args=()
-    [[ -f "$PB_GRAMMAR" ]] && grammar_args=("--grammar-file" "$PB_GRAMMAR")
-
     print -u2 "\033[0;36mThinking...\033[0m"
 
     local raw_output
-    raw_output=$(
-        "$llama_bin" \
-            --model "$PB_MODEL_PATH" \
-            --threads "$PB_THREADS" \
-            --ctx-size "$PB_CTX" \
-            --temp 0.0 \
-            --n-predict 160 \
-            --no-display-prompt \
-            --silent-prompt \
-            "${grammar_args[@]}" \
-            --system-prompt "$system_prompt" \
-            --prompt "$nl" \
-            2>/dev/null
-    )
+    # ── Fast path: resident pb-serve server (~300ms) ───────────────────────────
+    if curl -sf "http://127.0.0.1:${PB_PORT}/health" &>/dev/null; then
+        local json_payload
+        json_payload=$(PB_SYS="$system_prompt" PB_NL="$nl" python3 -c "
+import os, json
+print(json.dumps({
+    'messages': [
+        {'role': 'system', 'content': os.environ['PB_SYS']},
+        {'role': 'user',   'content': os.environ['PB_NL']},
+    ],
+    'max_tokens': 160,
+    'temperature': 0.0,
+}))
+")
+        raw_output=$(curl -sf "http://127.0.0.1:${PB_PORT}/v1/chat/completions" \
+            -H "Content-Type: application/json" \
+            -d "$json_payload" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])")
+    else
+        # ── Cold-start fallback: spawn llama-cli (~5s) ────────────────────────
+        print -u2 "\033[0;33mNote: pb-serve not running — cold-start (~5s). Run: pb-serve start\033[0m"
+        local llama_bin
+        llama_bin=$(command -v llama-cli 2>/dev/null || command -v llama-run 2>/dev/null)
+        local grammar_args=()
+        [[ -f "$PB_GRAMMAR" ]] && grammar_args=("--grammar-file" "$PB_GRAMMAR")
+        raw_output=$(
+            "$llama_bin" \
+                --model "$PB_MODEL_PATH" \
+                --threads "$PB_THREADS" \
+                --ctx-size "$PB_CTX" \
+                --temp 0.0 \
+                --n-predict 160 \
+                --no-display-prompt \
+                --silent-prompt \
+                "${grammar_args[@]}" \
+                --system-prompt "$system_prompt" \
+                --prompt "$nl" \
+                2>/dev/null
+        )
+    fi
 
     # Extract COMMAND line
     local command=""
@@ -115,6 +142,15 @@ Rules you must always follow:
     local reasoning
     reasoning=$(print "$raw_output" | grep "^REASONING:" | head -1 | sed 's/^REASONING: //')
     [[ -n "$reasoning" ]] && print -u2 "\033[0;36mReasoning:\033[0m $reasoning"
+
+    # Semantic consistency check: REASONING flags danger but model didn't REFUSE → override
+    if [[ "${(U)command}" != REFUSE:* ]] && [[ "${(U)command}" != CLARIFY:* ]]; then
+        if print "$reasoning" | grep -qiE \
+           "permanent|destroy|irreversible|unrecoverable|wipe.*drive|root access|bypass.*password|malicious|cannot be undone"; then
+            print -u2 "\033[0;31mWarning: REASONING flags danger but model did not refuse — forcing REFUSE\033[0m"
+            command="REFUSE: model contradiction (REASONING flagged danger without refusing)"
+        fi
+    fi
 
     # Pattern-filter fallback
     for pattern in "${_pb_danger_patterns[@]}"; do
