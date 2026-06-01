@@ -157,7 +157,6 @@ fn system_status_on_linux() {
     assert!(result["hostname"].is_string());
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn process_inspect_missing_pid_returns_invalid_params() {
     let mut mcpd = Mcpd::spawn();
@@ -167,10 +166,56 @@ fn process_inspect_missing_pid_returns_invalid_params() {
         "params": {},
         "id": 1,
     }));
-    // server.rs currently surfaces this via -32603 Internal error with the
-    // "Missing required param" anyhow message. After M1.1 (schema validation)
-    // this should become -32602 Invalid params. Keep the test loose for now.
-    assert!(resp["error"].is_object());
+    assert_eq!(resp["error"]["code"], -32602);
+}
+
+#[test]
+fn process_inspect_wrong_type_returns_invalid_params() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "process.inspect",
+        "params": {"pid": "not-an-integer"},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602);
+}
+
+#[test]
+fn extra_param_rejected_by_no_param_method() {
+    // additionalProperties: false in the schema should catch this.
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "system.status",
+        "params": {"unexpected": "field"},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602);
+}
+
+#[test]
+fn tools_list_carries_schema_version() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "tools/list",
+        "id": 1,
+    }));
+    assert!(resp["result"]["schema_version"].is_string());
+}
+
+#[test]
+fn tools_list_includes_real_schemas() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "tools/list",
+        "id": 1,
+    }));
+    let inspect = resp["result"]["tools"].as_array().unwrap().iter()
+        .find(|t| t["name"] == "process.inspect").unwrap().clone();
+    assert_eq!(inspect["params_schema"]["required"][0], "pid");
 }
 
 #[cfg(target_os = "linux")]

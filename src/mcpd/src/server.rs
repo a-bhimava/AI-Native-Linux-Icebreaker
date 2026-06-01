@@ -112,6 +112,24 @@ async fn dispatch(req: JsonRpcRequest) -> Result<JsonRpcResponse> {
     let id = req.id.unwrap_or(Value::Null);
     info!("method={} id={}", req.method, id);
 
+    // Sequence matters: known-method check FIRST (so unknown methods return
+    // -32601 Method not found), then schema validation (-32602 Invalid params),
+    // then execution. This keeps error codes faithful to JSON-RPC 2.0 §5.1.
+    if !is_known_method(&req.method) {
+        return Ok(JsonRpcResponse::err(
+            id,
+            -32601,
+            format!("Method not found: {}", req.method),
+        ));
+    }
+
+    // INV-4: every dispatched call's params are validated against its schema
+    // before the tool function runs. Schemas are embedded at compile time
+    // (see schema.rs) so this check cannot be bypassed at runtime.
+    if let Err(e) = crate::schema::validate(&req.method, &req.params) {
+        return Ok(JsonRpcResponse::err(id, -32602, format!("Invalid params: {}", e)));
+    }
+
     let result = match req.method.as_str() {
         // MCP discovery — returns the full tool catalogue
         "tools/list" => tools::list_all(),
@@ -126,24 +144,28 @@ async fn dispatch(req: JsonRpcRequest) -> Result<JsonRpcResponse> {
         // Process read-only tools
         "process.list"    => tools::process::list().await,
         "process.inspect" => {
-            let pid = req.params.get("pid")
-                .and_then(|v| v.as_u64())
-                .ok_or_else(|| anyhow::anyhow!("Missing required param: pid (u64)"))?;
-            tools::process::inspect(pid as u32).await
+            // Safe to unwrap: schema validation above guarantees `pid` is an
+            // integer in the valid range.
+            let pid = req.params["pid"].as_u64().expect("schema-validated") as u32;
+            tools::process::inspect(pid).await
         }
 
-        // Unknown method
-        method => {
-            return Ok(JsonRpcResponse::err(
-                id,
-                -32601,
-                format!("Method not found: {}", method),
-            ));
-        }
+        // Unreachable: is_known_method() gates this match above.
+        other => unreachable!("dispatch reached unknown method '{}' after is_known_method check", other),
     };
 
     match result {
         Ok(value) => Ok(JsonRpcResponse::ok(id, value)),
         Err(e) => Ok(JsonRpcResponse::err(id, -32603, e.to_string())),
     }
+}
+
+/// Returns true if `method` is one of the methods this dispatcher routes.
+/// Single source of truth for both the -32601 check and the match arms.
+fn is_known_method(method: &str) -> bool {
+    matches!(method,
+        "tools/list"
+        | "system.status" | "system.uptime" | "system.cpu" | "system.memory" | "system.disk"
+        | "process.list" | "process.inspect"
+    )
 }
