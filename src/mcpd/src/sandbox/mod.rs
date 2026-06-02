@@ -18,14 +18,22 @@
 
 #[cfg(target_os = "linux")]
 mod landlock;
+#[cfg(target_os = "linux")]
+mod seccomp;
 
 /// Apply all available sandboxing layers. Idempotent in the sense that the
 /// kernel will refuse to widen an already-applied ruleset, but `apply` should
 /// only be called once at startup.
+///
+/// Order matters: Landlock first (filesystem access), Seccomp-BPF second
+/// (syscall surface). Doing Seccomp first would block `landlock_*` syscalls
+/// unless they're explicitly allowed; doing Landlock first means the
+/// seccomp install itself doesn't trip the filesystem ruleset.
 pub fn apply() -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     {
         landlock::apply()?;
+        seccomp::apply()?;
     }
     #[cfg(not(target_os = "linux"))]
     {
