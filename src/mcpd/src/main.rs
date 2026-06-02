@@ -1,6 +1,7 @@
 use anyhow::Result;
 use tracing::info;
 
+mod audit;
 mod sandbox;
 mod schema;
 mod server;

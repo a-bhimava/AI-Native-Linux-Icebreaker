@@ -77,24 +77,52 @@ pub async fn run_stdio_server() -> Result<()> {
             continue;
         }
 
+        let started = std::time::Instant::now();
         let response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
             Err(e) => {
                 warn!("Parse error: {}", e);
-                JsonRpcResponse::err(Value::Null, -32700, format!("Parse error: {}", e))
+                let resp = JsonRpcResponse::err(Value::Null, -32700, format!("Parse error: {}", e));
+                crate::audit::log_intent(
+                    "<parse_error>",
+                    None,
+                    &Value::Null,
+                    crate::audit::ResultClass::ParseError,
+                    started.elapsed().as_micros(),
+                );
+                resp
             }
             Ok(req) => {
                 if req.jsonrpc != "2.0" {
-                    JsonRpcResponse::err(
-                        req.id.unwrap_or(Value::Null),
+                    let resp = JsonRpcResponse::err(
+                        req.id.clone().unwrap_or(Value::Null),
                         -32600,
                         "Invalid Request: jsonrpc must be '2.0'",
-                    )
+                    );
+                    crate::audit::log_intent(
+                        &req.method,
+                        req.id.as_ref(),
+                        &req.params,
+                        crate::audit::ResultClass::InvalidParams,
+                        started.elapsed().as_micros(),
+                    );
+                    resp
                 } else {
                     let id = req.id.clone().unwrap_or(Value::Null);
-                    dispatch(req).await.unwrap_or_else(|e| {
+                    let method = req.method.clone();
+                    let req_id_clone = req.id.clone();
+                    let params_clone = req.params.clone();
+                    let resp = dispatch(req).await.unwrap_or_else(|e| {
                         error!("Dispatch error: {}", e);
                         JsonRpcResponse::err(id, -32603, format!("Internal error: {}", e))
-                    })
+                    });
+                    crate::audit::log_intent(
+                        &method,
+                        req_id_clone.as_ref(),
+                        &params_clone,
+                        classify(&resp),
+                        started.elapsed().as_micros(),
+                    );
+                    resp
                 }
             }
         };
@@ -106,6 +134,31 @@ pub async fn run_stdio_server() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Map a JSON-RPC response to an audit result class.
+fn classify(resp: &JsonRpcResponse) -> crate::audit::ResultClass {
+    if let Some(err) = &resp.error {
+        return match err.code {
+            -32601 => crate::audit::ResultClass::MethodNotFound,
+            -32602 => crate::audit::ResultClass::InvalidParams,
+            -32700 => crate::audit::ResultClass::ParseError,
+            _ => crate::audit::ResultClass::Err,
+        };
+    }
+    // Look inside the result envelope for a sentinel status field.
+    if let Some(result) = &resp.result {
+        if let Some(status) = result.get("status").and_then(|v| v.as_str()) {
+            return match status {
+                "requires_cow_approval" => crate::audit::ResultClass::CowRequired,
+                "unavailable" => crate::audit::ResultClass::Unavailable,
+                "refused" => crate::audit::ResultClass::Refused,
+                "err" => crate::audit::ResultClass::Err,
+                _ => crate::audit::ResultClass::Ok,
+            };
+        }
+    }
+    crate::audit::ResultClass::Ok
 }
 
 async fn dispatch(mut req: JsonRpcRequest) -> Result<JsonRpcResponse> {

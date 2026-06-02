@@ -11,6 +11,12 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
+fn unique_audit_path() -> std::path::PathBuf {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    std::env::temp_dir().join(format!("mcpd-audit-test-{}-{}.log", std::process::id(), stamp))
+}
+
 /// A handle to a running mcpd subprocess plus line-buffered stdio.
 struct Mcpd {
     child: Child,
@@ -20,13 +26,19 @@ struct Mcpd {
 
 impl Mcpd {
     fn spawn() -> Self {
+        Self::spawn_with_audit(None)
+    }
+
+    fn spawn_with_audit(audit_path: Option<&std::path::Path>) -> Self {
         let bin = env!("CARGO_BIN_EXE_mcpd");
-        let mut child = Command::new(bin)
-            .stdin(Stdio::piped())
+        let mut cmd = Command::new(bin);
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null()) // suppress tracing logs
-            .spawn()
-            .expect("spawn mcpd");
+            .stderr(Stdio::null());
+        if let Some(p) = audit_path {
+            cmd.env("MCPD_AUDIT_LOG", p);
+        }
+        let mut child = cmd.spawn().expect("spawn mcpd");
         let stdin = child.stdin.take().expect("stdin");
         let stdout = BufReader::new(child.stdout.take().expect("stdout"));
         Self { child, stdin, stdout }
@@ -620,4 +632,68 @@ fn package_remove_and_upgrade_also_gated() {
         assert!(resp["error"].is_null());
         assert_eq!(resp["result"]["status"], "requires_cow_approval");
     }
+}
+
+// ── M1.9: audit log (INV-8) ──────────────────────────────────────────────────
+
+#[test]
+fn audit_writes_one_line_per_request() {
+    let path = unique_audit_path();
+    let mut mcpd = Mcpd::spawn_with_audit(Some(&path));
+
+    let _ = mcpd.call(&json!({"jsonrpc": "2.0", "method": "tools/list", "id": 1}));
+    let _ = mcpd.call(&json!({"jsonrpc": "2.0", "method": "nope.method", "id": 2}));
+    let _ = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.read",
+        "params": {"path": "/etc/hosts"},
+        "id": 3,
+    }));
+
+    // Force the child to exit so its file handle flushes.
+    drop(mcpd);
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let content = std::fs::read_to_string(&path)
+        .expect("audit file should exist after the 3 calls");
+    let lines: Vec<&str> = content.lines().filter(|l| !l.is_empty()).collect();
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(lines.len(), 3, "expected 3 lines, got {}: {:?}", lines.len(), lines);
+    for line in &lines {
+        let v: Value = serde_json::from_str(line).expect("each line is JSON");
+        assert!(v["timestamp"].is_string());
+        assert!(v["method"].is_string());
+        assert!(v["result_class"].is_string());
+        assert!(v["latency_us"].is_number());
+    }
+    // Spot-check result_class mapping.
+    let classes: Vec<&str> = lines.iter()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap()["result_class"].as_str().unwrap().to_string())
+        .map(|s| Box::leak(s.into_boxed_str()) as &str)
+        .collect();
+    assert!(classes.contains(&"ok"));
+    assert!(classes.contains(&"method_not_found"));
+}
+
+#[test]
+fn audit_redacts_paths_outside_home() {
+    let path = unique_audit_path();
+    let mut mcpd = Mcpd::spawn_with_audit(Some(&path));
+
+    let _ = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.read",
+        "params": {"path": "/etc/shadow"},
+        "id": 1,
+    }));
+    drop(mcpd);
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let content = std::fs::read_to_string(&path)
+        .expect("audit file should exist");
+    let _ = std::fs::remove_file(&path);
+
+    assert!(content.contains("<redacted:/etc>"), "expected redacted family marker, got: {}", content);
+    assert!(!content.contains("shadow"), "raw target leaked into audit log: {}", content);
 }
