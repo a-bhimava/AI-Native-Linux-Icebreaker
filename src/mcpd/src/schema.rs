@@ -32,6 +32,8 @@ const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("fs.read",        include_str!("../schemas/fs.read.json")),
     ("fs.list",        include_str!("../schemas/fs.list.json")),
     ("fs.stat",        include_str!("../schemas/fs.stat.json")),
+    ("fs.write",       include_str!("../schemas/fs.write.json")),
+    ("fs.delete",      include_str!("../schemas/fs.delete.json")),
 ];
 
 /// `tools/list` has no schema — it's the discovery endpoint, accepts any params.
@@ -175,14 +177,37 @@ mod tests {
     }
 
     #[test]
-    fn registered_methods_includes_all_ten() {
+    fn registered_methods_includes_all_twelve() {
         let methods: Vec<&str> = registered_methods().collect();
-        assert_eq!(methods.len(), 10);
+        assert_eq!(methods.len(), 12);
         assert!(methods.contains(&"system.status"));
         assert!(methods.contains(&"process.inspect"));
         assert!(methods.contains(&"fs.read"));
         assert!(methods.contains(&"fs.list"));
         assert!(methods.contains(&"fs.stat"));
+        assert!(methods.contains(&"fs.write"));
+        assert!(methods.contains(&"fs.delete"));
+    }
+
+    #[test]
+    fn fs_write_requires_path_and_content() {
+        assert!(validate("fs.write", &json!({})).is_err());
+        assert!(validate("fs.write", &json!({"path": "/tmp/x"})).is_err());
+        assert!(validate("fs.write", &json!({"content": "x"})).is_err());
+        assert!(validate("fs.write", &json!({"path": "/tmp/x", "content": "x"})).is_ok());
+        assert!(validate("fs.write", &json!({"path": "/tmp/x", "content": "x", "mode": 420})).is_ok());
+    }
+
+    #[test]
+    fn fs_write_rejects_invalid_mode() {
+        assert!(validate("fs.write", &json!({"path": "/tmp/x", "content": "x", "mode": -1})).is_err());
+        assert!(validate("fs.write", &json!({"path": "/tmp/x", "content": "x", "mode": 99999})).is_err());
+    }
+
+    #[test]
+    fn fs_delete_requires_path() {
+        assert!(validate("fs.delete", &json!({})).is_err());
+        assert!(validate("fs.delete", &json!({"path": "/tmp/x"})).is_ok());
     }
 
     #[test]

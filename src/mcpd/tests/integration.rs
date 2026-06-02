@@ -367,3 +367,73 @@ fn fs_read_rejects_extra_field() {
     }));
     assert_eq!(resp["error"]["code"], -32602);
 }
+
+// ── M1.5: fs.write + fs.delete + COW gate (INV-6) ────────────────────────────
+
+#[test]
+fn fs_delete_always_returns_cow_gate() {
+    // Per the catalogue, fs.delete never executes synchronously in Phase 1.
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.delete",
+        "params": {"path": "/tmp/whatever"},
+        "id": 1,
+    }));
+    assert!(resp["error"].is_null(), "expected ok result, got {:?}", resp["error"]);
+    assert_eq!(resp["result"]["status"], "requires_cow_approval");
+    let intent_id = resp["result"]["intent_id"].as_str().unwrap();
+    assert!(intent_id.len() >= 32, "intent_id should be a UUID-ish string");
+    assert_eq!(resp["result"]["preview"]["operation"], "fs.delete");
+}
+
+#[test]
+fn fs_write_outside_home_returns_cow_gate() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.write",
+        "params": {"path": "/etc/hosts.test", "content": "x"},
+        "id": 1,
+    }));
+    assert!(resp["error"].is_null(), "expected ok, got {:?}", resp["error"]);
+    assert_eq!(resp["result"]["status"], "requires_cow_approval");
+    assert_eq!(resp["result"]["preview"]["operation"], "fs.write");
+    assert_eq!(resp["result"]["preview"]["proposed_size_bytes"], 1);
+}
+
+#[test]
+fn fs_write_outside_whitelist_returns_error() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.write",
+        "params": {"path": "/boot/foo", "content": "x"},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32603);
+}
+
+#[test]
+fn fs_write_missing_content_is_invalid_params() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.write",
+        "params": {"path": "/tmp/x"},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602);
+}
+
+#[test]
+fn fs_write_rejects_bad_mode() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.write",
+        "params": {"path": "/tmp/x", "content": "x", "mode": 99999},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602);
+}

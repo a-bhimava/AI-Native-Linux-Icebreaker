@@ -19,6 +19,7 @@ thiserror = "1"
 libc = "0.2"
 jsonschema = { version = "0.18", default-features = false }
 nix = { version = "0.28", features = ["fs"] }
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = "0.4"

@@ -164,6 +164,16 @@ async fn dispatch(req: JsonRpcRequest) -> Result<JsonRpcResponse> {
             let path = req.params["path"].as_str().expect("schema-validated");
             tools::fs::stat(path).await
         }
+        "fs.write" => {
+            let path = req.params["path"].as_str().expect("schema-validated");
+            let content = req.params["content"].as_str().expect("schema-validated");
+            let mode = req.params.get("mode").and_then(|v| v.as_u64()).map(|m| m as u32);
+            tools::fs::write(path, content, mode).await
+        }
+        "fs.delete" => {
+            let path = req.params["path"].as_str().expect("schema-validated");
+            tools::fs::delete(path).await
+        }
 
         // Unreachable: is_known_method() gates this match above.
         other => unreachable!("dispatch reached unknown method '{}' after is_known_method check", other),
@@ -182,6 +192,6 @@ fn is_known_method(method: &str) -> bool {
         "tools/list"
         | "system.status" | "system.uptime" | "system.cpu" | "system.memory" | "system.disk"
         | "process.list" | "process.inspect"
-        | "fs.read" | "fs.list" | "fs.stat"
+        | "fs.read" | "fs.list" | "fs.stat" | "fs.write" | "fs.delete"
     )
 }

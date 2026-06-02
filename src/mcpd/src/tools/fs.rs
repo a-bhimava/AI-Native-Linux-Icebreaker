@@ -31,7 +31,16 @@ use std::sync::OnceLock;
 
 const STATIC_ROOTS: &[&str] = &["/proc", "/sys", "/tmp", "/var/log", "/etc"];
 const MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_WRITE_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_PATH_LEN: usize = 4096; // matches Linux PATH_MAX
+const DEFAULT_FILE_MODE: u32 = 0o644;
+
+/// Subdirs under $HOME considered too sensitive to write directly even though
+/// they are technically under $HOME. Writes here ALWAYS go through the COW
+/// gate (INV-6). Match is by leading path component after $HOME.
+const SENSITIVE_HOME_SUBDIRS: &[&str] = &[
+    ".ssh", ".aws", ".gnupg", ".gpg", ".kube", ".docker", ".config/secrets",
+];
 
 // ── Pure path validation ──────────────────────────────────────────────────────
 
@@ -165,6 +174,80 @@ pub async fn list(path: &str) -> Result<Value> {
     }))
 }
 
+/// fs.write — Tier 1 inside safe $HOME, Tier 3 (COW gate) everywhere else.
+/// INV-6: writes outside $HOME never execute synchronously in Phase 1.
+pub async fn write(path: &str, content: &str, mode: Option<u32>) -> Result<Value> {
+    let v = validate(path)?;
+    if content.len() as u64 > MAX_WRITE_BYTES {
+        bail!("content too large ({} bytes > {} max)", content.len(), MAX_WRITE_BYTES);
+    }
+
+    if !is_tier_1_safe(&v) {
+        return Ok(cow_gate_response("fs.write", path, content.len() as u64));
+    }
+
+    let mode = mode.unwrap_or(DEFAULT_FILE_MODE);
+    safe_write(&v.root, &v.rel, content, mode)?;
+    Ok(json!({
+        "status": "ok",
+        "path": path,
+        "bytes_written": content.len(),
+        "mode": format!("{:o}", mode),
+    }))
+}
+
+/// fs.delete — ALWAYS Tier 3 per the catalogue. Never executes synchronously
+/// in Phase 1; the response is always a COW gate ticket.
+pub async fn delete(path: &str) -> Result<Value> {
+    let v = validate(path)?;
+    // Capture metadata so the preview is useful even before Phase 3 commits.
+    let preview_size = safe_open_readonly(&v.root, &v.rel)
+        .ok()
+        .and_then(|f| f.metadata().ok())
+        .map(|m| m.len())
+        .unwrap_or(0);
+    Ok(cow_gate_response_with_size("fs.delete", path, preview_size, 0))
+}
+
+/// `Tier 1` predicate: under $HOME and NOT in a sensitive subdir.
+fn is_tier_1_safe(v: &ValidatedPath) -> bool {
+    if v.root != *home() {
+        return false;
+    }
+    // v.rel is relative to $HOME. Reject if it starts with any sensitive subdir.
+    let rel = v.rel.as_str();
+    for sub in SENSITIVE_HOME_SUBDIRS {
+        if rel == *sub || rel.starts_with(&format!("{}/", sub)) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Build a Tier 3 COW gate response (INV-6). Phase 3 will accept this
+/// `intent_id` and run the actual COW commit pipeline.
+fn cow_gate_response(operation: &str, path: &str, proposed_size: u64) -> Value {
+    cow_gate_response_with_size(operation, path, 0, proposed_size)
+}
+
+fn cow_gate_response_with_size(
+    operation: &str,
+    path: &str,
+    current_size: u64,
+    proposed_size: u64,
+) -> Value {
+    json!({
+        "status": "requires_cow_approval",
+        "intent_id": uuid::Uuid::new_v4().to_string(),
+        "preview": {
+            "operation": operation,
+            "path": path,
+            "current_size_bytes": current_size,
+            "proposed_size_bytes": proposed_size,
+        },
+    })
+}
+
 pub async fn stat(path: &str) -> Result<Value> {
     let v = validate(path)?;
     let file = safe_open_readonly(&v.root, &v.rel)?;
@@ -219,6 +302,55 @@ fn safe_open_readonly(root: &Path, rel: &str) -> Result<std::fs::File> {
         bail!("path escapes root after canonicalization (symlink?): {:?}", canonical);
     }
     std::fs::File::open(&canonical).map_err(|e| anyhow!("open failed: {}", e))
+}
+
+#[cfg(target_os = "linux")]
+fn safe_write(root: &Path, rel: &str, content: &str, mode: u32) -> Result<()> {
+    use nix::fcntl::{openat2, OFlag, OpenHow, ResolveFlag};
+    use nix::sys::stat::Mode;
+    use std::io::Write;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    let dir = std::fs::File::open(root)
+        .map_err(|e| anyhow!("cannot open whitelist root '{}': {}", root.display(), e))?;
+    let how = OpenHow::new()
+        .flags(OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_TRUNC | OFlag::O_CLOEXEC)
+        .mode(Mode::from_bits_truncate(mode))
+        .resolve(ResolveFlag::RESOLVE_BENEATH | ResolveFlag::RESOLVE_NO_SYMLINKS);
+    let fd = openat2(dir.as_raw_fd(), rel, how)
+        .map_err(|e| anyhow!("openat2(write) refused '{}': {}", rel, e))?;
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    file.write_all(content.as_bytes())
+        .map_err(|e| anyhow!("write failed: {}", e))?;
+    file.sync_all().ok(); // best-effort fsync
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn safe_write(root: &Path, rel: &str, content: &str, mode: u32) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let full = root.join(rel);
+    // canonicalize the parent so we catch symlink-escape attempts; the file
+    // itself may not exist yet.
+    if let Some(parent) = full.parent() {
+        let root_canon = std::fs::canonicalize(root)
+            .map_err(|e| anyhow!("canonicalize root failed: {}", e))?;
+        let parent_canon = std::fs::canonicalize(parent)
+            .map_err(|e| anyhow!("canonicalize parent failed: {}", e))?;
+        if !parent_canon.starts_with(&root_canon) {
+            bail!("write target escapes root after canonicalization: {:?}", parent_canon);
+        }
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(mode)
+        .open(&full)
+        .map_err(|e| anyhow!("open(write) failed: {}", e))?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| anyhow!("write failed: {}", e))?;
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -521,5 +653,75 @@ mod tests {
             assert_eq!(&v.root, r);
             assert_eq!(v.rel, "some/sub/path");
         }
+    }
+
+    // ── Tier-1 vs Tier-3 routing (INV-6) ─────────────────────────────────────
+
+    fn home_path() -> PathBuf {
+        PathBuf::from("/home/aditya")
+    }
+
+    fn v_in_home(rel: &str) -> ValidatedPath {
+        ValidatedPath { root: home_path(), rel: rel.to_string() }
+    }
+
+    fn v_in_etc(rel: &str) -> ValidatedPath {
+        ValidatedPath { root: PathBuf::from("/etc"), rel: rel.to_string() }
+    }
+
+    // is_tier_1_safe consults home() which reads $HOME at startup. To keep
+    // these tests deterministic, we use the home_path() constant and
+    // construct ValidatedPath manually — bypassing the env var.
+    //
+    // We can't directly assert is_tier_1_safe() without overriding home(),
+    // so we test the *exact rule* with a parallel helper.
+    fn tier1_test(v: &ValidatedPath, fake_home: &Path) -> bool {
+        if v.root != *fake_home {
+            return false;
+        }
+        for sub in SENSITIVE_HOME_SUBDIRS {
+            if v.rel == *sub || v.rel.starts_with(&format!("{}/", sub)) {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn tier1_safe_home_paths() {
+        let h = home_path();
+        assert!(tier1_test(&v_in_home("notes.txt"), &h));
+        assert!(tier1_test(&v_in_home("projects/foo.md"), &h));
+        assert!(tier1_test(&v_in_home(".bashrc"), &h));
+        assert!(tier1_test(&v_in_home(".config/code/settings.json"), &h));
+    }
+
+    #[test]
+    fn tier1_rejects_sensitive_subdirs_in_home() {
+        let h = home_path();
+        assert!(!tier1_test(&v_in_home(".ssh"), &h));
+        assert!(!tier1_test(&v_in_home(".ssh/id_rsa"), &h));
+        assert!(!tier1_test(&v_in_home(".ssh/authorized_keys"), &h));
+        assert!(!tier1_test(&v_in_home(".aws/credentials"), &h));
+        assert!(!tier1_test(&v_in_home(".gnupg/secring.gpg"), &h));
+        assert!(!tier1_test(&v_in_home(".kube/config"), &h));
+        assert!(!tier1_test(&v_in_home(".docker/config.json"), &h));
+        assert!(!tier1_test(&v_in_home(".config/secrets/token"), &h));
+    }
+
+    #[test]
+    fn tier1_rejects_outside_home() {
+        let h = home_path();
+        assert!(!tier1_test(&v_in_etc("hosts"), &h));
+        assert!(!tier1_test(&v_in_etc("systemd/system/x.service"), &h));
+    }
+
+    #[test]
+    fn tier1_substring_not_prefix_collision() {
+        let h = home_path();
+        // .sshconfig (no slash) should NOT be treated as inside .ssh/
+        assert!(tier1_test(&v_in_home(".sshconfig"), &h));
+        assert!(tier1_test(&v_in_home(".awsxxx"), &h));
+        assert!(tier1_test(&v_in_home(".kubectl-cache"), &h));
     }
 }

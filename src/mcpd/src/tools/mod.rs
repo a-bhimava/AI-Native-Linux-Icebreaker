@@ -39,6 +39,10 @@ const TOOLS: &[ToolDescriptor] = &[
                      category: "fs", tier: 0, read_only: true },
     ToolDescriptor { name: "fs.stat", description: "Return file metadata (size, mode, uid/gid, mtime).",
                      category: "fs", tier: 0, read_only: true },
+    ToolDescriptor { name: "fs.write", description: "Write UTF-8 content to a file. Tier 1 inside safe $HOME, Tier 3 (COW gate) elsewhere.",
+                     category: "fs", tier: 1, read_only: false },
+    ToolDescriptor { name: "fs.delete", description: "Delete a file. Always Tier 3 (COW gate required).",
+                     category: "fs", tier: 3, read_only: false },
 ];
 
 /// Returns the complete MCP tool catalogue for discovery (`tools/list`).
@@ -69,20 +73,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn list_all_advertises_ten_tools() {
+    fn list_all_advertises_twelve_tools() {
         let v = list_all().unwrap();
         let tools = v["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 12);
     }
 
     #[test]
-    fn list_all_fs_category_present() {
+    fn list_all_fs_category_has_five_tools() {
         let v = list_all().unwrap();
         let fs_tools: Vec<_> = v["tools"].as_array().unwrap().iter()
             .filter(|t| t["category"] == "fs").collect();
-        assert_eq!(fs_tools.len(), 3);
-        assert!(fs_tools.iter().all(|t| t["read_only"] == true));
-        assert!(fs_tools.iter().all(|t| t["tier"] == 0));
+        assert_eq!(fs_tools.len(), 5);
+        // Read-only ones are Tier 0
+        let ro: Vec<_> = fs_tools.iter().filter(|t| t["read_only"] == true).collect();
+        assert_eq!(ro.len(), 3);
+        assert!(ro.iter().all(|t| t["tier"] == 0));
+        // fs.delete is Tier 3
+        let del = fs_tools.iter().find(|t| t["name"] == "fs.delete").unwrap();
+        assert_eq!(del["tier"], 3);
     }
 
     #[test]
