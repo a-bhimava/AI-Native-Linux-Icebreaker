@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 
 use crate::schema;
 
+pub mod fs;
 pub mod process;
 pub mod system;
 
@@ -32,6 +33,12 @@ const TOOLS: &[ToolDescriptor] = &[
                      category: "process", tier: 0, read_only: true },
     ToolDescriptor { name: "process.inspect", description: "Returns detailed info about a specific process by PID.",
                      category: "process", tier: 0, read_only: true },
+    ToolDescriptor { name: "fs.read", description: "Read a UTF-8 text file under the whitelist roots.",
+                     category: "fs", tier: 0, read_only: true },
+    ToolDescriptor { name: "fs.list", description: "List directory entries (name, type, size).",
+                     category: "fs", tier: 0, read_only: true },
+    ToolDescriptor { name: "fs.stat", description: "Return file metadata (size, mode, uid/gid, mtime).",
+                     category: "fs", tier: 0, read_only: true },
 ];
 
 /// Returns the complete MCP tool catalogue for discovery (`tools/list`).
@@ -62,10 +69,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn list_all_advertises_seven_tools() {
+    fn list_all_advertises_ten_tools() {
         let v = list_all().unwrap();
         let tools = v["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 10);
+    }
+
+    #[test]
+    fn list_all_fs_category_present() {
+        let v = list_all().unwrap();
+        let fs_tools: Vec<_> = v["tools"].as_array().unwrap().iter()
+            .filter(|t| t["category"] == "fs").collect();
+        assert_eq!(fs_tools.len(), 3);
+        assert!(fs_tools.iter().all(|t| t["read_only"] == true));
+        assert!(fs_tools.iter().all(|t| t["tier"] == 0));
     }
 
     #[test]

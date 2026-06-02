@@ -29,6 +29,9 @@ const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("system.disk",    include_str!("../schemas/system.disk.json")),
     ("process.list",   include_str!("../schemas/process.list.json")),
     ("process.inspect", include_str!("../schemas/process.inspect.json")),
+    ("fs.read",        include_str!("../schemas/fs.read.json")),
+    ("fs.list",        include_str!("../schemas/fs.list.json")),
+    ("fs.stat",        include_str!("../schemas/fs.stat.json")),
 ];
 
 /// `tools/list` has no schema — it's the discovery endpoint, accepts any params.
@@ -172,11 +175,35 @@ mod tests {
     }
 
     #[test]
-    fn registered_methods_includes_all_seven() {
+    fn registered_methods_includes_all_ten() {
         let methods: Vec<&str> = registered_methods().collect();
-        assert_eq!(methods.len(), 7);
+        assert_eq!(methods.len(), 10);
         assert!(methods.contains(&"system.status"));
         assert!(methods.contains(&"process.inspect"));
+        assert!(methods.contains(&"fs.read"));
+        assert!(methods.contains(&"fs.list"));
+        assert!(methods.contains(&"fs.stat"));
+    }
+
+    #[test]
+    fn fs_read_requires_path_string() {
+        assert!(validate("fs.read", &json!({})).is_err());
+        assert!(validate("fs.read", &json!({"path": 42})).is_err());
+        assert!(validate("fs.read", &json!({"path": ""})).is_err()); // minLength 1
+        assert!(validate("fs.read", &json!({"path": "/etc/hosts"})).is_ok());
+    }
+
+    #[test]
+    fn fs_read_rejects_extra_fields() {
+        assert!(validate("fs.read", &json!({"path": "/etc/hosts", "encoding": "utf8"})).is_err());
+    }
+
+    #[test]
+    fn fs_list_and_stat_share_shape() {
+        for m in ["fs.list", "fs.stat"] {
+            assert!(validate(m, &json!({"path": "/etc"})).is_ok());
+            assert!(validate(m, &json!({})).is_err());
+        }
     }
 
     #[test]

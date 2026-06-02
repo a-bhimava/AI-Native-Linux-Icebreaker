@@ -150,6 +150,21 @@ async fn dispatch(req: JsonRpcRequest) -> Result<JsonRpcResponse> {
             tools::process::inspect(pid).await
         }
 
+        // Filesystem read-only tools (Tier 0). Path validation is in fs::validate;
+        // openat2(RESOLVE_BENEATH) is the kernel-side gate inside the tool fn.
+        "fs.read" => {
+            let path = req.params["path"].as_str().expect("schema-validated");
+            tools::fs::read(path).await
+        }
+        "fs.list" => {
+            let path = req.params["path"].as_str().expect("schema-validated");
+            tools::fs::list(path).await
+        }
+        "fs.stat" => {
+            let path = req.params["path"].as_str().expect("schema-validated");
+            tools::fs::stat(path).await
+        }
+
         // Unreachable: is_known_method() gates this match above.
         other => unreachable!("dispatch reached unknown method '{}' after is_known_method check", other),
     };
@@ -167,5 +182,6 @@ fn is_known_method(method: &str) -> bool {
         "tools/list"
         | "system.status" | "system.uptime" | "system.cpu" | "system.memory" | "system.disk"
         | "process.list" | "process.inspect"
+        | "fs.read" | "fs.list" | "fs.stat"
     )
 }

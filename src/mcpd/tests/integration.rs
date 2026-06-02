@@ -230,3 +230,140 @@ fn process_list_returns_self() {
     let count = resp["result"]["count"].as_u64().unwrap();
     assert!(count > 0);
 }
+
+// ── fs.* tests (work on both Linux and macOS since /tmp is in the whitelist) ─
+
+#[test]
+fn fs_read_rejects_path_outside_whitelist() {
+    let mut mcpd = Mcpd::spawn();
+    // /boot is not under any whitelisted root. Schema accepts it (it's just
+    // a string), so the failure surfaces as -32603 from validate() inside the
+    // tool function — not -32602 from the schema layer.
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.read",
+        "params": {"path": "/boot/vmlinuz"},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32603);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("whitelisted"));
+}
+
+#[test]
+fn fs_read_rejects_relative_path() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.read",
+        "params": {"path": "etc/hosts"},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32603);
+}
+
+#[test]
+fn fs_read_rejects_nul_byte() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.read",
+        "params": {"path": "/etc/hosts\u{0000}/passwd"},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32603);
+}
+
+#[test]
+fn fs_read_round_trip_with_tempfile() {
+    use std::io::Write;
+    let dir = std::env::temp_dir();
+    let unique = format!("mcpd_test_{}.txt", std::process::id());
+    let path = dir.join(&unique);
+    {
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(b"hello mcpd\n").unwrap();
+    }
+    let abs = path.to_str().unwrap().to_string();
+
+    // Skip if the temp dir isn't under our whitelist (e.g. macOS uses /var/folders/...
+    // which is symlinked to /private/var/folders/... — neither is in the v1 whitelist).
+    let whitelisted = abs.starts_with("/tmp/") || abs.starts_with("/var/log/");
+    if !whitelisted {
+        let _ = std::fs::remove_file(&path);
+        eprintln!("skipping: temp dir {} is not under whitelist root", abs);
+        return;
+    }
+
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.read",
+        "params": {"path": abs},
+        "id": 1,
+    }));
+
+    let _ = std::fs::remove_file(&path);
+
+    assert!(resp["error"].is_null(), "expected ok response, got error: {:?}", resp["error"]);
+    assert_eq!(resp["result"]["content"], "hello mcpd\n");
+    assert_eq!(resp["result"]["size_bytes"], 11);
+}
+
+#[test]
+fn fs_stat_on_etc() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.stat",
+        "params": {"path": "/etc"},
+        "id": 1,
+    }));
+    // /etc exists on both Linux and macOS.
+    assert!(resp["error"].is_null());
+    assert_eq!(resp["result"]["is_dir"], true);
+}
+
+#[test]
+fn fs_list_on_etc() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.list",
+        "params": {"path": "/etc"},
+        "id": 1,
+    }));
+    assert!(resp["error"].is_null());
+    let entries = resp["result"]["entries"].as_array().unwrap();
+    assert!(!entries.is_empty());
+    // Sorted ascending.
+    let names: Vec<_> = entries.iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(names, sorted);
+}
+
+#[test]
+fn fs_read_missing_path_is_invalid_params() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.read",
+        "params": {},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602);
+}
+
+#[test]
+fn fs_read_rejects_extra_field() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.read",
+        "params": {"path": "/etc/hosts", "binary": true},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602);
+}
