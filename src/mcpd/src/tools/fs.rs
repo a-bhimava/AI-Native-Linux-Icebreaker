@@ -275,18 +275,89 @@ pub async fn stat(path: &str) -> Result<Value> {
     }))
 }
 
+// ── openat2 — direct libc syscall, since nix 0.28 doesn't expose it ─────────
+
+#[cfg(target_os = "linux")]
+mod openat2 {
+    use anyhow::{anyhow, Result};
+    use std::ffi::CString;
+    use std::io;
+    use std::os::fd::RawFd;
+
+    // From include/uapi/linux/openat2.h.
+    #[repr(C)]
+    pub(super) struct OpenHow {
+        pub flags: u64,
+        pub mode: u64,
+        pub resolve: u64,
+    }
+
+    // Flag values from include/uapi/asm-generic/fcntl.h
+    const O_RDONLY:    u64 = 0;
+    const O_WRONLY:    u64 = 1;
+    const O_CREAT:     u64 = 0o100;
+    const O_TRUNC:     u64 = 0o1000;
+    const O_DIRECTORY: u64 = 0o200_000;
+    const O_CLOEXEC:   u64 = 0o2_000_000;
+
+    // Resolve flags from include/uapi/linux/openat2.h
+    const RESOLVE_NO_SYMLINKS: u64 = 0x04;
+    const RESOLVE_BENEATH:     u64 = 0x08;
+
+    const RESOLVE_STRICT: u64 = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS;
+
+    impl OpenHow {
+        pub fn read_only() -> Self {
+            OpenHow {
+                flags: O_RDONLY | O_CLOEXEC,
+                mode: 0,
+                resolve: RESOLVE_STRICT,
+            }
+        }
+        pub fn read_only_directory() -> Self {
+            OpenHow {
+                flags: O_RDONLY | O_DIRECTORY | O_CLOEXEC,
+                mode: 0,
+                resolve: RESOLVE_STRICT,
+            }
+        }
+        pub fn write_create_trunc(mode: u32) -> Self {
+            OpenHow {
+                flags: O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
+                mode: mode as u64,
+                resolve: RESOLVE_STRICT,
+            }
+        }
+    }
+
+    pub(super) fn call(dirfd: RawFd, path: &str, how: &OpenHow) -> Result<RawFd> {
+        let c_path = CString::new(path)
+            .map_err(|e| anyhow!("path contained NUL: {}", e))?;
+        let ret = unsafe {
+            libc::syscall(
+                libc::SYS_openat2,
+                dirfd,
+                c_path.as_ptr(),
+                how as *const OpenHow,
+                std::mem::size_of::<OpenHow>(),
+            )
+        };
+        if ret < 0 {
+            return Err(anyhow!("openat2: {}", io::Error::last_os_error()));
+        }
+        Ok(ret as RawFd)
+    }
+}
+
 // ── safe_open: openat2 on Linux, canonicalize-check on macOS ─────────────────
 
 #[cfg(target_os = "linux")]
 fn safe_open_readonly(root: &Path, rel: &str) -> Result<std::fs::File> {
-    use nix::fcntl::{openat2, OFlag, OpenHow, ResolveFlag};
     use std::os::fd::{AsRawFd, FromRawFd};
     let dir = std::fs::File::open(root)
         .map_err(|e| anyhow!("cannot open whitelist root '{}': {}", root.display(), e))?;
-    let how = OpenHow::new()
-        .flags(OFlag::O_RDONLY | OFlag::O_CLOEXEC)
-        .resolve(ResolveFlag::RESOLVE_BENEATH | ResolveFlag::RESOLVE_NO_SYMLINKS);
-    let fd = openat2(dir.as_raw_fd(), rel, how)
+    let how = openat2::OpenHow::read_only();
+    let fd = openat2::call(dir.as_raw_fd(), rel, &how)
         .map_err(|e| anyhow!("openat2 refused '{}': {}", rel, e))?;
     Ok(unsafe { std::fs::File::from_raw_fd(fd) })
 }
@@ -306,22 +377,17 @@ fn safe_open_readonly(root: &Path, rel: &str) -> Result<std::fs::File> {
 
 #[cfg(target_os = "linux")]
 fn safe_write(root: &Path, rel: &str, content: &str, mode: u32) -> Result<()> {
-    use nix::fcntl::{openat2, OFlag, OpenHow, ResolveFlag};
-    use nix::sys::stat::Mode;
     use std::io::Write;
     use std::os::fd::{AsRawFd, FromRawFd};
     let dir = std::fs::File::open(root)
         .map_err(|e| anyhow!("cannot open whitelist root '{}': {}", root.display(), e))?;
-    let how = OpenHow::new()
-        .flags(OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_TRUNC | OFlag::O_CLOEXEC)
-        .mode(Mode::from_bits_truncate(mode))
-        .resolve(ResolveFlag::RESOLVE_BENEATH | ResolveFlag::RESOLVE_NO_SYMLINKS);
-    let fd = openat2(dir.as_raw_fd(), rel, how)
+    let how = openat2::OpenHow::write_create_trunc(mode);
+    let fd = openat2::call(dir.as_raw_fd(), rel, &how)
         .map_err(|e| anyhow!("openat2(write) refused '{}': {}", rel, e))?;
     let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
     file.write_all(content.as_bytes())
         .map_err(|e| anyhow!("write failed: {}", e))?;
-    file.sync_all().ok(); // best-effort fsync
+    file.sync_all().ok();
     Ok(())
 }
 
@@ -355,13 +421,10 @@ fn safe_write(root: &Path, rel: &str, content: &str, mode: u32) -> Result<()> {
 
 #[cfg(target_os = "linux")]
 fn safe_open_directory(root: &Path, rel: &str) -> Result<std::fs::File> {
-    use nix::fcntl::{openat2, OFlag, OpenHow, ResolveFlag};
     use std::os::fd::{AsRawFd, FromRawFd};
     let dir = std::fs::File::open(root)?;
-    let how = OpenHow::new()
-        .flags(OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_CLOEXEC)
-        .resolve(ResolveFlag::RESOLVE_BENEATH | ResolveFlag::RESOLVE_NO_SYMLINKS);
-    let fd = openat2(dir.as_raw_fd(), rel, how)
+    let how = openat2::OpenHow::read_only_directory();
+    let fd = openat2::call(dir.as_raw_fd(), rel, &how)
         .map_err(|e| anyhow!("openat2(dir) refused '{}': {}", rel, e))?;
     Ok(unsafe { std::fs::File::from_raw_fd(fd) })
 }

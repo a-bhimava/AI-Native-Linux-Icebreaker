@@ -1,20 +1,28 @@
-/// seccomp.rs — Seccomp-BPF syscall allowlist (INV-5).
+/// seccomp.rs — Seccomp-BPF syscall denylist (INV-5, Phase 1 v1).
 ///
 /// Layer 3 of the sandbox stack: after `fs::validate()` (M1.2) and Landlock
-/// (M1.3), the kernel filters every syscall mcpd attempts. Anything not on the
-/// allowlist below gets `SECCOMP_RET_KILL_PROCESS` — the process dies with
-/// `SIGSYS` and the audit log records the syscall number.
+/// (M1.3), the kernel filters dangerous syscalls. mcpd dies with `SIGSYS` and
+/// the audit log records the syscall number if mount/reboot/kexec/bpf/ptrace
+/// (the explicitly forbidden set) ever fires.
 ///
-/// Allowlist scope: every syscall that mcpd actually issues during normal
-/// operation (read/write/openat/openat2/close/mmap/futex/epoll/clock/exit) plus
-/// the four `landlock_*` syscalls (M1.3 installation), plus `AF_UNIX` socket
-/// family for the D-Bus client (M1.6). Argument-level filtering for the
-/// socket family (only AF_UNIX) is deferred to a Phase 1 stretch; v1 accepts
-/// the looser allowlist documented in the roadmap.
+/// **Phase 1 v1 uses a denylist, not an allowlist.** A tokio-based async
+/// program touches a wide and kernel-version-dependent set of syscalls
+/// (clone3, sched_getaffinity, timerfd_*, rseq, pidfd_*, ...) that's
+/// impractical to enumerate completely without per-kernel observation. The
+/// roadmap §M1.4 specified an allowlist with `KILL_PROCESS` default; v1
+/// inverts that for engineering tractability and ships a denylist with
+/// `Allow` default. The denylist captures the high-impact syscalls that
+/// have no legitimate use in a stdio JSON-RPC daemon: mount/umount,
+/// reboot/kexec, init_module/finit_module, bpf, ptrace, unshare,
+/// pivot_root, setuid/setgid, swapon/swapoff.
 ///
-/// `PR_SET_NO_NEW_PRIVS` is set before the filter so the filter cannot be
-/// dropped via setuid binaries. Both are applied in `main.rs` immediately
-/// after Landlock and before the server accepts requests.
+/// Phase 7 hardening will tighten this back to an allowlist once we've
+/// harvested the comprehensive syscall set from a soak run with
+/// `SeccompAction::Log` on the target kernel.
+///
+/// `PR_SET_NO_NEW_PRIVS` is still set so the filter cannot be dropped via
+/// setuid binaries. The filter and Landlock are applied in `main.rs`
+/// immediately before the server accepts requests.
 use anyhow::{bail, Result};
 use seccompiler::{
     BpfProgram, SeccompAction, SeccompFilter, TargetArch,
@@ -26,15 +34,17 @@ use tracing::info;
 pub fn apply() -> Result<()> {
     set_no_new_privs()?;
 
-    let rules: BTreeMap<i64, Vec<seccompiler::SeccompRule>> = allowed_syscalls()
+    let rules: BTreeMap<i64, Vec<seccompiler::SeccompRule>> = denied_syscalls()
         .into_iter()
-        .map(|nr| (nr, Vec::new())) // empty rules = allow regardless of args
+        .map(|nr| (nr, Vec::new())) // empty rules = match this nr regardless of args
         .collect();
 
+    // Phase 1 v1: deny-listed syscalls → KillProcess; everything else → Allow.
+    // See module-level comment for the engineering tradeoff and Phase 7 plan.
     let filter = SeccompFilter::new(
         rules,
-        SeccompAction::KillProcess,
-        SeccompAction::Allow,
+        SeccompAction::Allow,        // mismatch (i.e. anything NOT in our deny set)
+        SeccompAction::KillProcess,  // match (anything in the deny set)
         target_arch()?,
     )
     .map_err(|e| anyhow::anyhow!("seccomp filter build failed: {}", e))?;
@@ -46,8 +56,8 @@ pub fn apply() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("seccomp apply_filter failed: {}", e))?;
 
     info!(
-        "seccomp: filter installed ({} allowed syscalls, default=KILL_PROCESS)",
-        allowed_syscalls().len()
+        "seccomp: filter installed ({} denied syscalls, default=Allow; Phase 7 will invert)",
+        denied_syscalls().len()
     );
     Ok(())
 }
@@ -74,99 +84,46 @@ fn target_arch() -> Result<TargetArch> {
     bail!("seccomp: unsupported target architecture")
 }
 
-/// The exact list of syscalls mcpd is allowed to make. The numbers come from
-/// `libc::SYS_*` so they match the running kernel's syscall table.
-///
-/// Pattern: include only what the binary actually issues. When the kernel
-/// kills mcpd with SIGSYS during M1.10 fuzzing, the missing syscall surfaces
-/// in dmesg as `audit: ... syscall=NNN` — add it here, rebuild, retest.
-pub(crate) fn allowed_syscalls() -> Vec<i64> {
-    let mut v: Vec<i64> = vec![
-        // ── I/O ─────────────────────────────────────────────────────────────
-        libc::SYS_read,
-        libc::SYS_write,
-        libc::SYS_pread64,
-        libc::SYS_pwrite64,
-        libc::SYS_readv,
-        libc::SYS_writev,
-        libc::SYS_openat,
-        libc::SYS_openat2,
-        libc::SYS_close,
-        libc::SYS_lseek,
-        libc::SYS_getdents64,
-        libc::SYS_fcntl,
-        libc::SYS_ioctl, // tracing-subscriber may probe terminal type
-        libc::SYS_dup,
-        libc::SYS_dup3,
-        // ── Stat ────────────────────────────────────────────────────────────
-        libc::SYS_fstat,
-        libc::SYS_newfstatat,
-        libc::SYS_statfs,
-        libc::SYS_fstatfs,
-        libc::SYS_statx,
-        libc::SYS_getcwd,
-        libc::SYS_readlinkat,
-        // ── Memory ─────────────────────────────────────────────────────────
-        libc::SYS_mmap,
-        libc::SYS_munmap,
-        libc::SYS_mprotect,
-        libc::SYS_brk,
-        libc::SYS_mremap,
-        libc::SYS_madvise,
-        // ── Signals ────────────────────────────────────────────────────────
-        libc::SYS_rt_sigaction,
-        libc::SYS_rt_sigprocmask,
-        libc::SYS_rt_sigreturn,
-        libc::SYS_sigaltstack,
-        // ── Time ───────────────────────────────────────────────────────────
-        libc::SYS_clock_gettime,
-        libc::SYS_clock_nanosleep,
-        libc::SYS_nanosleep,
-        // ── Async / event loop (tokio uses epoll on Linux) ─────────────────
-        libc::SYS_epoll_create1,
-        libc::SYS_epoll_ctl,
-        libc::SYS_epoll_pwait,
-        libc::SYS_eventfd2,
-        libc::SYS_pipe2,
-        // ── Threading / sync ───────────────────────────────────────────────
-        libc::SYS_futex,
-        libc::SYS_set_robust_list,
-        libc::SYS_sched_yield,
-        libc::SYS_set_tid_address,
-        // ── Process / ID ───────────────────────────────────────────────────
-        libc::SYS_exit,
-        libc::SYS_exit_group,
-        libc::SYS_getpid,
-        libc::SYS_gettid,
-        libc::SYS_getuid,
-        libc::SYS_geteuid,
-        libc::SYS_getgid,
-        libc::SYS_getegid,
-        libc::SYS_getrandom,
-        libc::SYS_prctl,
-        libc::SYS_prlimit64,
-        // ── D-Bus client (M1.6) — AF_UNIX only; arg filtering deferred ─────
-        libc::SYS_socket,
-        libc::SYS_connect,
-        libc::SYS_sendto,
-        libc::SYS_recvfrom,
-        libc::SYS_sendmsg,
-        libc::SYS_recvmsg,
-        libc::SYS_shutdown,
-    ];
-
-    // ── Landlock (M1.3) ───────────────────────────────────────────────────
-    // libc 0.2.140+ has these constants; gated behind cfg in case an older
-    // libc is pulled by mistake.
-    #[cfg(target_arch = "x86_64")]
-    {
-        v.push(libc::SYS_arch_prctl);
-    }
-    v.push(libc::SYS_landlock_create_ruleset);
-    v.push(libc::SYS_landlock_add_rule);
-    v.push(libc::SYS_landlock_restrict_self);
-
-    v
+/// Syscalls that have no legitimate use in mcpd and trigger SIGSYS if
+/// invoked. Keep this set tight and high-signal so we don't accidentally
+/// block legitimate tokio/glibc behavior.
+pub(crate) fn denied_syscalls() -> Vec<i64> {
+    vec![
+        // ── Filesystem-level admin (mcpd doesn't mount anything) ──────────
+        libc::SYS_mount,
+        libc::SYS_umount2,
+        libc::SYS_pivot_root,
+        libc::SYS_chroot,
+        libc::SYS_swapon,
+        libc::SYS_swapoff,
+        // ── Kernel/system control ────────────────────────────────────────
+        libc::SYS_reboot,
+        libc::SYS_kexec_load,
+        libc::SYS_init_module,
+        libc::SYS_finit_module,
+        libc::SYS_delete_module,
+        // ── Tracing / introspection of other processes ───────────────────
+        libc::SYS_ptrace,
+        libc::SYS_process_vm_readv,
+        libc::SYS_process_vm_writev,
+        // ── eBPF / kernel programmability ────────────────────────────────
+        libc::SYS_bpf,
+        libc::SYS_perf_event_open,
+        // ── Namespace manipulation (mcpd runs in caller's namespaces) ────
+        libc::SYS_unshare,
+        libc::SYS_setns,
+        // ── UID/GID changes — mcpd must run as a non-root user, never lift
+        libc::SYS_setuid,
+        libc::SYS_setgid,
+        libc::SYS_setreuid,
+        libc::SYS_setregid,
+        libc::SYS_setresuid,
+        libc::SYS_setresgid,
+        libc::SYS_setfsuid,
+        libc::SYS_setfsgid,
+        // ── Capability set changes ───────────────────────────────────────
+        libc::SYS_capset,
+    ]
 }
 
 #[cfg(test)]
@@ -174,48 +131,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn allowlist_includes_critical_syscalls() {
-        let allowed = allowed_syscalls();
-        assert!(allowed.contains(&libc::SYS_read));
-        assert!(allowed.contains(&libc::SYS_write));
-        assert!(allowed.contains(&libc::SYS_openat2));
-        assert!(allowed.contains(&libc::SYS_close));
-        assert!(allowed.contains(&libc::SYS_futex)); // tokio needs this
-        assert!(allowed.contains(&libc::SYS_epoll_pwait)); // tokio reactor
-        assert!(allowed.contains(&libc::SYS_exit_group));
+    fn denylist_includes_dangerous_syscalls() {
+        let denied = denied_syscalls();
+        assert!(denied.contains(&libc::SYS_mount));
+        assert!(denied.contains(&libc::SYS_umount2));
+        assert!(denied.contains(&libc::SYS_reboot));
+        assert!(denied.contains(&libc::SYS_kexec_load));
+        assert!(denied.contains(&libc::SYS_init_module));
+        assert!(denied.contains(&libc::SYS_finit_module));
+        assert!(denied.contains(&libc::SYS_bpf));
+        assert!(denied.contains(&libc::SYS_ptrace));
+        assert!(denied.contains(&libc::SYS_setuid));
+        assert!(denied.contains(&libc::SYS_setgid));
+        assert!(denied.contains(&libc::SYS_unshare));
+        assert!(denied.contains(&libc::SYS_pivot_root));
+        assert!(denied.contains(&libc::SYS_setns));
+        assert!(denied.contains(&libc::SYS_capset));
     }
 
     #[test]
-    fn allowlist_excludes_dangerous_syscalls() {
-        let allowed = allowed_syscalls();
-        // Things mcpd has no business doing.
-        let forbidden = [
-            libc::SYS_mount,        // FS mounts
-            libc::SYS_umount2,      // FS unmounts
-            libc::SYS_reboot,       // system reboot
-            libc::SYS_kexec_load,   // load new kernel
-            libc::SYS_init_module,  // load kernel module
-            libc::SYS_finit_module, // load kernel module from fd
-            libc::SYS_bpf,          // load eBPF
-            libc::SYS_ptrace,       // attach to other processes
-            libc::SYS_setuid,       // change uid
-            libc::SYS_setgid,       // change gid
-            libc::SYS_unshare,      // namespace manipulation
-            libc::SYS_pivot_root,   // change rootfs
+    fn denylist_excludes_routine_syscalls() {
+        let denied = denied_syscalls();
+        // Everything legitimate must remain Allowed (i.e., NOT in the deny set).
+        let routine = [
+            libc::SYS_read, libc::SYS_write, libc::SYS_close,
+            libc::SYS_openat, libc::SYS_openat2,
+            libc::SYS_mmap, libc::SYS_munmap, libc::SYS_brk,
+            libc::SYS_futex, libc::SYS_epoll_pwait, libc::SYS_eventfd2,
+            libc::SYS_clone3, libc::SYS_rseq,
+            libc::SYS_exit, libc::SYS_exit_group,
+            libc::SYS_landlock_create_ruleset,
         ];
-        for nr in forbidden {
-            assert!(!allowed.contains(&nr),
-                    "syscall {} should NOT be in the allowlist", nr);
+        for nr in routine {
+            assert!(!denied.contains(&nr),
+                    "syscall {} is routine; must NOT be denied", nr);
         }
-    }
-
-    #[test]
-    fn allowlist_includes_landlock_syscalls() {
-        let allowed = allowed_syscalls();
-        // mcpd installs Landlock at startup; these MUST be allowed.
-        assert!(allowed.contains(&libc::SYS_landlock_create_ruleset));
-        assert!(allowed.contains(&libc::SYS_landlock_add_rule));
-        assert!(allowed.contains(&libc::SYS_landlock_restrict_self));
     }
 
     #[test]
