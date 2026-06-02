@@ -207,6 +207,25 @@ async fn dispatch(mut req: JsonRpcRequest) -> Result<JsonRpcResponse> {
         "network.status"   => tools::network::status().await,
         "network.dns.read" => tools::network::dns_read().await,
 
+        // Package introspection (M1.8). Query is direct; install/remove/upgrade
+        // always return a COW ticket — Phase 3 commits via apt-get inside an overlay.
+        "package.query" => {
+            let pattern = req.params["pattern"].as_str().expect("schema-validated");
+            tools::package::query(pattern).await
+        }
+        "package.install" => {
+            let package = req.params["package"].as_str().expect("schema-validated");
+            tools::package::install(package).await
+        }
+        "package.remove" => {
+            let package = req.params["package"].as_str().expect("schema-validated");
+            tools::package::remove(package).await
+        }
+        "package.upgrade" => {
+            let package = req.params["package"].as_str().expect("schema-validated");
+            tools::package::upgrade(package).await
+        }
+
         // Unreachable: is_known_method() gates this match above.
         other => unreachable!("dispatch reached unknown method '{}' after is_known_method check", other),
     };
@@ -227,5 +246,6 @@ fn is_known_method(method: &str) -> bool {
         | "fs.read" | "fs.list" | "fs.stat" | "fs.write" | "fs.delete"
         | "service.start" | "service.stop" | "service.restart" | "service.logs"
         | "network.status" | "network.dns.read"
+        | "package.query" | "package.install" | "package.remove" | "package.upgrade"
     )
 }

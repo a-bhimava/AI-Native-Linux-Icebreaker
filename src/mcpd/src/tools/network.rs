@@ -29,6 +29,9 @@ pub async fn dns_read() -> Result<Value> {
     Ok(parse_resolv_conf(&fs::read_to_string("/etc/resolv.conf")?))
 }
 
+// Phase 5 stubs — exposed as pub for future dispatch wiring. The catalogue
+// doesn't advertise them in Phase 1 so they intentionally appear unused now.
+#[allow(dead_code)]
 pub async fn firewall_status() -> Result<Value> {
     Ok(json!({
         "status": "not_implemented",
@@ -37,6 +40,7 @@ pub async fn firewall_status() -> Result<Value> {
     }))
 }
 
+#[allow(dead_code)]
 pub async fn dns_set() -> Result<Value> {
     Ok(json!({
         "status": "not_implemented",
@@ -58,7 +62,7 @@ fn read_interfaces() -> Result<Vec<Value>> {
 
         if let Some(addr) = ifaddr.address {
             if let Some(ipv4) = addr.as_sockaddr_in() {
-                entry.ipv4.push(std::net::Ipv4Addr::from(ipv4.ip()).to_string());
+                entry.ipv4.push(ipv4.ip().to_string());
             } else if let Some(ipv6) = addr.as_sockaddr_in6() {
                 entry.ipv6.push(ipv6.ip().to_string());
             }
@@ -99,6 +103,7 @@ fn read_default_route_v4() -> Value {
 /// Parse /proc/net/route format. Header line is field names; data lines are
 /// tab-separated with hex IP (little-endian byte order on x86).
 /// Default route is the entry with Destination=00000000.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_default_route_v4(content: &str) -> Value {
     for (i, line) in content.lines().enumerate() {
         if i == 0 {
@@ -119,6 +124,7 @@ fn parse_default_route_v4(content: &str) -> Value {
     json!({"status": "no_default_route"})
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn hex_le_to_ipv4(hex: &str) -> Option<String> {
     if hex.len() != 8 {
         return None;

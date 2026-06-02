@@ -4,6 +4,7 @@ use crate::schema;
 
 pub mod fs;
 pub mod network;
+pub mod package;
 pub mod process;
 pub mod service;
 pub mod system;
@@ -57,6 +58,14 @@ const TOOLS: &[ToolDescriptor] = &[
                      category: "network", tier: 0, read_only: true },
     ToolDescriptor { name: "network.dns.read", description: "Parse /etc/resolv.conf (nameservers, search, domain).",
                      category: "network", tier: 0, read_only: true },
+    ToolDescriptor { name: "package.query", description: "Query installed Debian packages by substring (dpkg-query).",
+                     category: "package", tier: 0, read_only: true },
+    ToolDescriptor { name: "package.install", description: "Install a Debian package (returns COW approval ticket).",
+                     category: "package", tier: 2, read_only: false },
+    ToolDescriptor { name: "package.remove", description: "Remove a Debian package (returns COW approval ticket).",
+                     category: "package", tier: 2, read_only: false },
+    ToolDescriptor { name: "package.upgrade", description: "Upgrade a Debian package (returns COW approval ticket).",
+                     category: "package", tier: 2, read_only: false },
 ];
 
 /// Returns the complete MCP tool catalogue for discovery (`tools/list`).
@@ -87,10 +96,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn list_all_advertises_eighteen_tools() {
+    fn list_all_advertises_twenty_two_tools() {
         let v = list_all().unwrap();
         let tools = v["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 18);
+        assert_eq!(tools.len(), 22);
+    }
+
+    #[test]
+    fn list_all_package_category_has_four_tools() {
+        let v = list_all().unwrap();
+        let pkg: Vec<_> = v["tools"].as_array().unwrap().iter()
+            .filter(|t| t["category"] == "package").collect();
+        assert_eq!(pkg.len(), 4);
+        let query = pkg.iter().find(|t| t["name"] == "package.query").unwrap();
+        assert_eq!(query["tier"], 0);
+        assert_eq!(query["read_only"], true);
     }
 
     #[test]

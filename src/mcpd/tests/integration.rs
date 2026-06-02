@@ -549,3 +549,75 @@ fn network_status_rejects_extra_params() {
     }));
     assert_eq!(resp["error"]["code"], -32602);
 }
+
+// ── M1.8: package.* ──────────────────────────────────────────────────────────
+
+#[test]
+fn package_install_returns_cow_gate() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "package.install",
+        "params": {"package": "nginx"},
+        "id": 1,
+    }));
+    assert!(resp["error"].is_null());
+    assert_eq!(resp["result"]["status"], "requires_cow_approval");
+    assert_eq!(resp["result"]["preview"]["operation"], "package.install");
+    assert_eq!(resp["result"]["preview"]["package"], "nginx");
+}
+
+#[test]
+fn package_install_rejects_shell_metachar() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "package.install",
+        "params": {"package": "nginx; rm -rf /"},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602);
+}
+
+#[test]
+fn package_install_rejects_uppercase() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "package.install",
+        "params": {"package": "Nginx"},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602);
+}
+
+#[test]
+fn package_query_returns_status() {
+    // On macOS dpkg-query won't exist → unavailable. On Linux it may return
+    // ok with matches. Either is healthy; we just confirm no -32603.
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "package.query",
+        "params": {"pattern": "bash"},
+        "id": 1,
+    }));
+    assert!(resp["error"].is_null());
+    let status = resp["result"]["status"].as_str().unwrap();
+    assert!(matches!(status, "ok" | "err" | "unavailable"));
+}
+
+#[test]
+fn package_remove_and_upgrade_also_gated() {
+    let mut mcpd = Mcpd::spawn();
+    for method in ["package.remove", "package.upgrade"] {
+        let resp = mcpd.call(&json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": {"package": "nginx"},
+            "id": 1,
+        }));
+        assert!(resp["error"].is_null());
+        assert_eq!(resp["result"]["status"], "requires_cow_approval");
+    }
+}
