@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use crate::schema;
 
 pub mod fs;
+pub mod network;
 pub mod process;
 pub mod service;
 pub mod system;
@@ -52,6 +53,10 @@ const TOOLS: &[ToolDescriptor] = &[
                      category: "service", tier: 2, read_only: false },
     ToolDescriptor { name: "service.logs", description: "Tail a systemd unit's journal.",
                      category: "service", tier: 0, read_only: true },
+    ToolDescriptor { name: "network.status", description: "Interface list + IPv4 default route.",
+                     category: "network", tier: 0, read_only: true },
+    ToolDescriptor { name: "network.dns.read", description: "Parse /etc/resolv.conf (nameservers, search, domain).",
+                     category: "network", tier: 0, read_only: true },
 ];
 
 /// Returns the complete MCP tool catalogue for discovery (`tools/list`).
@@ -82,10 +87,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn list_all_advertises_sixteen_tools() {
+    fn list_all_advertises_eighteen_tools() {
         let v = list_all().unwrap();
         let tools = v["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 16);
+        assert_eq!(tools.len(), 18);
     }
 
     #[test]

@@ -38,6 +38,8 @@ const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("service.stop",   include_str!("../schemas/service.stop.json")),
     ("service.restart", include_str!("../schemas/service.restart.json")),
     ("service.logs",   include_str!("../schemas/service.logs.json")),
+    ("network.status", include_str!("../schemas/network.status.json")),
+    ("network.dns.read", include_str!("../schemas/network.dns.read.json")),
 ];
 
 /// `tools/list` has no schema — it's the discovery endpoint, accepts any params.
@@ -181,9 +183,9 @@ mod tests {
     }
 
     #[test]
-    fn registered_methods_includes_all_sixteen() {
+    fn registered_methods_includes_all_eighteen() {
         let methods: Vec<&str> = registered_methods().collect();
-        assert_eq!(methods.len(), 16);
+        assert_eq!(methods.len(), 18);
         assert!(methods.contains(&"system.status"));
         assert!(methods.contains(&"process.inspect"));
         assert!(methods.contains(&"fs.read"));

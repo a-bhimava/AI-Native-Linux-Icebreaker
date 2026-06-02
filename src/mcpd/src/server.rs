@@ -108,8 +108,8 @@ pub async fn run_stdio_server() -> Result<()> {
     Ok(())
 }
 
-async fn dispatch(req: JsonRpcRequest) -> Result<JsonRpcResponse> {
-    let id = req.id.unwrap_or(Value::Null);
+async fn dispatch(mut req: JsonRpcRequest) -> Result<JsonRpcResponse> {
+    let id = req.id.clone().unwrap_or(Value::Null);
     info!("method={} id={}", req.method, id);
 
     // Sequence matters: known-method check FIRST (so unknown methods return
@@ -121,6 +121,13 @@ async fn dispatch(req: JsonRpcRequest) -> Result<JsonRpcResponse> {
             -32601,
             format!("Method not found: {}", req.method),
         ));
+    }
+
+    // JSON-RPC 2.0 § 4.1: `params` MAY be omitted. We coerce `null` (the
+    // serde_json default for a missing field) to `{}` so schemas of shape
+    // `{type: object, additionalProperties: false}` accept no-arg calls.
+    if req.params.is_null() {
+        req.params = Value::Object(serde_json::Map::new());
     }
 
     // INV-4: every dispatched call's params are validated against its schema
@@ -195,6 +202,11 @@ async fn dispatch(req: JsonRpcRequest) -> Result<JsonRpcResponse> {
             tools::service::logs(unit, lines).await
         }
 
+        // Network read-only (M1.7). Write-side tools (firewall, dns.set) are
+        // not yet exposed in the catalogue; they land in Phase 5.
+        "network.status"   => tools::network::status().await,
+        "network.dns.read" => tools::network::dns_read().await,
+
         // Unreachable: is_known_method() gates this match above.
         other => unreachable!("dispatch reached unknown method '{}' after is_known_method check", other),
     };
@@ -214,5 +226,6 @@ fn is_known_method(method: &str) -> bool {
         | "process.list" | "process.inspect"
         | "fs.read" | "fs.list" | "fs.stat" | "fs.write" | "fs.delete"
         | "service.start" | "service.stop" | "service.restart" | "service.logs"
+        | "network.status" | "network.dns.read"
     )
 }

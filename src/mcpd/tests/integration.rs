@@ -497,3 +497,55 @@ fn service_logs_advertises_default_lines() {
         .find(|t| t["name"] == "service.logs").unwrap().clone();
     assert_eq!(logs["params_schema"]["properties"]["lines"]["default"], 200);
 }
+
+// ── M1.7: network.* read-only ────────────────────────────────────────────────
+
+#[test]
+fn network_status_returns_interfaces() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "network.status",
+        "id": 1,
+    }));
+    assert!(resp["error"].is_null(), "got error: {:?}", resp["error"]);
+    let ifaces = resp["result"]["interfaces"].as_array().unwrap();
+    // Even on macOS we expect at least loopback (lo0).
+    assert!(!ifaces.is_empty());
+    let loopback = ifaces.iter().find(|i|
+        i["is_loopback"].as_bool().unwrap_or(false)
+    );
+    assert!(loopback.is_some(), "expected to find a loopback interface");
+}
+
+#[test]
+fn network_dns_read_parses_resolv_conf() {
+    // /etc/resolv.conf exists on both Linux and macOS (macOS uses it as a
+    // legacy compat file). On a freshly imaged system it might be missing or
+    // empty, so we accept either an ok parse OR an error.
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "network.dns.read",
+        "id": 1,
+    }));
+    if resp["error"].is_null() {
+        assert!(resp["result"]["nameservers"].is_array());
+        assert!(resp["result"]["search"].is_array());
+    } else {
+        // Acceptable: /etc/resolv.conf might not exist in some sandboxes
+        assert_eq!(resp["error"]["code"], -32603);
+    }
+}
+
+#[test]
+fn network_status_rejects_extra_params() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "network.status",
+        "params": {"verbose": true},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602);
+}
