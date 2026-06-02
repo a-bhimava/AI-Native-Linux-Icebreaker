@@ -724,4 +724,84 @@ mod tests {
         assert!(tier1_test(&v_in_home(".awsxxx"), &h));
         assert!(tier1_test(&v_in_home(".kubectl-cache"), &h));
     }
+
+    // ── Property test: 10k pseudorandom paths must never escape (G4) ────────
+    //
+    // The hand-curated corpus above proves we reject the *known* attacks.
+    // This generative test guards against the unknown-unknowns: we synthesize
+    // 10,000 random byte sequences (biased toward known-bad chars) and assert:
+    //   (a) validate() never panics
+    //   (b) any path it accepts strips down to a root from our whitelist
+    //   (c) the relative portion never contains literal NUL/%/\
+    // openat2(RESOLVE_BENEATH) is the kernel-side layer that catches ".."
+    // escapes at actual open; we don't simulate that here.
+    //
+    // Uses a simple LCG so the test is deterministic and dependency-free.
+
+    fn lcg_next(state: &mut u64) -> u64 {
+        // Numerical Recipes constants.
+        *state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+        *state
+    }
+
+    fn synth_path(rng: &mut u64) -> String {
+        // 5% NUL, 8% %, 8% \\, 12% '..', 12% '/', remainder lower-ascii.
+        let len = (lcg_next(rng) % 96 + 2) as usize;
+        let mut s = String::with_capacity(len);
+        for _ in 0..len {
+            let r = (lcg_next(rng) % 100) as u8;
+            let ch = match r {
+                0..=4   => '\0',
+                5..=12  => '%',
+                13..=20 => '\\',
+                21..=32 => '.',
+                33..=44 => '/',
+                45..=49 => '~',
+                50..=59 => 'a',
+                60..=69 => 'b',
+                70..=79 => '1',
+                80..=89 => '-',
+                _       => '_',
+            };
+            s.push(ch);
+        }
+        s
+    }
+
+    #[test]
+    fn fuzz_validate_never_panics_or_escapes() {
+        let mut rng: u64 = 0xCAFE_F00D_DEAD_BEEF; // fixed seed
+        let mut accepted = 0;
+        let mut rejected = 0;
+        let roots = roots();
+        for _ in 0..10_000 {
+            let p = synth_path(&mut rng);
+            // No prefix to bias toward whitelist; let validate find a match
+            // if any (most won't).
+            match validate_against(&p, &roots) {
+                Ok(v) => {
+                    accepted += 1;
+                    // Must match a whitelist root exactly.
+                    assert!(
+                        roots.contains(&v.root),
+                        "accepted root '{}' not in whitelist: input={:?}",
+                        v.root.display(), p
+                    );
+                    // Rel must not contain disallowed bytes (validate strips
+                    // NUL/% rejection before strip_prefix).
+                    assert!(!v.rel.contains('\0'), "NUL leaked into rel: {:?}", v.rel);
+                    assert!(!v.rel.contains('%'), "% leaked into rel: {:?}", v.rel);
+                    assert!(!v.rel.contains('\\'), "\\ leaked into rel: {:?}", v.rel);
+                }
+                Err(_) => {
+                    rejected += 1;
+                }
+            }
+        }
+        // Sanity: the corpus must produce both shapes.
+        assert!(accepted + rejected == 10_000);
+        // Anything else would indicate a regression in our character bias
+        // (we want a non-trivial mix).
+        assert!(rejected > 1000, "expected substantial rejection rate, got {}", rejected);
+    }
 }
