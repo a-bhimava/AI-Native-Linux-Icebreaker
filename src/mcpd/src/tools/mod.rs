@@ -4,6 +4,7 @@ use crate::schema;
 
 pub mod fs;
 pub mod process;
+pub mod service;
 pub mod system;
 
 /// Static descriptor for one tool entry in the discovery catalogue.
@@ -43,6 +44,14 @@ const TOOLS: &[ToolDescriptor] = &[
                      category: "fs", tier: 1, read_only: false },
     ToolDescriptor { name: "fs.delete", description: "Delete a file. Always Tier 3 (COW gate required).",
                      category: "fs", tier: 3, read_only: false },
+    ToolDescriptor { name: "service.start", description: "Start a systemd unit.",
+                     category: "service", tier: 2, read_only: false },
+    ToolDescriptor { name: "service.stop", description: "Stop a systemd unit.",
+                     category: "service", tier: 2, read_only: false },
+    ToolDescriptor { name: "service.restart", description: "Restart a systemd unit.",
+                     category: "service", tier: 2, read_only: false },
+    ToolDescriptor { name: "service.logs", description: "Tail a systemd unit's journal.",
+                     category: "service", tier: 0, read_only: true },
 ];
 
 /// Returns the complete MCP tool catalogue for discovery (`tools/list`).
@@ -73,10 +82,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn list_all_advertises_twelve_tools() {
+    fn list_all_advertises_sixteen_tools() {
         let v = list_all().unwrap();
         let tools = v["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 12);
+        assert_eq!(tools.len(), 16);
     }
 
     #[test]
@@ -85,13 +94,22 @@ mod tests {
         let fs_tools: Vec<_> = v["tools"].as_array().unwrap().iter()
             .filter(|t| t["category"] == "fs").collect();
         assert_eq!(fs_tools.len(), 5);
-        // Read-only ones are Tier 0
         let ro: Vec<_> = fs_tools.iter().filter(|t| t["read_only"] == true).collect();
         assert_eq!(ro.len(), 3);
         assert!(ro.iter().all(|t| t["tier"] == 0));
-        // fs.delete is Tier 3
         let del = fs_tools.iter().find(|t| t["name"] == "fs.delete").unwrap();
         assert_eq!(del["tier"], 3);
+    }
+
+    #[test]
+    fn list_all_service_category_has_four_tools() {
+        let v = list_all().unwrap();
+        let svc: Vec<_> = v["tools"].as_array().unwrap().iter()
+            .filter(|t| t["category"] == "service").collect();
+        assert_eq!(svc.len(), 4);
+        let logs = svc.iter().find(|t| t["name"] == "service.logs").unwrap();
+        assert_eq!(logs["tier"], 0);
+        assert_eq!(logs["read_only"], true);
     }
 
     #[test]

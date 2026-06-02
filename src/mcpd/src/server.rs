@@ -175,6 +175,26 @@ async fn dispatch(req: JsonRpcRequest) -> Result<JsonRpcResponse> {
             tools::fs::delete(path).await
         }
 
+        // systemd unit control via D-Bus (M1.6). Graceful degradation on bus
+        // failure happens inside the tool fn — never bubbles up as -32603.
+        "service.start" => {
+            let unit = req.params["unit"].as_str().expect("schema-validated");
+            tools::service::start(unit).await
+        }
+        "service.stop" => {
+            let unit = req.params["unit"].as_str().expect("schema-validated");
+            tools::service::stop(unit).await
+        }
+        "service.restart" => {
+            let unit = req.params["unit"].as_str().expect("schema-validated");
+            tools::service::restart(unit).await
+        }
+        "service.logs" => {
+            let unit = req.params["unit"].as_str().expect("schema-validated");
+            let lines = req.params.get("lines").and_then(|v| v.as_u64()).unwrap_or(200);
+            tools::service::logs(unit, lines).await
+        }
+
         // Unreachable: is_known_method() gates this match above.
         other => unreachable!("dispatch reached unknown method '{}' after is_known_method check", other),
     };
@@ -193,5 +213,6 @@ fn is_known_method(method: &str) -> bool {
         | "system.status" | "system.uptime" | "system.cpu" | "system.memory" | "system.disk"
         | "process.list" | "process.inspect"
         | "fs.read" | "fs.list" | "fs.stat" | "fs.write" | "fs.delete"
+        | "service.start" | "service.stop" | "service.restart" | "service.logs"
     )
 }

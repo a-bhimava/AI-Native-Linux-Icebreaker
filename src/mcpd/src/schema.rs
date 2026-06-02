@@ -34,6 +34,10 @@ const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("fs.stat",        include_str!("../schemas/fs.stat.json")),
     ("fs.write",       include_str!("../schemas/fs.write.json")),
     ("fs.delete",      include_str!("../schemas/fs.delete.json")),
+    ("service.start",  include_str!("../schemas/service.start.json")),
+    ("service.stop",   include_str!("../schemas/service.stop.json")),
+    ("service.restart", include_str!("../schemas/service.restart.json")),
+    ("service.logs",   include_str!("../schemas/service.logs.json")),
 ];
 
 /// `tools/list` has no schema — it's the discovery endpoint, accepts any params.
@@ -177,9 +181,9 @@ mod tests {
     }
 
     #[test]
-    fn registered_methods_includes_all_twelve() {
+    fn registered_methods_includes_all_sixteen() {
         let methods: Vec<&str> = registered_methods().collect();
-        assert_eq!(methods.len(), 12);
+        assert_eq!(methods.len(), 16);
         assert!(methods.contains(&"system.status"));
         assert!(methods.contains(&"process.inspect"));
         assert!(methods.contains(&"fs.read"));
@@ -187,6 +191,29 @@ mod tests {
         assert!(methods.contains(&"fs.stat"));
         assert!(methods.contains(&"fs.write"));
         assert!(methods.contains(&"fs.delete"));
+        assert!(methods.contains(&"service.start"));
+        assert!(methods.contains(&"service.stop"));
+        assert!(methods.contains(&"service.restart"));
+        assert!(methods.contains(&"service.logs"));
+    }
+
+    #[test]
+    fn service_start_validates_unit_pattern() {
+        assert!(validate("service.start", &json!({"unit": "nginx.service"})).is_ok());
+        assert!(validate("service.start", &json!({"unit": "getty@tty1.service"})).is_ok());
+        assert!(validate("service.start", &json!({})).is_err());
+        // pattern rejects shell metachars
+        assert!(validate("service.start", &json!({"unit": "nginx; rm -rf /"})).is_err());
+        assert!(validate("service.start", &json!({"unit": "nginx`whoami`"})).is_err());
+        assert!(validate("service.start", &json!({"unit": ""})).is_err());
+    }
+
+    #[test]
+    fn service_logs_validates_lines_bounds() {
+        assert!(validate("service.logs", &json!({"unit": "nginx"})).is_ok());
+        assert!(validate("service.logs", &json!({"unit": "nginx", "lines": 100})).is_ok());
+        assert!(validate("service.logs", &json!({"unit": "nginx", "lines": 0})).is_err());
+        assert!(validate("service.logs", &json!({"unit": "nginx", "lines": 99999})).is_err());
     }
 
     #[test]

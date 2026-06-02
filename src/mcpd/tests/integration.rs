@@ -437,3 +437,63 @@ fn fs_write_rejects_bad_mode() {
     }));
     assert_eq!(resp["error"]["code"], -32602);
 }
+
+// ── M1.6: service.* via D-Bus (graceful degradation) ─────────────────────────
+
+#[test]
+fn service_start_invalid_unit_rejected_by_schema() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "service.start",
+        "params": {"unit": "nginx; rm -rf /"},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602, "schema pattern should reject shell metachars");
+}
+
+#[test]
+fn service_start_missing_unit_rejected() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "service.start",
+        "params": {},
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602);
+}
+
+#[test]
+fn service_start_returns_unavailable_when_bus_missing() {
+    // On macOS there's no systemd → unavailable. On Linux in dev, the system
+    // bus may exist but cron.service may not be installed; in that case we
+    // accept either "ok", "err", or "unavailable" as a healthy response shape.
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "service.start",
+        "params": {"unit": "cron.service"},
+        "id": 1,
+    }));
+    assert!(resp["error"].is_null(), "graceful degradation should not bubble -32603");
+    let status = resp["result"]["status"].as_str().unwrap();
+    assert!(
+        matches!(status, "ok" | "err" | "unavailable"),
+        "got unexpected status: {}",
+        status
+    );
+}
+
+#[test]
+fn service_logs_advertises_default_lines() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "tools/list",
+        "id": 1,
+    }));
+    let logs = resp["result"]["tools"].as_array().unwrap().iter()
+        .find(|t| t["name"] == "service.logs").unwrap().clone();
+    assert_eq!(logs["params_schema"]["properties"]["lines"]["default"], 200);
+}
