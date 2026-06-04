@@ -1,0 +1,12 @@
+[Unit]
+Description=Privileged Brain — Unit Failure Notifier for %i
+# This template service is triggered by other units via OnFailure=pb-notify@%n.service
+# It runs pb-daemon in failure-handler mode to explain why a unit crashed.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env PB_MODE=unit-failure UNIT_NAME=%i /usr/bin/python3 /usr/local/bin/pb-daemon
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pb-notify
+User=root

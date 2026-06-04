@@ -1,0 +1,36 @@
+# ── Large model files (too big for git) ──────────────────────────────────────
+*.gguf
+*.safetensors
+*.bin
+
+# ── Training data (large JSONL files) ────────────────────────────────────────
+train.jsonl
+valid.jsonl
+data/dpo_pairs.jsonl
+data/
+
+# ── Merged / intermediate model outputs ──────────────────────────────────────
+training/merged/
+training/gguf/*.gguf
+
+# Keep the Modelfile and small adapter config files
+!training/adapters/**/adapter_config.json
+!training/adapters/**/tokenizer_config.json
+!training/adapters/**/chat_template.jinja
+!training/adapters/**/README.md
+
+# ── llama.cpp clone ───────────────────────────────────────────────────────────
+llama.cpp/
+
+# ── Python cache ──────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.Python
+
+# ── OS files ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+training/logs/

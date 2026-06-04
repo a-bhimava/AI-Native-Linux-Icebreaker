@@ -1,0 +1,35 @@
+[Unit]
+Description=Privileged Brain AI System Daemon
+Documentation=https://github.com/privileged-brain
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/pb-daemon
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pb-daemon
+
+# Run as root so it can read /proc and access journald
+User=root
+
+# Allow socket creation
+RuntimeDirectory=pb-daemon
+RuntimeDirectoryMode=0755
+
+# Resource limits — prevent daemon from eating too much RAM
+MemoryMax=512M
+CPUQuota=25%
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/var/log /run
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
