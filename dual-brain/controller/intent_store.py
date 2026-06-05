@@ -46,6 +46,20 @@ class IntentStore:
         self._store: dict[str, IntentEntry] = {}
         self._lock = threading.Lock()
 
+    def _get_unlocked(self, ref_id: str) -> Optional[dict]:
+        """Get-or-expire logic without acquiring the lock.
+
+        Caller MUST hold self._lock. Used by both get() and revise() so the
+        latter's get→put can run as one atomic critical section.
+        """
+        entry = self._store.get(ref_id)
+        if entry is None:
+            return None
+        if entry.is_expired():
+            del self._store[ref_id]
+            return None
+        return entry.intent
+
     def put(self, intent: dict) -> str:
         """Store a validated Intent Object and return an opaque UUID reference."""
         ref_id = str(uuid.uuid4())
@@ -56,13 +70,7 @@ class IntentStore:
     def get(self, ref_id: str) -> Optional[dict]:
         """Retrieve an Intent Object by reference ID. Returns None if unknown or expired."""
         with self._lock:
-            entry = self._store.get(ref_id)
-            if entry is None:
-                return None
-            if entry.is_expired():
-                del self._store[ref_id]
-                return None
-            return entry.intent
+            return self._get_unlocked(ref_id)
 
     def delete(self, ref_id: str) -> None:
         with self._lock:
@@ -77,21 +85,28 @@ class IntentStore:
 
         Returns a new opaque reference ID for the revised intent, or None if the
         original intent is unknown or expired.
+
+        Concurrency: the entire get → merge → validate → store sequence runs under
+        a single self._lock acquisition so an entry cannot expire between the read
+        and the write (closes P2-F13).
         """
-        original = self.get(original_ref_id)
-        if original is None:
-            return None
+        with self._lock:
+            original = self._get_unlocked(original_ref_id)
+            if original is None:
+                return None
 
-        revised = {**original, **correction}
-        # Correction must not introduce new top-level keys not in the original
-        extra_keys = set(revised.keys()) - set(original.keys())
-        if extra_keys:
-            raise ValueError(
-                f"Correction introduced unknown Intent Object fields: {extra_keys}. "
-                "Only fields present in the original schema are allowed (INV-2)."
-            )
+            revised = {**original, **correction}
+            # Correction must not introduce new top-level keys not in the original
+            extra_keys = set(revised.keys()) - set(original.keys())
+            if extra_keys:
+                raise ValueError(
+                    f"Correction introduced unknown Intent Object fields: {extra_keys}. "
+                    "Only fields present in the original schema are allowed (INV-2)."
+                )
 
-        return self.put(revised)
+            new_ref_id = str(uuid.uuid4())
+            self._store[new_ref_id] = IntentEntry(intent=revised)
+            return new_ref_id
 
     def evict_expired(self) -> int:
         """Remove all expired entries. Returns count of entries evicted."""
