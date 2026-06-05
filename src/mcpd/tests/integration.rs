@@ -26,17 +26,24 @@ struct Mcpd {
 
 impl Mcpd {
     fn spawn() -> Self {
-        Self::spawn_with_audit(None)
+        Self::spawn_with_env(&[])
     }
 
     fn spawn_with_audit(audit_path: Option<&std::path::Path>) -> Self {
+        match audit_path {
+            Some(p) => Self::spawn_with_env(&[("MCPD_AUDIT_LOG", p.to_str().expect("utf-8 audit path"))]),
+            None => Self::spawn_with_env(&[]),
+        }
+    }
+
+    fn spawn_with_env(vars: &[(&str, &str)]) -> Self {
         let bin = env!("CARGO_BIN_EXE_mcpd");
         let mut cmd = Command::new(bin);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
-        if let Some(p) = audit_path {
-            cmd.env("MCPD_AUDIT_LOG", p);
+        for (k, v) in vars {
+            cmd.env(k, v);
         }
         let mut child = cmd.spawn().expect("spawn mcpd");
         let stdin = child.stdin.take().expect("stdin");
@@ -696,4 +703,54 @@ fn audit_redacts_paths_outside_home() {
 
     assert!(content.contains("<redacted:/etc>"), "expected redacted family marker, got: {}", content);
     assert!(!content.contains("shadow"), "raw target leaked into audit log: {}", content);
+}
+
+// ── M1.3 Landlock kernel-enforcement test ─────────────────────────────────────
+//
+// All other fs.* tests prove that userspace `tools::fs::validate()` rejects
+// out-of-root paths. They do NOT prove that Landlock — the *kernel* enforcement
+// layer — is the one blocking. A test that only exercises validate() would
+// still pass even with Landlock silently disabled, which is exactly the
+// failure mode INV-5 exists to prevent.
+//
+// To distinguish kernel-EACCES from userspace-rejection we widen validate()
+// roots via the `fs-test-roots` cargo feature and the MCPD_FS_TEST_ROOTS env
+// var (compiled out of production builds), then attempt to read a real file
+// outside Landlock's allow list. validate() admits the path; openat2 hits
+// Landlock and the kernel returns EACCES. That EACCES is the proof.
+#[cfg(all(target_os = "linux", feature = "fs-test-roots"))]
+#[test]
+fn landlock_blocks_kernel_enforced_root() {
+    // /boot/grub/grub.cfg: world-readable, exists on Debian VMs, outside both
+    // the default whitelist (proc/sys/tmp/var/log/etc + $HOME) and Landlock's
+    // allow list (proc/sys/etc/usr/lib/lib64/var/log + tmp + var/log/mcpd
+    // + $HOME). Skip if the host has no /boot/grub (containers, minimal CI).
+    let probe = std::path::Path::new("/boot/grub/grub.cfg");
+    if !probe.exists() {
+        eprintln!("skipping: {} not present on this host", probe.display());
+        return;
+    }
+
+    let mut mcpd = Mcpd::spawn_with_env(&[("MCPD_FS_TEST_ROOTS", "/boot")]);
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.read",
+        "params": {"path": probe.to_str().unwrap()},
+        "id": 1,
+    }));
+
+    // Must be a JSON-RPC error, not a success (success would mean Landlock
+    // is not enforcing, which is the bug we are guarding against).
+    let err = resp.get("error").unwrap_or_else(|| {
+        panic!(
+            "expected JSON-RPC error from kernel-blocked read; got success: {}",
+            resp
+        )
+    });
+    let msg = err["message"].as_str().unwrap_or_default().to_lowercase();
+    assert!(
+        msg.contains("permission denied") || msg.contains("eacces") || msg.contains("os error 13"),
+        "expected EACCES / Permission denied (kernel Landlock), got: {}",
+        err
+    );
 }

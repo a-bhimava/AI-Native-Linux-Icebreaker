@@ -64,6 +64,17 @@ fn home() -> &'static PathBuf {
 fn default_roots() -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = STATIC_ROOTS.iter().map(PathBuf::from).collect();
     v.push(home().clone());
+    // Test-only widening for the M1.3 Landlock kernel-enforcement test.
+    // Behind a cargo feature so production release binaries cannot honour
+    // MCPD_FS_TEST_ROOTS even if it is set. Landlock's allow list is NOT
+    // affected by this; the whole point of the test is to prove the kernel
+    // (not validate()) is the one rejecting the read.
+    #[cfg(feature = "fs-test-roots")]
+    if let Ok(extra) = std::env::var("MCPD_FS_TEST_ROOTS") {
+        for p in extra.split(':').filter(|s| !s.is_empty()) {
+            v.push(PathBuf::from(p));
+        }
+    }
     v
 }
 

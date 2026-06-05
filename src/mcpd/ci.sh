@@ -31,8 +31,11 @@ case "${1:-}" in
 esac
 
 # ── G1: tests (includes the G4 fuzz target as a unit test) ────────────────────
-echo -e "${CYN}[G1]${RST} cargo test --release"
-cargo test --release --quiet
+# --features fs-test-roots compiles in the MCPD_FS_TEST_ROOTS hook used by the
+# Landlock kernel-enforcement integration test. Production release builds
+# (without this flag) do not link the code path.
+echo -e "${CYN}[G1]${RST} cargo test --release --features fs-test-roots"
+cargo test --release --features fs-test-roots --quiet
 
 # ── lint ──────────────────────────────────────────────────────────────────────
 echo -e "${CYN}[lint]${RST} cargo clippy --release --all-targets -- -D warnings"
