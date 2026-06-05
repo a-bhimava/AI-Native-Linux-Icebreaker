@@ -45,9 +45,9 @@ Read both before making any architectural change.
 | Phase | Status | Module |
 |---|---|---|
 | Phase 0 | Complete | Env setup, models, MCP handshake |
-| Phase 1 | Not started | mcpd Rust daemon |
+| Phase 1 | Complete | mcpd Rust daemon (M1.0–M1.10, all exit gates green on Linux) |
 | Phase 2 | Not started | Dual-Brain Controller |
-| Phase 3 | Not started | Landlock + Seccomp-BPF + COW sandbox |
+| Phase 3 | Folded into Phase 1 | Landlock + Seccomp-BPF + COW landed alongside the mcpd tools (M1.3 / M1.4 / M1.5); kept as a heading for whitepaper continuity |
 | Phase 4 | In progress | Fine-tuning pipeline (`privileged-brain/`) |
 | Phase 5 | Not started | UX + Graduated Determinism |
 | Phase 6 | Not started | ISO distribution |
@@ -137,6 +137,21 @@ The following files implement core security mechanisms. **Any PR touching these 
 | `inference/grammar/mcp_tool_call.gbnf` | Grammar definition — must stay in sync with mcpd schemas |
 | `models/checksums.sha256` | Authoritative hash manifest — tampering = wrong model loaded |
 | `cx-distro/build.sh` | ISO builder — checksum verification lives here |
+
+---
+
+## Test-Only Knobs (Production Must NOT Compile These In)
+
+Some mcpd hardening tests need to widen a runtime check without weakening the kernel sandbox underneath. Those hooks live behind cargo features that default to **off**. If you find one in a release binary, that is a build-system bug, not a feature request.
+
+| Feature | Env var | Effect | Verification |
+|---|---|---|---|
+| `fs-test-roots` | `MCPD_FS_TEST_ROOTS=/abs/path[:/abs/path...]` | Appends extra paths to `tools::fs::default_roots()` so the M1.3 Landlock kernel-enforcement integration test can prove the *kernel* (Landlock) rejects an out-of-root read after userspace `validate()` admits it. Landlock's own allow list is NOT widened by this. | `strings target/release/mcpd \| grep -c MCPD_FS_TEST_ROOTS` must be `0` on any binary that ships outside CI. ci.sh G1 sets `--features fs-test-roots` only for the test build. |
+
+**Rules:**
+- Never reference a `fs-test-roots`-style feature from `src/main.rs` or any code on the normal request path.
+- Never gate a security check behind a feature — features can only **add** test surfaces, never **remove** production checks.
+- New test-only knobs follow the same pattern: cargo feature off by default, env var read inside `#[cfg(feature = "...")]`, listed in this table, verified absent from the production binary by ci.sh.
 
 ---
 
@@ -353,4 +368,4 @@ qemu-system-x86_64 -m 8G -boot d -cdrom ainative.iso -enable-kvm
 
 ---
 
-*Last updated: May 2026. Update this file whenever an architectural decision changes, a new invariant is established, or a phase gate passes.*
+*Last updated: June 2026 (Phase 1 mcpd exit gates passed on Linux; `fs-test-roots` test-only feature added). Update this file whenever an architectural decision changes, a new invariant is established, or a phase gate passes.*

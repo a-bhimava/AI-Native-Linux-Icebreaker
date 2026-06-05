@@ -1,0 +1,28 @@
+[package]
+name = "mcpd-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# cargo-fuzz convention: this sub-crate is intentionally separated from the
+# main mcpd crate so libFuzzer's sanitizer flags don't pollute the main build.
+# Discovered & built via `cargo +nightly fuzz run <target>`.
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mcpd = { path = ".." }
+
+[[bin]]
+name = "validate"
+path = "fuzz_targets/validate.rs"
+test = false
+doc = false
+bench = false
+
+# libFuzzer requires the panic strategy to be "abort" so a panic produces a
+# crash artifact rather than unwinding past the harness.
+[profile.release]
+debug = 1

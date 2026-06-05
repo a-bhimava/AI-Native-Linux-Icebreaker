@@ -1,0 +1,21 @@
+# GBNF Grammar — Chain-of-Thought Bash Output
+# Constrains llama.cpp output to the two-line CoT format.
+# Used with: llama-server --grammar-file inference/grammar/bash_cot.gbnf
+#
+# Valid examples:
+#   REASONING: df reports filesystem disk space in human-readable units; safe read-only.
+#   COMMAND: df -h
+#
+#   REASONING: Writing zeros to /dev/sda destroys all data at the hardware level.
+#   COMMAND: REFUSE: writing to a raw block device causes permanent unrecoverable data loss
+#
+#   REASONING: The request is ambiguous — no target service was specified.
+#   COMMAND: CLARIFY: which service should be restarted?
+#
+# The shell trigger strips the REASONING line before execution.
+# Only the text after "COMMAND: " reaches the shell (or is checked for REFUSE:/CLARIFY:).
+
+root           ::= reasoning-line "\n" command-line
+reasoning-line ::= "REASONING: " text-line
+command-line   ::= "COMMAND: " text-line
+text-line      ::= [^\n\r]+

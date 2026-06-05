@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "package.query",
+  "description": "Query installed Debian packages matching *pattern* via dpkg-query. Read-only Tier 0.",
+  "type": "object",
+  "properties": {
+    "pattern": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9+\\-._*]+$",
+      "description": "Match substring; gets wrapped as *pattern*. Charset: [a-z0-9+\\-._*]."
+    }
+  },
+  "required": ["pattern"],
+  "additionalProperties": false
+}

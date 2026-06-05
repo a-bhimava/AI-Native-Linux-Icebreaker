@@ -6,7 +6,9 @@ Saves to data/processed/dpo_pairs.jsonl.
 v2: Expanded to 500+ pairs with emphasis on curl|bash REFUSE regression fix.
 """
 
+import argparse
 import json
+import re
 from pathlib import Path
 
 # ── SAFETY_PAIRS: curl|bash and remote-execution REFUSE patterns ──────────────
@@ -1217,8 +1219,73 @@ def load_synthetic_pairs() -> list[dict]:
     return pairs
 
 
+def _key_tool(bash: str) -> str:
+    tokens = bash.split()
+    for t in tokens:
+        if t not in ("sudo",) and not t.startswith("-"):
+            return t
+    return tokens[0] if tokens else "the command"
+
+
+def _make_chosen_reasoning(bash: str) -> str:
+    if re.search(r'curl.+\|.*(bash|sh)|wget.+\|.*(bash|sh)', bash, re.I):
+        return "Piping curl or wget directly to a shell executes unreviewed remote code — the script's content is unknown and could be malicious."
+    if 'rm -rf /' in bash or re.search(r'find\s+/\s+.*-delete', bash):
+        return "Recursively deleting from root or from / destroys the entire filesystem — permanent, unrecoverable, system-level destruction."
+    if re.search(r'dd\b.*of=/dev/(sd|nvme|hd)', bash, re.I):
+        return "Writing with dd to a block device overwrites the disk at hardware level — permanent, unrecoverable data loss."
+    if re.search(r'shred\s+/dev/', bash, re.I):
+        return "shred on a block device destroys all data irreversibly — this is a destructive, unrecoverable operation."
+    if re.search(r'chmod\s+(-R\s+)?777\s+/(etc|usr|bin|sys)', bash, re.I):
+        return "chmod 777 on system directories grants world-write to critical OS files — this permanently degrades security posture."
+    if re.search(r'sudoers.*nopasswd|nopasswd.*sudoers|visudo', bash, re.I):
+        return "Writing NOPASSWD to sudoers bypasses password authentication for root — unauthorized privilege escalation."
+    tool = _key_tool(bash)
+    return f"{tool} performs a read-only, minimal-scope operation and poses no risk of system modification or data loss."
+
+
+def _make_rejected_reasoning(bash: str) -> str:
+    if re.search(r'curl.+\|.*(bash|sh)|wget.+\|.*(bash|sh)', bash, re.I):
+        return "The fetch-and-pipe pattern is a common installation shortcut used by many reputable open-source projects."
+    if 'rm -rf /' in bash:
+        return "Recursively removing from root cleans up all temporary and cache files to free disk space."
+    if re.search(r'dd\b.*of=/dev/(sd|nvme|hd)', bash, re.I):
+        return "dd copies data at the block level, which is standard practice for disk imaging and cloning."
+    if re.search(r'shred\s+/dev/', bash, re.I):
+        return "shred securely overwrites a device before repurposing it, which is standard decommissioning practice."
+    if re.search(r'chmod\s+(-R\s+)?777\s+/(etc|usr|bin|sys)', bash, re.I):
+        return "chmod 777 grants full access to all users and processes, which resolves permission-related errors."
+    if re.search(r'sudoers.*nopasswd|nopasswd.*sudoers|visudo', bash, re.I):
+        return "Removing the sudo password requirement simplifies automated scripts that need elevated privileges."
+    tool = _key_tool(bash)
+    return f"{tool} also works and is a reasonable approach for this task."
+
+
+def to_cot_pair(pair: dict) -> dict:
+    chosen_cmd = pair["chosen"]
+    rejected_cmd = pair["rejected"]
+    # For REFUSE pairs, reasoning should explain why the REJECTED command is dangerous
+    if chosen_cmd.upper().startswith("REFUSE:"):
+        chosen_reasoning = _make_chosen_reasoning(rejected_cmd)
+    else:
+        chosen_reasoning = _make_chosen_reasoning(chosen_cmd)
+    return {
+        "prompt": pair["prompt"],
+        "chosen": f"REASONING: {chosen_reasoning}\nCOMMAND: {chosen_cmd}",
+        "rejected": f"REASONING: {_make_rejected_reasoning(rejected_cmd)}\nCOMMAND: {rejected_cmd}",
+    }
+
+
 def main():
-    out_path = Path("data/processed/dpo_pairs.jsonl")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cot", action="store_true",
+                        help="Output CoT format with REASONING:/COMMAND: in chosen and rejected")
+    args = parser.parse_args()
+
+    if args.cot:
+        out_path = Path("data/processed/dpo_pairs_cot.jsonl")
+    else:
+        out_path = Path("data/processed/dpo_pairs.jsonl")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Inline final pairs to reach 500+ total without another named list
@@ -1344,12 +1411,21 @@ def main():
     all_pairs.extend(final_pairs)
     all_pairs.extend(load_synthetic_pairs())
 
+    pairs_to_write = [to_cot_pair(p) for p in all_pairs] if args.cot else all_pairs
+
     with open(out_path, "w") as f:
-        for pair in all_pairs:
+        for pair in pairs_to_write:
             f.write(json.dumps(pair) + "\n")
 
-    refuse_count = sum(1 for p in all_pairs if p["chosen"].upper().startswith("REFUSE:"))
-    print(f"DPO preference pairs written : {len(all_pairs)}")
+    if args.cot:
+        refuse_count = sum(
+            1 for p in pairs_to_write
+            if p["chosen"].split("\n")[-1].upper().startswith("COMMAND: REFUSE:")
+        )
+    else:
+        refuse_count = sum(1 for p in all_pairs if p["chosen"].upper().startswith("REFUSE:"))
+    label = "CoT DPO" if args.cot else "DPO"
+    print(f"{label} preference pairs written : {len(pairs_to_write)}")
     print(f"  of which REFUSE pairs      : {refuse_count}")
     print(f"Output: {out_path.resolve()}")
 
