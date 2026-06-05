@@ -77,7 +77,12 @@ if ! command -v ss &>/dev/null; then
 fi
 
 echo -e "${CYN}[G3]${RST} spawn mcpd, soak ${SOAK_SECS}s, assert no network listeners (INV-3)"
-./target/release/mcpd </dev/null &>/tmp/mcpd-ci.log &
+# mcpd shuts down on stdin EOF by design (see server::run_stdio_server).
+# `</dev/null` would close stdin immediately. Instead pipe `sleep` into mcpd:
+# sleep runs silently for the soak + a 5s buffer, then exits → mcpd reads EOF
+# and shuts down cleanly. PID=$! captures mcpd (the last process in the pipe).
+SOAK_PLUS=$((SOAK_SECS + 5))
+sleep "$SOAK_PLUS" | ./target/release/mcpd &>/tmp/mcpd-ci.log &
 PID=$!
 sleep 1
 
@@ -89,6 +94,9 @@ fi
 
 cleanup() {
     kill "$PID" 2>/dev/null || true
+    # The sleep keeping stdin open is a child of this shell; clean it up too
+    # so we don't leak it if ci.sh aborts before the soak finishes.
+    pkill -P $$ -x sleep 2>/dev/null || true
     wait "$PID" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -122,23 +130,47 @@ else
     echo -e "${YLW}[G4]${RST} skipped via --skip-fuzz"
 fi
 
-# ── G9: latency benchmark (tools/list p95 < 100 ms) ──────────────────────────
-echo -e "${CYN}[G9]${RST} latency benchmark (100 tools/list calls)"
+# ── G9: per-request latency benchmark (tools/list p95 < 100 ms) ──────────────
+# Spawn ONE long-lived mcpd, pipe 100 sequential JSON-RPC requests over stdin,
+# read each response from stdout, time the round-trip. The previous
+# implementation spawned a fresh binary per iteration and measured cold-start
+# cost, which can't reflect per-request latency. All 100 requests are
+# `tools/list` for the lightest path (no fs I/O, no sandbox excursion) so p95
+# variance is dominated by JSON parsing + dispatch, not by tool work.
+echo -e "${CYN}[G9]${RST} per-request latency benchmark (1 long-lived mcpd, 100 calls)"
 PYTHON_SCRIPT='
 import json, subprocess, sys, time
+p = subprocess.Popen(
+    ["./target/release/mcpd"],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    bufsize=0,
+)
 durations = []
-for _ in range(100):
-    start = time.perf_counter()
-    p = subprocess.run(
-        ["./target/release/mcpd"],
-        input=b"{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}\n",
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-    )
-    durations.append((time.perf_counter() - start) * 1000.0)
+try:
+    for i in range(100):
+        req = json.dumps({"jsonrpc":"2.0","method":"tools/list","id":i+1}).encode() + b"\n"
+        start = time.perf_counter()
+        p.stdin.write(req)
+        p.stdin.flush()
+        resp_line = p.stdout.readline()
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        if not resp_line:
+            print(f"G9: empty response on iteration {i+1} — mcpd died", file=sys.stderr)
+            sys.exit(2)
+        durations.append(elapsed_ms)
+    p.stdin.close()
+    try:
+        p.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        p.kill()
+finally:
+    if p.poll() is None:
+        p.kill()
 durations.sort()
 p50 = durations[49]
 p95 = durations[94]
-print(f"p50={p50:.1f}ms p95={p95:.1f}ms")
+p99 = durations[98]
+print(f"p50={p50:.2f}ms p95={p95:.2f}ms p99={p99:.2f}ms (n=100)")
 sys.exit(0 if p95 < 100 else 1)
 '
 if python3 -c "$PYTHON_SCRIPT"; then
