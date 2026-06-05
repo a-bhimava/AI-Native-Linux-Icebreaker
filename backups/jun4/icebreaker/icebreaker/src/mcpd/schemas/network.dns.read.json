@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "network.dns.read",
+  "description": "Parse /etc/resolv.conf and return nameservers, search domains, and default domain. Read-only Tier 0.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

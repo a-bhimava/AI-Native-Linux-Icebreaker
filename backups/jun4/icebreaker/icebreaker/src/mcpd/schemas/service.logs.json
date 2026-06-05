@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "service.logs",
+  "description": "Fetch the last N journal lines for a unit via journalctl -u UNIT -n N --no-pager --output=cat. Tier 0 (read-only).",
+  "type": "object",
+  "properties": {
+    "unit": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9._@:\\\\-]+$",
+      "description": "Unit name, e.g. 'nginx.service'."
+    },
+    "lines": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000,
+      "default": 200,
+      "description": "Number of recent journal lines to return."
+    }
+  },
+  "required": ["unit"],
+  "additionalProperties": false
+}

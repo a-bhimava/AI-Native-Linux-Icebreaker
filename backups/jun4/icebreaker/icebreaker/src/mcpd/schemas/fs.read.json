@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "fs.read",
+  "description": "Read a UTF-8 text file under the whitelist roots ($HOME, /proc, /sys, /tmp, /var/log, /etc). Maximum size: 10 MB. Binary reads land in Phase 5.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Absolute path of the file to read."
+    }
+  },
+  "required": ["path"],
+  "additionalProperties": false
+}
