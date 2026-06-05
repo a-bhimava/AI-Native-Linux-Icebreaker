@@ -9,9 +9,11 @@
 
 ## §1 — Context & Status
 
+> **Status: ✅ COMPLETE (June 2026).** All 11 milestones M1.0–M1.10 implemented; all nine exit gates passed end-to-end on Linux. See §11 — Closeout for the gate-by-gate evidence and the three discoveries that surfaced during the canonical Linux verification.
+
 mcpd is the **Linux daemon** that exposes the operating system to the Privileged Brain through a constrained JSON-RPC 2.0 interface over **stdio only** (INV-3). The Privileged Brain never speaks to the OS directly; every kernel-touching action goes through one of mcpd's MCP tools.
 
-The whitepaper (§6.2) and implementation plan (lines 149–194) define the tool surface. The existing skeleton at `src/mcpd/` already implements:
+The whitepaper (§6.2) and implementation plan (lines 149–194) define the tool surface. The skeleton at `src/mcpd/` that existed at the start of Phase 1 implemented:
 
 | File | LOC | What |
 |---|---|---|
@@ -21,16 +23,9 @@ The whitepaper (§6.2) and implementation plan (lines 149–194) define the tool
 | `src/tools/system.rs` | 218 | status/uptime/cpu/memory/disk via /proc + statvfs |
 | `src/tools/process.rs` | 136 | list/inspect via /proc/PID |
 
-What's missing:
+Everything in the original "What's missing" list landed during Phase 1 (`tools/fs.rs`, `tools/service.rs`, `tools/network.rs`, `tools/package.rs`, `sandbox/landlock.rs`, `sandbox/seccomp.rs`, `audit.rs`, schemas, the test suite, and the Cargo deps `landlock 0.4`, `seccompiler 0.4`, `zbus 4`, `jsonschema 0.18`, `nix 0.28`, `chrono`). One structural change beyond the original plan: mcpd is now a hybrid bin+lib crate (`src/lib.rs`) so the cargo-fuzz target under `fuzz/` can depend on the library.
 
-- `tools/fs.rs`, `tools/service.rs`, `tools/network.rs`, `tools/package.rs`
-- `sandbox/landlock.rs`, `sandbox/seccomp.rs`
-- `audit.rs` (INV-8)
-- `schemas/` JSON Schema docs + schema-version
-- A test suite (zero `#[cfg(test)]` modules today)
-- Cargo deps: `landlock`, `seccompiler`, `zbus`, `jsonschema`, `nix`, `signal-hook`, `chrono`
-
-**Platform constraint:** mcpd is Linux-only — it reads `/proc` and uses Landlock LSM (kernel ≥ 5.13). Local `cargo check` runs on macOS for fast feedback, but `cargo build --release` and `cargo test` must run on the GCP VM (Ubuntu 22.04).
+**Platform constraint:** mcpd is Linux-only — it reads `/proc` and uses Landlock LSM (kernel ≥ 5.13). Local `cargo check` and `cargo test` run on macOS for fast feedback (167 tests build/pass with sandbox modules cfg-gated out), but the canonical verification is `./ci.sh` on the GCP VM (Debian 12, kernel 6.1).
 
 ---
 
@@ -63,26 +58,26 @@ Sourced from `AI_Native_OS_Whitepaper.md` §6.2 and `docs/ARCHITECTURE.md` §8. 
 | `system.cpu` | 0 | ✅ | per-core %, 100 ms sampling |
 | `system.memory` | 0 | ✅ | total/free/available/cached/swap MB |
 | `system.disk` | 0 | ✅ | mount-by-mount stat |
-| `system.reboot` | 3 | ❌ | HITL blocking; calls `org.freedesktop.login1.Manager.Reboot` |
+| `system.reboot` | 3 | ⏸ Phase 2 | HITL blocking; calls `org.freedesktop.login1.Manager.Reboot` |
 | `process.list` | 0 | ✅ | sorted by CPU% desc |
 | `process.inspect` | 0 | ✅ | full /proc/PID/* dump for one PID |
-| `process.kill` | 2 | ❌ | LLM-classified; `kill(SIGTERM)` then optional `SIGKILL` |
-| `fs.read` | 0 | ❌ | whitelist-validated read |
-| `fs.list` | 0 | ❌ | directory entries with stat |
-| `fs.stat` | 0 | ❌ | file metadata only |
-| `fs.write` (in $HOME) | 1 | ❌ | direct write under Landlock |
-| `fs.write` (outside $HOME) | 3 | ❌ | returns `requires_cow_approval` (Phase 3 commits) |
-| `fs.delete` | 3 | ❌ | returns `requires_cow_approval` |
-| `service.start` / `stop` / `restart` | 2 | ❌ | via `org.freedesktop.systemd1.Manager` |
-| `service.logs` | 0 | ❌ | read-only `journalctl -u <unit>` |
-| `network.status` | 0 | ❌ | `getifaddrs(3)` + `/proc/net/route` |
-| `network.dns.read` | 0 | ❌ | parse `/etc/resolv.conf` |
-| `network.dns.set` | 2 | ❌ | write `/etc/resolv.conf` (or systemd-resolved) |
-| `network.firewall.*` | 3 | ❌ | nftables; HITL |
-| `package.query` | 0 | ❌ | `dpkg-query -W` |
-| `package.install` / `remove` / `upgrade` | 2 | ❌ | apt; returns `requires_cow_approval` |
+| `process.kill` | 2 | ⏸ Phase 2 | LLM-classified; `kill(SIGTERM)` then optional `SIGKILL` |
+| `fs.read` | 0 | ✅ | whitelist-validated read (M1.2) |
+| `fs.list` | 0 | ✅ | directory entries with stat (M1.2) |
+| `fs.stat` | 0 | ✅ | file metadata only (M1.2) |
+| `fs.write` (in $HOME) | 1 | ✅ | direct write under Landlock (M1.5) |
+| `fs.write` (outside $HOME) | 3 | ✅ | returns `requires_cow_approval` (M1.5; Phase 3 commits) |
+| `fs.delete` | 3 | ✅ | returns `requires_cow_approval` (M1.5) |
+| `service.start` / `stop` / `restart` | 2 | ✅ | via `org.freedesktop.systemd1.Manager` (M1.6) |
+| `service.logs` | 0 | ✅ | read-only `journalctl -u <unit>` (M1.6) |
+| `network.status` | 0 | ✅ | `getifaddrs(3)` + `/proc/net/route` (M1.7) |
+| `network.dns.read` | 0 | ✅ | parse `/etc/resolv.conf` (M1.7) |
+| `network.dns.set` | 2 | ⏸ Phase 2 | write `/etc/resolv.conf` (or systemd-resolved) |
+| `network.firewall.*` | 3 | ⏸ Phase 2 | nftables; HITL |
+| `package.query` | 0 | ✅ | `dpkg-query -W` (M1.8) |
+| `package.install` / `remove` / `upgrade` | 2 | ✅ | apt; returns `requires_cow_approval` (M1.8) |
 
-Total Phase 1 surface: 23 tools (7 done, 16 to do).
+Final Phase 1 surface: **22 tools live** (verified by ci.sh G2). Four tools deferred to Phase 2 because they're Tier 2/3 and only become useful once the Controller's LLM-classification and HITL gates are wired up: `system.reboot`, `process.kill`, `network.dns.set`, `network.firewall.*`.
 
 ---
 
@@ -369,3 +364,55 @@ These four choices affect the implementation but can wait until the relevant mil
 - rust-landlock crate: <https://github.com/landlock-lsm/rust-landlock>
 - seccompiler crate: <https://github.com/rust-vmm/seccompiler>
 - zbus crate: <https://docs.rs/zbus>
+
+---
+
+## §11 — Closeout (Phase 1 Verified Complete, June 2026)
+
+All nine exit gates from §2 ran end-to-end on GCP VM `instance-20260528-030421` (us-central1-a, Debian 12, kernel 6.1, glibc 2.36). Final result: **all green**.
+
+### Gate results
+
+| # | Gate | Result | Evidence |
+|---|---|---|---|
+| G1 | All tool modules pass unit + integration tests | ✅ | 172 tests (132 unit + 40 integration with `--features fs-test-roots`), 0 failures |
+| G2 | `tools/list` returns full schema catalogue | ✅ | 22 tools advertised, `schema_version = "1.0.0"` |
+| G3 | No network listeners (INV-3) | ✅ | `ss -tlnp` shows zero mcpd listeners after 300 s soak |
+| G4 | `fs.rs` rejects 100% of path traversal inputs | ✅ | cargo-fuzz target `validate`: 10.4 M libFuzzer executions in 61 s, 0 crashes, corpus grew 12 → 99 |
+| G5 | D-Bus absent → graceful degradation | ✅ | `service.start_returns_unavailable_when_bus_missing` integration test passes |
+| G6 | Sandbox applied before fork/execve (INV-5) | ✅ | New `landlock_blocks_kernel_enforced_root` integration test proves kernel-EACCES (not just userspace rejection); 0 SIGSYS in audit log over the full suite in strict mode |
+| G7 | Destructive ops gated by COW (INV-6) | ✅ | `fs_delete_always_returns_cow_gate`, `fs_write_outside_home_returns_cow_gate`, `package_install_returns_cow_gate` all pass |
+| G8 | Audit log appends every intent (INV-8) | ✅ | `audit_writes_one_line_per_request` passes; live `/var/log/mcpd/audit.log` confirmed O_APPEND (line-count grows on restart, last line is the most recent request) |
+| G9 | Latency budget | ✅ | `tools/list` round-trip p50 = 8.17 ms, p95 = 8.38 ms, p99 = 8.43 ms (n = 100, one long-lived mcpd over stdio). Budget was < 100 ms; landed ~12× under |
+
+Full `./ci.sh` (no `--skip-soak`, no `--skip-fuzz`) end-to-end: **8 m 16 s, exit 0.**
+
+### Three discoveries that surfaced during the canonical Linux run
+
+The macOS dev loop and `--skip-soak` ci.sh runs had hidden three issues that only the canonical Linux run exposed:
+
+1. **Seccomp strict-mode revealed two syscalls HARVEST missed.** glibc 2.36's tokio reactor still issues the legacy `epoll_wait` (232) under load, not just `epoll_pwait`; and `dup2` (33) is hit by older fd-dup paths that don't reach `dup3`. Both added to the allowlist. Final counts: denylist (30) + allowlist (107).
+2. **G3 was structurally broken.** It ran `./target/release/mcpd </dev/null &`, but mcpd shuts down on stdin EOF by design (correctly, per `server::run_stdio_server`). The "G3 PASS" from prior runs meant "mcpd died before it could open a listener" — technically true but vacuous. Fixed by piping `sleep $((SOAK_SECS + 5))` into mcpd so stdin stays open for the full soak, then EOFs cleanly when sleep exits.
+3. **G6 had a userspace/kernel gap.** Existing fs.* tests proved `tools::fs::validate()` rejects out-of-root paths, but did not prove Landlock blocks at `openat2()` time — they'd pass even with Landlock silently disabled. Closed with a feature-gated `MCPD_FS_TEST_ROOTS` hook (cargo feature `fs-test-roots`, off in production) that widens validate() while leaving Landlock untouched. The new test attempts `fs.read` on `/boot/grub/grub.cfg` and asserts kernel-EACCES. Production binary verified clean: `strings target/release/mcpd | grep MCPD_FS_TEST_ROOTS = 0`.
+
+Bonus: replaced the inline LCG fuzz harness (hand-rolled, fixed seed `0xCAFE_F00D_DEAD_BEEF`, coverage-blind) with a real cargo-fuzz target. mcpd is now a hybrid bin+lib crate; the fuzz target lives under `src/mcpd/fuzz/` and runs as ci.sh G4.
+
+### Commits
+
+| Commit | Subject |
+|---|---|
+| `20a6dd1` | Linux compat: openat2 via libc::syscall, landlock 0.4 API, seccomp denylist *(message superseded below)* |
+| `dfe262c` | seccomp: verify STRICT mode (denylist + allowlist, default=KillProcess) |
+| `9cc6d09` | M1.3: Landlock kernel-enforcement integration test |
+| `dd7897a` | M1.x: replace inline LCG fuzz with cargo-fuzz target on tools::fs::validate |
+| `77cea7b` | ci.sh G9 + G3: real per-request latency + soak that actually runs mcpd |
+
+### What was NOT done in Phase 1 (intentionally deferred)
+
+- **`process.kill`, `network.dns.set`, `network.firewall.*`, `system.reboot`.** Listed in §3 with status ❌; they are Phase 1-eligible but require Phase 2 Controller wiring (Tier 2 LLM classification, Tier 3 HITL) before they're useful. Deferring to Phase 2.
+- **INV-7 GGUF checksum verification.** mcpd doesn't load model weights; that belongs to the inference layer / `cx-distro/build.sh`. Out of M1.x scope.
+- **Real COW commit (Phase 3).** mcpd returns `requires_cow_approval` UUIDs for destructive operations as a promissory note. The actual overlayfs commit landing happens in Phase 3 of the whitepaper.
+
+### Sign-off
+
+Per `CLAUDE.md` WF-6, security-critical files touched (`src/mcpd/sandbox/seccomp.rs`, `src/mcpd/sandbox/landlock.rs`, `src/mcpd/tools/fs.rs`, `src/mcpd/server.rs` via `ci.sh` G3 fix) require module-owner LGTM plus a second reviewer. Closeout PR carries the full evidence above.
