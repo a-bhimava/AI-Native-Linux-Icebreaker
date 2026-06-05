@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "MCP daemon — exposes system tools via JSON-RPC 2.0 over stdio"
 
+[lib]
+name = "mcpd"
+path = "src/lib.rs"
+
 [[bin]]
 name = "mcpd"
 path = "src/main.rs"

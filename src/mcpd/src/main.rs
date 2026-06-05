@@ -1,11 +1,6 @@
 use anyhow::Result;
+use mcpd::{sandbox, schema, server};
 use tracing::info;
-
-mod audit;
-mod sandbox;
-mod schema;
-mod server;
-mod tools;
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -6,14 +6,15 @@
 #   lint — cargo clippy -- -D warnings
 #   G2   — tools/list reports 22 tools with schema_version "1.0.0"
 #   G3   — ss -tlnp shows no mcpd network listeners after soak (INV-3)
-#   G4   — fs::validate fuzz: 10k random inputs, zero escapes (inline; cargo
-#          test fuzz_validate_never_panics_or_escapes does this)
+#   G4   — cargo-fuzz target `validate` runs 60s with zero crashes (libFuzzer,
+#          coverage-guided; replaces the old hand-rolled LCG unit test)
 #   G9   — Latency benchmark: tools/list p95 under 100 ms.
 #
 # Usage:
-#   ./ci.sh             # full Phase 1 gate
-#   ./ci.sh --skip-soak # quick local run (5s G3 soak instead of 300s)
-#   ./ci.sh --quick     # alias for --skip-soak
+#   ./ci.sh                # full Phase 1 gate
+#   ./ci.sh --skip-soak    # quick local run (5s G3 soak instead of 300s)
+#   ./ci.sh --quick        # alias for --skip-soak
+#   ./ci.sh --skip-fuzz    # skip G4 (use when nightly toolchain unavailable)
 
 set -euo pipefail
 
@@ -26,9 +27,13 @@ CYN='\033[0;36m'
 RST='\033[0m'
 
 SOAK_SECS=300
-case "${1:-}" in
-    --skip-soak|--quick) SOAK_SECS=5 ;;
-esac
+RUN_FUZZ=1
+for arg in "$@"; do
+    case "$arg" in
+        --skip-soak|--quick) SOAK_SECS=5 ;;
+        --skip-fuzz)         RUN_FUZZ=0 ;;
+    esac
+done
 
 # ── G1: tests (includes the G4 fuzz target as a unit test) ────────────────────
 # --features fs-test-roots compiles in the MCPD_FS_TEST_ROOTS hook used by the
@@ -60,8 +65,9 @@ echo -e "${GRN}[G2] PASS${RST} — $TOOLS tools, schema $SCHEMA"
 # ── G3: no network listeners (Linux only) ─────────────────────────────────────
 if [[ "$(uname)" != "Linux" ]]; then
     echo -e "${YLW}[G3]${RST} skipped — not Linux (mcpd runtime requires /proc)"
+    echo -e "${YLW}[G4]${RST} skipped — not Linux (cargo-fuzz canonical run is the VM)"
     echo -e "${YLW}[G9]${RST} skipped — not Linux"
-    echo -e "${GRN}Local gates (G1/G2/G4/lint) passed.${RST} Run on Linux for G3/G9."
+    echo -e "${GRN}Local gates (G1/G2/lint) passed.${RST} Run on Linux for G3/G4/G9."
     exit 0
 fi
 
@@ -95,6 +101,26 @@ if ss -tlnp 2>/dev/null | grep -q "pid=${PID},"; then
     exit 1
 fi
 echo -e "${GRN}[G3] PASS${RST} — no listeners after ${SOAK_SECS}s soak"
+
+# ── G4: cargo-fuzz `validate` target, 60s, zero crashes ───────────────────────
+if [[ "$RUN_FUZZ" -eq 1 ]]; then
+    echo -e "${CYN}[G4]${RST} cargo +nightly fuzz run validate -- -max_total_time=60"
+    if ! command -v cargo-fuzz &>/dev/null && ! rustup run nightly cargo fuzz --version &>/dev/null; then
+        echo -e "${RED}[G4] FAIL${RST} — cargo-fuzz not installed. Install with:"
+        echo "    rustup toolchain install nightly"
+        echo "    cargo +nightly install cargo-fuzz"
+        echo "    (or rerun with ./ci.sh --skip-fuzz to bypass)"
+        exit 1
+    fi
+    if cargo +nightly fuzz run validate -- -max_total_time=60 -print_final_stats=1 2>&1 | tail -20; then
+        echo -e "${GRN}[G4] PASS${RST} — 60s libFuzzer run, zero crashes"
+    else
+        echo -e "${RED}[G4] FAIL${RST} — fuzz crashed or timed out (see fuzz/artifacts/)"
+        exit 1
+    fi
+else
+    echo -e "${YLW}[G4]${RST} skipped via --skip-fuzz"
+fi
 
 # ── G9: latency benchmark (tools/list p95 < 100 ms) ──────────────────────────
 echo -e "${CYN}[G9]${RST} latency benchmark (100 tools/list calls)"
