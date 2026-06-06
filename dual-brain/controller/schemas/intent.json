@@ -14,9 +14,9 @@
     },
     "action": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
       "maxLength": 64,
-      "description": "MCP tool name in the form 'module.method'. Must match an entry in mcpd's tools/list catalogue."
+      "description": "MCP tool name as 'module.method' (and 'module.submodule.method' — mcpd ships network.dns.read). One or more dot-separated lowercase segments, each starting with a letter; alphanumeric + underscore otherwise. Must match an entry in mcpd's tools/list catalogue."
     },
     "target": {
       "type": "string",
