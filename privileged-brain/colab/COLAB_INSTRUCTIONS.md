@@ -30,7 +30,7 @@ Use this guide to run SFT + DPO training on a free or Pro Colab GPU, then bring 
 On your Mac, zip the processed data folder:
 
 ```bash
-cd "/Users/aditya/Documents/Project Icebreaker/privileged-brain"
+cd "/Users/aditya/Documents/Icebreaker/privileged-brain"
 zip -r processed_data.zip data/processed/train.jsonl data/processed/valid.jsonl
 ```
 
@@ -159,7 +159,7 @@ privileged-brain/training/adapters/
 ## Step 8 — Continue Locally on Your Mac
 
 ```bash
-cd "/Users/aditya/Documents/Project Icebreaker/privileged-brain"
+cd "/Users/aditya/Documents/Icebreaker/privileged-brain"
 
 # Fuse LoRA → HF model → GGUF → quantize → import into Ollama
 bash 05_convert_and_import.sh

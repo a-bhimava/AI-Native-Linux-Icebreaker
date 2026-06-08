@@ -33,7 +33,7 @@ dual-brain/
 
 ```bash
 # From repo root, on dev machine:
-cd "/Users/aditya/Documents/Project Icebreaker"
+cd "/Users/aditya/Documents/Icebreaker"
 tar czf /tmp/dual-brain.tar.gz \
   --exclude='__pycache__' \
   --exclude='.venv' \
