@@ -229,7 +229,7 @@ After the round-1 plan was written, the user pushed back on the assumption that 
 
 > **User answer:** *"User needs to be able to select API, Local, subscriptions — that flexibility is important for good UX."*
 
-**Decision:** `BrainBackend` becomes a first-class abstraction. Local Phi-4-mini (whitepaper-faithful) is the default. Anthropic (Claude 3.5 Haiku) and Google (Gemini 2.0 Flash) are first-class additional backends. OAuth-based subscription backends (Claude.ai login, etc.) are designed for in the interface but deferred to Phase 5.
+**Decision:** `BrainBackend` becomes a first-class abstraction. Local Phi-4-mini (whitepaper-faithful) is the default. Anthropic (Claude Haiku 4.5) and Google (Gemini 2.0 Flash) are first-class additional backends. OAuth-based subscription backends (Claude.ai login, etc.) are designed for in the interface but deferred to Phase 5.
 
 **Consequence — INV-2-pluggable (new invariant):**
 - Local backend: GBNF grammar-constrains output. Schema-invalid output is mathematically near-impossible.
@@ -270,7 +270,7 @@ This was originally scoped as Phase 5 work. It's now in M2.11 (session state + R
 > **User answer:** *"Anthropic (Claude), Google (Gemini)."*
 
 **Decision:** V1 ships with two API backends:
-- `AnthropicBackend` — `claude-3-5-haiku-20241022` via Anthropic Messages API + `tool_use` structured output.
+- `AnthropicBackend` — `claude-haiku-4-5` via Anthropic Messages API + native JSON output mode (`output_config.format`). Earlier drafts of this plan named `tool_use` as the structured-output mechanism; superseded during M2.6 implementation because Anthropic shipped a true native JSON output that doesn't require any `tools` keys (and therefore doesn't collide with the D17 outbound auditor blocklist).
 - `GeminiBackend` — `gemini-2.0-flash` via Google AI Studio + `response_schema` JSON mode.
 
 OpenAI integration is deferred to Phase 5. The `BrainBackend` interface is designed so adding it later is purely additive.

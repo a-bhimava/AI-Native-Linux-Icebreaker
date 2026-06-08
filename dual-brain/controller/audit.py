@@ -24,7 +24,7 @@ are tracked from day one (M2.4 onwards will populate the backend fields):
     duration_ms         wall-clock for the whole turn
     user                effective uname (from os / pwd)
     backend             local | anthropic | gemini (M2.4+)
-    model               specific model id (e.g. claude-3-5-haiku-20241022)
+    model               specific model id (e.g. claude-haiku-4-5)
     tokens_in           int — input tokens for the QB call this turn
     tokens_out          int — output tokens for the QB call this turn
     cost_estimate_usd   float — running cost estimate for this turn

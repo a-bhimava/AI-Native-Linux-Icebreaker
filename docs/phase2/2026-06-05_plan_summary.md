@@ -161,9 +161,9 @@ These four answers significantly expanded Phase 2 scope. Here's what changed.
 
 **Example 1 revisited — "what's my disk usage?" with Anthropic backend**
 
-You'd run `python -m controller --backend anthropic "what's my disk usage?"`. Same flow as before except step 2 is "Controller asks Claude 3.5 Haiku via the Anthropic Messages API (using `tool_use` for structured output)." The Anthropic SDK enforces JSON shape, and the Controller's `jsonschema` validator does the final safety check. If Claude returns something the schema rejects, the Controller retries the call up to 3 times with the previous error fed back ("your last response was missing the `risk_level` field"). If all 3 fail, we abort the turn with an audit log entry.
+You'd run `python -m controller --backend anthropic "what's my disk usage?"`. Same flow as before except step 2 is "Controller asks Claude Haiku 4.5 via the Anthropic Messages API using native JSON output mode (`output_config.format = {"type": "json_schema", "schema": ...}`)." Anthropic's server-side grammar constrains JSON output to the schema we passed, and the Controller's `jsonschema` validator does the final safety check against the FULL schema (catches what Anthropic's subset can't enforce, e.g. `maxLength`). If Claude returns something the validator rejects, the Controller retries the call up to 3 times. If all 3 fail, we abort the turn with an audit log entry.
 
-The classifier doesn't care which backend produced the intent — the same Tier 0 rule fires for `system.disk` regardless. The audit log now stamps `backend=anthropic`, `model=claude-3-5-haiku-20241022`, `tokens_in=312`, `tokens_out=89`, `cost_estimate_usd=0.0007`.
+The classifier doesn't care which backend produced the intent — the same Tier 0 rule fires for `system.disk` regardless. The audit log now stamps `backend=anthropic`, `model=claude-haiku-4-5`, `tokens_in=312`, `tokens_out=89`, `cost_estimate_usd=0.0007`.
 
 **Example 2 revisited — "install htop" inside a REPL session**
 

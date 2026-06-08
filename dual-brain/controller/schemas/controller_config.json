@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Icebreaker Controller Config",
+  "type": "object",
+  "required": ["qb"],
+  "additionalProperties": false,
+  "properties": {
+    "qb": {
+      "type": "object",
+      "required": ["backend"],
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["local", "anthropic", "gemini"]
+        },
+        "local": {"$ref": "#/definitions/local_section"},
+        "anthropic": {"$ref": "#/definitions/api_section"},
+        "gemini": {"$ref": "#/definitions/api_section"}
+      }
+    }
+  },
+  "definitions": {
+    "local_section": {
+      "type": "object",
+      "required": ["model", "endpoint", "max_tokens", "timeout_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "endpoint": {"type": "string", "pattern": "^https?://"},
+        "grammar_path": {"type": "string"},
+        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 32768},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}
+      }
+    },
+    "api_section": {
+      "type": "object",
+      "required": ["model", "api_key_env", "max_tokens", "timeout_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "api_key_env": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "minLength": 1
+        },
+        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 32768},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}
+      }
+    }
+  }
+}

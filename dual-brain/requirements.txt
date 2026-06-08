@@ -22,8 +22,12 @@ pytest>=7.4
 pytest-timeout>=2.2
 
 # Brain backends (M2.6, M2.7)
-# Floor versions chosen so structured-output APIs (Anthropic tool_use,
-# Gemini response_schema) are stable.
+# Floor versions chosen so native JSON output APIs (Anthropic
+# output_config.format, Gemini response_schema) are stable. The
+# Anthropic native JSON output requires anthropic >= 0.40 in principle,
+# but Claude Haiku 4.5 (the model that supports output_config.format)
+# only loads against newer SDKs; runtime install at deploy should be
+# the latest stable.
 anthropic>=0.40
 google-generativeai>=0.8
 

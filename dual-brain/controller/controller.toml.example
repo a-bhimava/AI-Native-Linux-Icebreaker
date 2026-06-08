@@ -1,0 +1,50 @@
+# Icebreaker Controller — example config.
+#
+# Bootstrap on the GCP VM:
+#   mkdir -p ~/.config/icebreaker
+#   cp dual-brain/controller/controller.toml.example \
+#      ~/.config/icebreaker/controller.toml
+#   $EDITOR ~/.config/icebreaker/controller.toml
+#
+# The live config path is $XDG_CONFIG_HOME/icebreaker/controller.toml,
+# falling back to ~/.config/icebreaker/controller.toml.
+#
+# SECURITY: never put an API key value in this file. The api_key_env
+# field is the NAME of an environment variable that holds the key.
+# config.load() rejects any TOML key whose name matches
+# /api_key|secret|token|password|bearer/i (with `api_key_env` allowlisted).
+
+
+# Quarantined Brain — translates user NL into an Intent Object.
+# Choose one: "local", "anthropic", "gemini".
+# Only the section matching `backend` is required.
+[qb]
+backend = "local"
+
+
+[qb.local]
+# Local llama-server (Phi-4-mini Q4_K_M). Whitepaper-faithful, GBNF-guaranteed.
+model = "Phi-4-mini-instruct-Q4_K_M"
+endpoint = "http://127.0.0.1:8081"
+# grammar_path is added in M2.8. Until then this field is informational only.
+grammar_path = "dual-brain/controller/grammars/qb_intent.gbnf"
+max_tokens = 512
+timeout_seconds = 30
+
+
+[qb.anthropic]
+# Claude Haiku 4.5 — required for native JSON output mode
+# (output_config.format = "json_schema"). ~$1 / 1M input tokens,
+# ~$5 / 1M output tokens (confirm against published rates at deploy).
+model = "claude-haiku-4-5"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 1024
+timeout_seconds = 30
+
+
+[qb.gemini]
+# Gemini 2.0 Flash — generous free tier (~1,500 req/day).
+model = "gemini-2.0-flash"
+api_key_env = "GEMINI_API_KEY"
+max_tokens = 1024
+timeout_seconds = 30
