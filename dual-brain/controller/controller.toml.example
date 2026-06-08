@@ -23,10 +23,26 @@ backend = "local"
 
 
 [qb.local]
-# Local llama-server (Phi-4-mini Q4_K_M). Whitepaper-faithful, GBNF-guaranteed.
-model = "Phi-4-mini-instruct-Q4_K_M"
+# Local llama-server backed by a plug-and-play model registry.
+#
+# model_id is a CATALOGUE KEY (lookup in controller/catalogue.toml). The
+# Controller never sees a GGUF filename — the registry resolves model_id
+# to an on-disk path inside the ops scripts.
+#
+# To list available models:    python3 -m controller.model_registry list --role qb
+# To get a hardware recommendation: python3 -m controller.model_registry recommend
+# To install a model:          python3 -m controller.model_registry install --id <id>
+#
+# To swap models: change `model_id` here, then restart llama-server-qb.
+# No code change required.
+model_id = "qwen-2.5-1.5b-instruct-q4_k_m"
+
+# Optional speculative-decoding draft (must reference a catalogue entry
+# with role="draft"). Shared with PB; same file mmap'd by both servers.
+draft_model_id = "qwen-2.5-coder-0.5b-instruct-q4_k_m"
+
 endpoint = "http://127.0.0.1:8081"
-# grammar_path is added in M2.8. Until then this field is informational only.
+transport = "http"                                  # "unix" reserved for Phase 6
 grammar_path = "dual-brain/controller/grammars/qb_intent.gbnf"
 max_tokens = 512
 timeout_seconds = 30
@@ -48,3 +64,15 @@ model = "gemini-2.0-flash"
 api_key_env = "GEMINI_API_KEY"
 max_tokens = 1024
 timeout_seconds = 30
+
+
+# Optional: override where the model registry looks for catalogue + GGUF files.
+# Defaults below are what the registry uses without an explicit [paths] section.
+#
+# [paths]
+# catalogue_path = "dual-brain/controller/catalogue.toml"
+# model_search_dirs = [
+#     "models",                              # repo-relative (dev)
+#     "~/.local/share/icebreaker/models",    # user pool
+#     "/var/lib/icebreaker/models",          # system pool (Phase 6)
+# ]

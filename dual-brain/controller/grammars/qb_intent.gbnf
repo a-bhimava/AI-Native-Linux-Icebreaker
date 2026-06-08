@@ -1,0 +1,136 @@
+# GBNF Grammar — QB Intent Object (M2.8)
+# Constrains llama.cpp output to a structurally and pattern-valid
+# Intent Object per dual-brain/controller/schemas/intent.json.
+#
+# Used with: llama-server --grammar-file dual-brain/controller/grammars/qb_intent.gbnf
+#
+# Contract — GBNF accepts ⊆ jsonschema(intent.json) accepts.
+# Test: dual-brain/controller/tests/test_grammar_parity.py
+#
+# What this grammar enforces (token-sampling-time, no recovery):
+#   * Required fields present, in fixed order, exactly once
+#   * intent_id is a UUID-shaped string
+#   * action matches ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$
+#   * target forbids shell metacharacters ; & | ` $ < > and C0 controls \x00–\x1f
+#   * params values are string|number|boolean|null (oneOf in schema)
+#   * params string values follow the same metachar denylist as target
+#   * reason and risk_level emit only enum values verbatim
+#   * Optional schema_version (semver) and timestamp (number)
+#
+# What this grammar does NOT enforce (local jsonschema validator owns these):
+#   * maxLength bounds (target ≤ 512, action ≤ 64, params string ≤ 1024)
+#   * UUID Draft-07 format-check semantics beyond shape (the validator's
+#     FormatChecker rejects 00000000-0000-0000-0000-000000000000 if needed)
+#
+# Example valid output (whitespace inserted for readability):
+#   {
+#     "intent_id": "a4f6b8e1-2c3d-4e5f-9a8b-1c2d3e4f5a6b",
+#     "action": "system.disk",
+#     "target": "",
+#     "params": {},
+#     "reason": "user_requested",
+#     "risk_level": "read_only"
+#   }
+
+
+# ─── Top-level ────────────────────────────────────────────────────────────
+
+root         ::= intent
+
+intent       ::= "{" ws
+                  "\"intent_id\""    ws ":" ws uuid          ws "," ws
+                  "\"action\""       ws ":" ws action        ws "," ws
+                  "\"target\""       ws ":" ws target        ws "," ws
+                  "\"params\""       ws ":" ws params        ws "," ws
+                  "\"reason\""       ws ":" ws reason        ws "," ws
+                  "\"risk_level\""   ws ":" ws risk-level
+                  optional-tail ws "}"
+
+# Optional schema_version + timestamp, in either order, each at most once.
+optional-tail ::= ("," ws "\"schema_version\"" ws ":" ws schema-version)?
+                  ("," ws "\"timestamp\"" ws ":" ws number)?
+
+
+# ─── intent_id : UUID format ──────────────────────────────────────────────
+
+uuid         ::= "\"" hex8 "-" hex4 "-" hex4 "-" hex4 "-" hex12 "\""
+hex          ::= [0-9a-fA-F]
+hex4         ::= hex hex hex hex
+hex8         ::= hex4 hex4
+hex12        ::= hex4 hex4 hex4
+
+
+# ─── action : module.method (one or more dot-separated lowercase segments) ─
+
+action       ::= "\"" action-segment ("." action-segment)+ "\""
+action-segment ::= [a-z] [a-z0-9_]*
+
+
+# ─── target : shell-metachar-free, C0-control-free string ─────────────────
+#
+# Schema pattern (intent.json:24):  ^[^;&|`$<>\x00-\x1f]*$
+# The JSON string carrier additionally requires escaping " and \, which we
+# allow only as the standard JSON escape sequences.
+
+target       ::= "\"" target-char* "\""
+
+target-char  ::= safe-char | escape
+
+# Allowed unescaped characters: anything that is not a quote, backslash,
+# shell metacharacter, or C0 control character.
+safe-char    ::= [^"\\;&|`$<>\x00-\x1f]
+
+# Standard JSON string escapes; "u" escape requires four hex digits.
+escape       ::= "\\" ( ["\\/bfnrt] | "u" hex hex hex hex )
+
+
+# ─── params : object with constrained value types ────────────────────────
+
+params       ::= "{" ws "}"
+              |  "{" ws params-pair (ws "," ws params-pair)* ws "}"
+
+# Param keys are themselves bare strings; the schema doesn't constrain key
+# shape, but we follow the action-segment shape to keep them safe.
+params-pair  ::= "\"" param-key "\"" ws ":" ws param-value
+param-key    ::= [a-z] [a-z0-9_]*
+
+# oneOf in intent.json:31 → grammar branches:
+param-value  ::= safe-string | number | "true" | "false" | "null"
+
+# String values inside params: same metachar denylist as target.
+safe-string  ::= "\"" target-char* "\""
+
+
+# ─── reason : enum, verbatim ─────────────────────────────────────────────
+
+reason       ::= "\"user_requested\""
+              |  "\"ai_autonomous\""
+              |  "\"scheduled\""
+
+
+# ─── risk_level : enum, verbatim ─────────────────────────────────────────
+
+risk-level   ::= "\"read_only\""
+              |  "\"low\""
+              |  "\"medium\""
+              |  "\"high\""
+              |  "\"critical\""
+
+
+# ─── schema_version : semver "x.y.z" ─────────────────────────────────────
+
+schema-version ::= "\"" digits "." digits "." digits "\""
+digits         ::= [0-9]+
+
+
+# ─── number (JSON number, used by timestamp + param-value) ──────────────
+
+number       ::= "-"? int frac? exp?
+int          ::= "0" | [1-9] [0-9]*
+frac         ::= "." [0-9]+
+exp          ::= [eE] [-+]? [0-9]+
+
+
+# ─── whitespace ─────────────────────────────────────────────────────────
+
+ws           ::= [ \t\n\r]*

@@ -18,16 +18,48 @@
         "anthropic": {"$ref": "#/definitions/api_section"},
         "gemini": {"$ref": "#/definitions/api_section"}
       }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "catalogue_path": {
+          "type": "string",
+          "description": "Path to the model catalogue (catalogue.toml). Defaults to the in-repo file alongside the controller code."
+        },
+        "model_search_dirs": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1,
+          "description": "Ordered list of directories the ModelRegistry searches for installed GGUF files. First match wins."
+        }
+      }
     }
   },
   "definitions": {
     "local_section": {
       "type": "object",
-      "required": ["model", "endpoint", "max_tokens", "timeout_seconds"],
+      "required": ["model_id", "endpoint", "max_tokens", "timeout_seconds"],
       "additionalProperties": false,
       "properties": {
-        "model": {"type": "string", "minLength": 1},
-        "endpoint": {"type": "string", "pattern": "^https?://"},
+        "model_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]*$",
+          "minLength": 1,
+          "description": "Catalogue key (looked up in catalogue.toml). The Controller never sees the on-disk filename — resolved via the model registry."
+        },
+        "draft_model_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]*$",
+          "minLength": 1,
+          "description": "Optional speculative-decoding draft. Must reference a catalogue entry with role='draft'."
+        },
+        "endpoint": {"type": "string", "pattern": "^(https?|unix)://"},
+        "transport": {
+          "type": "string",
+          "enum": ["http", "unix"],
+          "description": "Transport for llama-server. 'http' today; 'unix' reserved for Phase 6 distro packaging."
+        },
         "grammar_path": {"type": "string"},
         "max_tokens": {"type": "integer", "minimum": 1, "maximum": 32768},
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}

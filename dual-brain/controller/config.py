@@ -63,6 +63,15 @@ _TOML_KEY_ALLOWLIST: Final = frozenset({"api_key_env"})
 class BackendConfig:
     """Per-backend resolved config.
 
+    The ``model`` field holds the *display name* (human-readable, used in
+    audit rows). For API backends (anthropic / gemini), it doubles as
+    the SDK model identifier. For the local backend it's resolved from
+    ``model_id`` via the ``ModelRegistry`` at load time.
+
+    ``model_id`` and ``draft_model_id`` are local-only — they reference
+    entries in ``catalogue.toml`` and the registry resolves them to the
+    on-disk GGUF path inside the ops scripts. Never used by API backends.
+
     ``api_key`` is a ``SecretRef`` for API backends, ``None`` for local.
     The raw key value is never stored on this object.
     """
@@ -74,6 +83,10 @@ class BackendConfig:
     endpoint: str | None = None
     grammar_path: Path | None = None
     api_key: SecretRef | None = None
+    # Local-only fields (None for API backends):
+    model_id: str | None = None
+    draft_model_id: str | None = None
+    transport: str = "http"  # "http" today; "unix" reserved for Phase 6
 
 
 @dataclass(frozen=True)
@@ -143,10 +156,63 @@ def _build_backend_config(raw: dict) -> BackendConfig:
         )
 
     if name == "local":
+        # Local backend uses the model registry — resolve model_id to
+        # a display_name for audit rows. The on-disk file path is
+        # resolved by the ops scripts, not by the Controller.
+        # Inline import to avoid a circular dependency at module load.
+        from .model_registry import (
+            ModelRegistry,
+            ModelRegistryError,
+            UnknownModelError,
+        )
+
+        model_id = section["model_id"]
+        draft_model_id = section.get("draft_model_id")
         grammar_path_str = section.get("grammar_path")
+        transport = section.get("transport", "http")
+
+        # Resolve display_name via registry (catalogue lookup only;
+        # does not require the file to be on disk yet).
+        paths = raw.get("paths", {})
+        catalogue_path_str = paths.get(
+            "catalogue_path",
+            str(Path(__file__).parent / "catalogue.toml"),
+        )
+        search_dirs = [
+            Path(d) for d in paths.get(
+                "model_search_dirs",
+                [str(Path(__file__).parent.parent.parent / "models")],
+            )
+        ]
+        try:
+            registry = ModelRegistry(
+                catalogue_path=Path(catalogue_path_str).expanduser(),
+                search_dirs=search_dirs,
+            )
+            entry = registry.get(model_id)
+        except (ModelRegistryError, FileNotFoundError) as exc:
+            raise BrainConfigError(
+                f"local backend model_id {model_id!r}: {exc}"
+            ) from None
+        if entry.role != "qb":
+            raise BrainConfigError(
+                f"local backend model_id {model_id!r} has role "
+                f"{entry.role!r}; expected 'qb'"
+            )
+        if draft_model_id is not None:
+            try:
+                draft_entry = registry.get(draft_model_id)
+                if draft_entry.role != "draft":
+                    raise BrainConfigError(
+                        f"draft_model_id {draft_model_id!r} has role "
+                        f"{draft_entry.role!r}; expected 'draft'"
+                    )
+            except UnknownModelError as exc:
+                raise BrainConfigError(str(exc)) from None
+
         return BackendConfig(
             name=name,
-            model=section["model"],
+            model=entry.display_name,
             max_tokens=section["max_tokens"],
             timeout_seconds=section["timeout_seconds"],
             endpoint=section["endpoint"],
@@ -154,6 +220,9 @@ def _build_backend_config(raw: dict) -> BackendConfig:
                 Path(grammar_path_str) if grammar_path_str else None
             ),
             api_key=None,
+            model_id=model_id,
+            draft_model_id=draft_model_id,
+            transport=transport,
         )
 
     return BackendConfig(

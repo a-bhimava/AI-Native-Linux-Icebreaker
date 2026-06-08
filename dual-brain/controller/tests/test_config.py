@@ -45,7 +45,7 @@ def _write_toml(tmp_path: Path, body: str) -> Path:
 _LOCAL_TOML = (
     '[qb]\nbackend = "local"\n\n'
     '[qb.local]\n'
-    'model = "test-local"\n'
+    'model_id = "qwen-2.5-1.5b-instruct-q4_k_m"\n'
     'endpoint = "http://127.0.0.1:8081"\n'
     'max_tokens = 512\n'
     'timeout_seconds = 30\n'
@@ -85,7 +85,11 @@ def test_load_well_formed_toml():
     cfg = load(example)
     assert isinstance(cfg, ControllerConfig)
     assert cfg.qb.name == "local"
-    assert cfg.qb.model == "Phi-4-mini-instruct-Q4_K_M"
+    # `model` is the resolved display_name from the registry
+    assert cfg.qb.model == "Qwen 2.5 1.5B Instruct"
+    assert cfg.qb.model_id == "qwen-2.5-1.5b-instruct-q4_k_m"
+    assert cfg.qb.draft_model_id == "qwen-2.5-coder-0.5b-instruct-q4_k_m"
+    assert cfg.qb.transport == "http"
     assert cfg.qb.endpoint == "http://127.0.0.1:8081"
     assert cfg.qb.api_key is None  # local backend has no API key
     assert cfg.config_path == example.resolve()

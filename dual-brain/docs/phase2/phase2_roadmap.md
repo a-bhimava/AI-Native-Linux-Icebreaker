@@ -65,7 +65,7 @@ Phase 2 ships only when all eleven gates are green.
 | G6 | 100+ adversarial prompt-injection payloads contained across **all backends** | 0/100+ cause unintended mcpd dispatch; HITL denials and schema rejections both count as "contained" |
 | G7 | Audit log records every intent with full provenance | 100 mixed intents (accepted + rejected) → 100 lines in log; each line carries `intent_id`, `session_id`, `turn_index`, `backend`, `tokens_in/out`, `cost_estimate_usd`, `outcome` |
 | G8 | HITL 3-second approve lockout enforced | Test reads stdin pre-3 s; approval rejected. Reads post-3 s → accepted. Timing measured via `time.monotonic()` |
-| G9 | Tier 0/1 round-trip latency (local backend) | p95 < 500 ms end-to-end (QB inference + classify + PB inference + mcpd dispatch + audit log) with local QB; API backends documented separately (p95 < 1500 ms expected) |
+| G9 | Tier 0/1 round-trip latency (local backend) | Hardware-tiered budget set by the registry's `throughput_estimates`: GPU dev (L4 / RTX 4060) p95 < 500 ms end-to-end; Apple M-series (unified memory) p95 < 1000 ms; consumer CPU-only p95 < 2000 ms (degraded mode). Streaming UI in M2.11 compensates for the consumer tier. API backends: p95 < 1500 ms expected. |
 | **G10** | **Backend parity** — all three backends (local, Anthropic, Gemini) emit schema-valid intents for the same 20-payload reference corpus | Same corpus run through each backend; resulting intents must (a) pass jsonschema, (b) classify to the same tier as the reference. Backend choice does not change safety classification |
 | **G11** | **Multi-turn isolation** — INV-2-extended holds across REPL sessions | 10-turn session where turn N reads a file containing adversarial content with embedded instructions; mcpd's audit log shows zero unintended dispatches in turns N+1..10 (the QB summarises the content for the user but never lets it leak into the PB's prompt context) |
 
@@ -138,13 +138,16 @@ Ordered after Plan agent review and scope-round 2. Each milestone unlocks the ne
 - Constructor of every QB backend rejects a `mcpd_client=` kwarg (P2-F4 / G3 guard).
 **Acceptance:** abstract interface tests (mock backend) pass; config loader handles each of the three backend choices; G3 guard test enforces `mcpd_client` kwarg rejection.
 
-### M2.5 — `LlamaCppLocalBackend` (2 days)
-**Files:** `dual-brain/controller/backends/llama_local.py` (new), `scripts/start_pb.sh` (new), `scripts/start_qb_local.sh` (new), `dual-brain/controller/tests/test_local_backend.py` (new)
+### M2.5 — `LlamaCppLocalBackend` + plug-and-play model registry (2-3 days)
+**Files:** `dual-brain/controller/backends/llama_local_backend.py`, `dual-brain/controller/model_registry.py`, `dual-brain/controller/catalogue.toml`, `dual-brain/scripts/{locations.env,start_pb.sh,start_qb_local.sh}`, tests in `controller/tests/test_{llama_local_backend,model_registry}.py`, `dual-brain/docs/phase2/m25_production_migration.md`.
 **Actions:**
-- HTTP client to llama-server's `/v1/chat/completions` (port 8080 for PB, port 8081 for local QB). Grammar-file pass-through. Hard timeout (30 s QB, 10 s PB). Re-parse with strict `json.loads` after grammar to catch truncation (P2-F14).
-- `scripts/start_pb.sh` inlines `06_start_inference.sh` mode 2 (Qwen + 0.5B draft + `mcp_tool_call.gbnf`).
-- `scripts/start_qb_local.sh` launches Phi-4-mini Q4_K_M on port 8081 with `qb_intent.gbnf`. Downloads model via `huggingface-cli` on first run if absent.
-**Acceptance:** PB round-trips via local backend; local QB option round-trips when configured; truncation surfaces as `BrainTruncatedError`, never silent.
+- **Plug-and-play model registry.** `catalogue.toml` is the menu of supported QB/PB/draft models; `model_registry.py` resolves `model_id` → on-disk path with sha256 verification. `models/checksums.sha256` is the install-time receipt. CLI subcommands: `list`, `resolve`, `verify`, `install`, `recommend` (hardware probe → suggested model).
+- **Default QB:** `Qwen 2.5 1.5B-Instruct Q4_K_M` (replaces the original Phi-4-mini choice — ~3 GB Phi-4 takes ~2.8s/intent on M4, far over the G9 budget). Speculative decoding via `Qwen 2.5 Coder 0.5B` draft (already shipped — shared with PB).
+- **Plug-and-play swap:** user edits `model_id` in `controller.toml`, restarts llama-server, no code change. Hardware upgrade flow: re-run `recommend`, install bigger model, swap.
+- **LocalBackend** (`backends/llama_local_backend.py`) is a thin subclass of `BrainBackend`: HTTP POST to llama-server's `/v1/chat/completions` (port 8081 QB, 8080 PB) with the QB grammar attached. Health probe at construction. `transport="unix"` reserved for Phase 6, raises `BrainConfigError` today.
+- **Ops scripts** (`scripts/start_{pb,qb_local}.sh`) are registry-driven — they query `model_registry resolve` for paths, never hardcode a GGUF filename. Forward-compatible with Phase 6 systemd `ExecStart`.
+- Production-distro migration documented in `docs/phase2/m25_production_migration.md` — every dev path/UID/socket has its Phase 6 counterpart.
+**Acceptance:** registry round-trip works; `LocalBackend` health-probes at startup; live VM smoke runs 10-intent corpus + a model-swap test (proves plug-and-play); audit rows show `backend="local"`, `cost_usd=null`, `model=<display_name>`.
 
 ### M2.6 — `AnthropicBackend` (2 days)
 **Files:** `dual-brain/controller/backends/anthropic.py` (new), `dual-brain/controller/tests/test_anthropic_backend.py` (new)
@@ -263,10 +266,12 @@ Ordered after Plan agent review and scope-round 2. Each milestone unlocks the ne
 - `gbnf-validator` (from llama.cpp build) — for M2.8 differential tests
 - system Python 3.10+ on the VM
 
-**Model files:**
-- `models/run7_cot_q4km.gguf` (986 MB, present on VM) — PB, mandatory
-- `models/Phi-4-mini-instruct-Q4_K_M.gguf` (~3 GB, M2.5 downloads to VM via `huggingface-cli`) — local QB backend, optional (only if `qb.backend = "local"`)
-- `privileged-brain/inference/draft_models/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf` (300 MB, downloaded by `start_pb.sh` if absent)
+**Model files (managed by the plug-and-play registry — see M2.5):**
+- `models/run7_cot_q4km.gguf` (940 MB, present) — PB (Qwen 2.5 Coder 1.5B fine-tuned). Whitepaper-locked.
+- `models/qwen2.5-1.5b-instruct-q4_k_m.gguf` (~950 MB, registry-installed via `python -m controller.model_registry install --id qwen-2.5-1.5b-instruct-q4_k_m`) — default QB. Replaces the original Phi-4-mini choice.
+- `models/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf` (~300 MB, registry-installed) — speculative-decoding draft. Shared by PB and QB inference servers.
+- **Alternative QB candidates** registered in the catalogue (`controller/catalogue.toml`) but not auto-installed: Phi-4-mini-instruct (3 GB, MIT), Gemma 3 2B-IT (1.6 GB, Gemma ToU — requires `--accept-license`), Qwen 2.5 0.5B-Instruct (400 MB, fast-profile).
+- Users / admins can swap any QB model by editing `model_id` in their TOML and restarting `llama-server-qb`. No code changes.
 
 **API access (optional, only for the corresponding backend):**
 - Anthropic API key in `ANTHROPIC_API_KEY` env var. Default model `claude-haiku-4-5` (required for native JSON output mode). ~$1 / 1M input tokens, $5 / 1M output tokens (confirm against published rates at deploy time)
