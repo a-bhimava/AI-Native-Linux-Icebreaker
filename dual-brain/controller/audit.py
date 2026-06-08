@@ -85,6 +85,7 @@ class Outcome(str, Enum):
     # Brain failures
     BRAIN_ERROR             = "brain_error"              # QB / PB exception or truncation
     QB_VERIFIER_REJECTED    = "qb_verifier_rejected"     # M2.12 round-trip "no"
+    PB_SCHEMA_ERROR         = "pb_schema_error"          # M2.12 PB output failed tool schema check
 
     # Process / session
     BACKEND_SWAPPED         = "backend_swapped"          # P2-F22 — start of new session

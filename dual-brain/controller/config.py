@@ -27,7 +27,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Optional
 
 import jsonschema
 
@@ -90,8 +90,83 @@ class BackendConfig:
 
 
 @dataclass(frozen=True)
+class HitlConfig:
+    lockout_seconds: int = 3    # INV-6 approve-button lockout
+    timeout_seconds: int = 30   # decision timeout → auto-deny
+    presenter: str = "terminal" # Phase 5 hook: swap for "gtk" or "web"
+
+
+@dataclass(frozen=True)
+class PromptsConfig:
+    prompts_dir: str = ""       # empty = in-package controller/prompts/
+    qb_local: str = ""          # per-backend override path; empty = use prompts_dir
+    qb_anthropic: str = ""
+    qb_gemini: str = ""
+    pb: str = ""
+    qb_verifier: str = ""
+
+
+class PromptLoader:
+    """Loads system prompt text from disk. Thread-safe reads; call reload() to hot-swap."""
+
+    def __init__(self, cfg: PromptsConfig) -> None:
+        self._cfg = cfg
+        self._cache: dict[str, str] = {}
+
+    def get(self, name: str) -> str:
+        """Return prompt text for name (qb_local|qb_anthropic|qb_gemini|pb|qb_verifier)."""
+        if name not in self._cache:
+            self._cache[name] = self._load(name)
+        return self._cache[name]
+
+    def reload(self) -> None:
+        self._cache.clear()
+
+    def _load(self, name: str) -> str:
+        override = getattr(self._cfg, name, "")
+        if override:
+            return Path(override).expanduser().read_text(encoding="utf-8").strip()
+        base = Path(self._cfg.prompts_dir).expanduser()
+        path = base / f"{name}.txt"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Prompt '{name}' not found at {path}. "
+                "Set [prompts] prompts_dir or a per-backend override in controller.toml."
+            )
+        return path.read_text(encoding="utf-8").strip()
+
+
+@dataclass(frozen=True)
+class RunConfig:
+    mcpd_binary: str = "src/mcpd/target/release/mcpd"
+    audit_log: str = "~/.local/state/icebreaker/controller-audit.log"
+    pb_endpoint: str = "http://127.0.0.1:8080"
+    pb_model_id: str = "run7_cot"
+    pb_max_tokens: int = 256
+    pb_timeout_seconds: int = 10
+    mcpd_timeout_seconds: float = 10.0
+    qb_max_retries: int = 3
+    mcpd_schemas_dir: str = ""  # empty = auto-detect from mcpd_binary path
+
+
+@dataclass(frozen=True)
+class SessionConfig:
+    session_ttl_seconds: int = 1800       # inactivity timeout; 0 = disabled
+    max_turns: int = 50                   # P2-F20 memory bound
+    history_path: str = "~/.local/state/icebreaker/repl_history"
+    show_spinner: bool = True
+    color: str = "auto"                   # "auto" | "always" | "never"
+    prompt_prefix: str = "icebreaker"     # shown as `(N) [backend] prefix > `
+    max_tool_output_lines: int = 40       # QB summarisation truncation
+
+
+@dataclass(frozen=True)
 class ControllerConfig:
     qb: BackendConfig
+    hitl: HitlConfig
+    prompts: PromptsConfig
+    session: SessionConfig
+    run: RunConfig
     config_path: Path
 
 
@@ -234,6 +309,60 @@ def _build_backend_config(raw: dict) -> BackendConfig:
     )
 
 
+def _build_hitl_config(raw: dict) -> HitlConfig:
+    section = raw.get("hitl", {})
+    return HitlConfig(
+        lockout_seconds=section.get("lockout_seconds", 3),
+        timeout_seconds=section.get("timeout_seconds", 30),
+        presenter=section.get("presenter", "terminal"),
+    )
+
+
+def _build_prompts_config(raw: dict) -> PromptsConfig:
+    section = raw.get("prompts", {})
+    prompts_dir = section.get("prompts_dir", "")
+    if not prompts_dir:
+        # Default: in-package prompts/ directory alongside this file.
+        # Works for dev checkout and for Phase 6 system-wide installs.
+        prompts_dir = str(Path(__file__).parent / "prompts")
+    return PromptsConfig(
+        prompts_dir=prompts_dir,
+        qb_local=section.get("qb_local", ""),
+        qb_anthropic=section.get("qb_anthropic", ""),
+        qb_gemini=section.get("qb_gemini", ""),
+        pb=section.get("pb", ""),
+        qb_verifier=section.get("qb_verifier", ""),
+    )
+
+
+def _build_run_config(raw: dict) -> RunConfig:
+    section = raw.get("run", {})
+    return RunConfig(
+        mcpd_binary=section.get("mcpd_binary", "src/mcpd/target/release/mcpd"),
+        audit_log=section.get("audit_log", "~/.local/state/icebreaker/controller-audit.log"),
+        pb_endpoint=section.get("pb_endpoint", "http://127.0.0.1:8080"),
+        pb_model_id=section.get("pb_model_id", "run7_cot"),
+        pb_max_tokens=section.get("pb_max_tokens", 256),
+        pb_timeout_seconds=section.get("pb_timeout_seconds", 10),
+        mcpd_timeout_seconds=section.get("mcpd_timeout_seconds", 10.0),
+        qb_max_retries=section.get("qb_max_retries", 3),
+        mcpd_schemas_dir=section.get("mcpd_schemas_dir", ""),
+    )
+
+
+def _build_session_config(raw: dict) -> SessionConfig:
+    section = raw.get("session", {})
+    return SessionConfig(
+        session_ttl_seconds=section.get("session_ttl_seconds", 1800),
+        max_turns=section.get("max_turns", 50),
+        history_path=section.get("history_path", "~/.local/state/icebreaker/repl_history"),
+        show_spinner=section.get("show_spinner", True),
+        color=section.get("color", "auto"),
+        prompt_prefix=section.get("prompt_prefix", "icebreaker"),
+        max_tool_output_lines=section.get("max_tool_output_lines", 40),
+    )
+
+
 def load(path: Path | None = None) -> ControllerConfig:
     """Load and validate the controller config.
 
@@ -270,4 +399,11 @@ def load(path: Path | None = None) -> ControllerConfig:
     _check_forbidden_keys(raw)
     _validate_structure(raw)
     qb = _build_backend_config(raw)
-    return ControllerConfig(qb=qb, config_path=resolved.resolve())
+    hitl = _build_hitl_config(raw)
+    prompts = _build_prompts_config(raw)
+    session = _build_session_config(raw)
+    run = _build_run_config(raw)
+    return ControllerConfig(
+        qb=qb, hitl=hitl, prompts=prompts, session=session, run=run,
+        config_path=resolved.resolve(),
+    )

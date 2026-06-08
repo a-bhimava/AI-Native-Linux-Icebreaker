@@ -1,0 +1,69 @@
+"""SessionState — multi-turn QB conversation memory with INV-2-extended enforcement.
+
+INV-2: build_pb_user_turn() emits ONLY {intent_id, allowed_tool, tool_schema}.
+       Never raw user text, never intent fields.
+INV-2-extended: add_tool_result_summary() is the ONLY path for mcpd output into
+       QB context. The summary is never forwarded to PB.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+
+@dataclass
+class SessionState:
+    session_id: str
+    backend: str
+    cfg: Any                                                    # SessionConfig
+    turn_index: int = 0
+    _last_activity: float = field(init=False, default=0.0, repr=False)
+    _qb_messages: list = field(init=False, default_factory=list, repr=False)
+
+    def __post_init__(self) -> None:
+        self._last_activity = time.monotonic()
+
+    def is_expired(self) -> bool:
+        ttl = self.cfg.session_ttl_seconds
+        return False if ttl <= 0 else (time.monotonic() - self._last_activity) > ttl
+
+    def is_full(self) -> bool:
+        return self.turn_index >= self.cfg.max_turns
+
+    def touch(self) -> None:
+        self._last_activity = time.monotonic()
+        self.turn_index += 1
+
+    def add_user_message(self, text: str) -> None:
+        self._qb_messages.append({"role": "user", "content": text})
+
+    def add_assistant_message(self, text: str) -> None:
+        self._qb_messages.append({"role": "assistant", "content": text})
+
+    def add_tool_result_summary(self, summary: str) -> None:
+        """INV-2-extended: mcpd output enters QB context as a summary only. Never PB."""
+        self._qb_messages.append({
+            "role": "user",
+            "content": f"[Tool output summary]: {summary}",
+        })
+
+    def get_qb_history(self) -> list:
+        return [dict(msg) for msg in self._qb_messages]
+
+    def build_pb_user_turn(self, intent_id: str, allowed_tool: str, tool_schema: dict) -> str:
+        """INV-2: PB receives ONLY intent_id + tool scaffold. Never raw user text."""
+        return json.dumps(
+            {"intent_id": intent_id, "allowed_tool": allowed_tool, "tool_schema": tool_schema},
+            separators=(",", ":"),
+        )
+
+    def reset_memory(self) -> None:
+        self._qb_messages.clear()
+
+    @classmethod
+    def new(cls, backend: str, cfg: Any) -> SessionState:
+        return cls(session_id=str(uuid.uuid4()), backend=backend, cfg=cfg)

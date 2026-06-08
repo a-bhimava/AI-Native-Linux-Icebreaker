@@ -244,7 +244,7 @@ def test_all_outcome_enum_values_present():
         "schema_rejected", "classification_failed",
         "hitl_denied", "hitl_timeout", "hitl_non_tty",
         "executed", "tool_error", "tool_timeout", "cow_required",
-        "brain_error", "qb_verifier_rejected",
+        "brain_error", "qb_verifier_rejected", "pb_schema_error",
         "backend_swapped",
     }
     actual = {o.value for o in Outcome}
