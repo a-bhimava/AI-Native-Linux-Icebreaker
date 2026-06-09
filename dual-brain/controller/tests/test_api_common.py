@@ -79,7 +79,7 @@ def test_cost_estimate_handles_zero_tokens():
 # ── 15: SDK exception sanitization ──────────────────────────────────────────
 
 
-_FINGERPRINT = "sk-ant-DUMMY-fingerprint-XYZ-1234567890ABCDEFGHIJ"
+_FINGERPRINT = "sk-ant-DUMMY-fingerprint-XYZ-1234567890ABCDEFGHIJ"  # pragma: allowlist secret
 
 
 def test_wrap_sdk_call_sanitizes_provider_exception():

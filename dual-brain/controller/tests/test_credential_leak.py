@@ -35,7 +35,7 @@ from controller.backends import (
 from controller.config import load
 
 
-_FINGERPRINT = "sk-ant-DUMMY-fingerprint-must-not-leak-XYZ987654321"
+_FINGERPRINT = "sk-ant-DUMMY-fingerprint-must-not-leak-XYZ987654321"  # pragma: allowlist secret
 
 
 # ── 34: dummy key never in stderr during network failure ─────────────────────

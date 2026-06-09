@@ -30,7 +30,7 @@ from controller.backends.anthropic_backend import AnthropicBackend
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-_FINGERPRINT = "sk-ant-DUMMY-anthropic-fingerprint-Q9X1234567890"
+_FINGERPRINT = "sk-ant-DUMMY-anthropic-fingerprint-Q9X1234567890"  # pragma: allowlist secret
 
 
 def _intent_schema() -> dict:

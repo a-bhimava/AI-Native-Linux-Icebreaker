@@ -318,7 +318,7 @@ def scenario_redaction(tmp: Path) -> list[str]:
     failures: list[str] = []
     step(4, 4, "Redaction path — api_key in params survives schema, redacted in log")
 
-    fake_secret = "sk-ant-A1B2C3D4E5F6G7H8I9J0K1L2M3N4"
+    fake_secret = "sk-ant-A1B2C3D4E5F6G7H8I9J0K1L2M3N4"  # pragma: allowlist secret
     intent = {
         "intent_id": str(uuid.uuid4()),
         "action": "package.install",

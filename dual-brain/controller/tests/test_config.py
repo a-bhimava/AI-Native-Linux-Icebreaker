@@ -96,7 +96,7 @@ def test_load_well_formed_toml():
 
 
 def test_load_anthropic_toml_populates_api_key(monkeypatch, tmp_path):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-x")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-x")  # pragma: allowlist secret
     cfg = load(_write_toml(tmp_path, _ANTHROPIC_TOML))
     assert cfg.qb.name == "anthropic"
     assert cfg.qb.endpoint is None
@@ -172,7 +172,7 @@ def test_load_requires_selected_backend_section(tmp_path):
 
 def test_load_allows_missing_unused_sections(monkeypatch, tmp_path):
     """`backend = "anthropic"` + only `[qb.anthropic]` populated → OK."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")  # pragma: allowlist secret
     cfg = load(_write_toml(tmp_path, _ANTHROPIC_TOML))
     assert cfg.qb.name == "anthropic"
 
@@ -183,7 +183,7 @@ def test_load_allows_missing_unused_sections(monkeypatch, tmp_path):
 def test_load_rejects_forbidden_api_key_key_in_toml(tmp_path):
     """A literal `api_key = "sk-..."` is the failure mode D11 closes.
     The error must NOT echo the value back."""
-    secret = "sk-ant-MUST-NOT-APPEAR-IN-ERROR-MESSAGE-Z9"
+    secret = "sk-ant-MUST-NOT-APPEAR-IN-ERROR-MESSAGE-Z9"  # pragma: allowlist secret
     bad = _write_toml(
         tmp_path,
         '[qb]\nbackend = "anthropic"\n\n'
@@ -222,7 +222,7 @@ def test_load_rejects_other_forbidden_substrings(tmp_path, key):
 def test_load_does_not_flag_non_secret_token_suffix(monkeypatch, tmp_path):
     """`max_tokens` and `tokens_in` are legitimate; the word-boundary
     regex must not snag them. Otherwise the example TOML wouldn't load."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")  # pragma: allowlist secret
     cfg = load(_write_toml(tmp_path, _ANTHROPIC_TOML))
     assert cfg.qb.max_tokens == 1024
 
@@ -233,7 +233,7 @@ def test_load_does_not_flag_non_secret_token_suffix(monkeypatch, tmp_path):
 def test_load_allows_api_key_env_in_toml(monkeypatch, tmp_path):
     """The whole point of `api_key_env` is to ship an env-var NAME via
     TOML. It MUST pass the forbidden-key filter."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")  # pragma: allowlist secret
     cfg = load(_write_toml(tmp_path, _ANTHROPIC_TOML))
     assert isinstance(cfg.qb.api_key, SecretRef)
     assert cfg.qb.api_key.env_var_name == "ANTHROPIC_API_KEY"
@@ -254,7 +254,7 @@ def test_secret_ref_reveal_raises_with_env_var_name(monkeypatch):
 def test_secret_ref_reveal_does_not_log_value(monkeypatch, caplog):
     """Even if the env var IS set, simply revealing it must not write
     the value to any log handler."""
-    secret = "sk-ant-must-not-log-Z9X"
+    secret = "sk-ant-must-not-log-Z9X"  # pragma: allowlist secret
     monkeypatch.setenv("ICEBREAKER_TEST_KEY_47B", secret)
     with caplog.at_level(logging.DEBUG):
         s = SecretRef("ICEBREAKER_TEST_KEY_47B")
@@ -266,14 +266,14 @@ def test_secret_ref_reveal_does_not_log_value(monkeypatch, caplog):
 
 
 def test_controller_config_is_frozen(monkeypatch, tmp_path):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")  # pragma: allowlist secret
     cfg = load(_write_toml(tmp_path, _ANTHROPIC_TOML))
     with pytest.raises(FrozenInstanceError):
         cfg.qb = None  # type: ignore[misc]
 
 
 def test_backend_config_is_frozen(monkeypatch, tmp_path):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")  # pragma: allowlist secret
     cfg = load(_write_toml(tmp_path, _ANTHROPIC_TOML))
     with pytest.raises(FrozenInstanceError):
         cfg.qb.model = "different-model"  # type: ignore[misc]
@@ -284,7 +284,7 @@ def test_backend_config_does_not_allow_attribute_injection(monkeypatch, tmp_path
     `__setattr__('new_attr', ...)` via direct __dict__ poke on some
     Python versions. Test that the dataclass freeze covers the
     documented surface."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")  # pragma: allowlist secret
     cfg = load(_write_toml(tmp_path, _ANTHROPIC_TOML))
     with pytest.raises(FrozenInstanceError):
         cfg.qb.injected_field = "bad"  # type: ignore[attr-defined]
@@ -349,7 +349,7 @@ def test_load_root_filter_install_is_idempotent(tmp_path):
 
 
 def test_loaded_config_api_key_is_secretref_not_str(monkeypatch, tmp_path):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-real-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-real-key")  # pragma: allowlist secret
     cfg = load(_write_toml(tmp_path, _ANTHROPIC_TOML))
     assert isinstance(cfg.qb.api_key, SecretRef)
     assert not isinstance(cfg.qb.api_key, str)

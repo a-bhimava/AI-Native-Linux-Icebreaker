@@ -52,7 +52,7 @@ def test_anthropic_and_gemini_emit_same_brainresponse_shape(monkeypatch):
     schema = _intent_schema()
 
     # ---- Anthropic side ----------------------------------------------------
-    monkeypatch.setenv("ICEBREAKER_X_ANTH", "sk-ant-dummy-x")
+    monkeypatch.setenv("ICEBREAKER_X_ANTH", "sk-ant-dummy-x")  # pragma: allowlist secret
 
     class _FakeAnthMessages:
         def create(self, **kwargs):

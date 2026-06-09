@@ -270,13 +270,13 @@ def test_secret_key_substrings_redacted(tmp_path, key):
 
 
 @pytest.mark.parametrize("value", [
-    "sk-ant-abc123def4567890hijklmn",                  # Anthropic
-    "sk-1234567890abcdef1234567890",                   # OpenAI
-    "ghp_abcdefghijklmnopqrstuvwxyz0123456789",        # GitHub personal
-    "ghs_abcdefghijklmnopqrstuvwxyz0123456789",        # GitHub server-to-server
-    "AKIAIOSFODNN7EXAMPLE",                            # AWS access key id
-    "ya29.a0AfH6SMBxxx" + "x" * 40,                    # Google OAuth
-    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.SflKxwRJSMeKKF2",  # JWT-ish
+    "sk-ant-abc123def4567890hijklmn",                  # Anthropic  # pragma: allowlist secret
+    "sk-1234567890abcdef1234567890",                   # OpenAI  # pragma: allowlist secret
+    "ghp_abcdefghijklmnopqrstuvwxyz0123456789",        # GitHub personal  # pragma: allowlist secret
+    "ghs_abcdefghijklmnopqrstuvwxyz0123456789",        # GitHub server-to-server  # pragma: allowlist secret
+    "AKIAIOSFODNN7EXAMPLE",                            # AWS access key id  # pragma: allowlist secret
+    "ya29.a0AfH6SMBxxx" + "x" * 40,                    # Google OAuth  # pragma: allowlist secret
+    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.SflKxwRJSMeKKF2",  # JWT-ish  # pragma: allowlist secret
 ])
 def test_secret_value_patterns_redacted(tmp_path, value):
     p = tmp_path / "audit.log"

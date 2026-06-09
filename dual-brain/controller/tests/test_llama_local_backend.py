@@ -349,7 +349,7 @@ def test_sdk_exception_sanitized(fake_requests):
     # Even though local has no API key, the sanitize pipeline is uniform.
     fake_requests.post_responses.append(
         RuntimeError("connection broken: Authorization: Bearer "
-                     "sk-ant-DUMMY1234567890ABCDEFGH should be redacted")
+                     "sk-ant-DUMMY1234567890ABCDEFGH should be redacted")  # pragma: allowlist secret
     )
     with pytest.raises(BrainProviderError) as exc_info:
         backend.complete("sys", "user", _intent_schema())
