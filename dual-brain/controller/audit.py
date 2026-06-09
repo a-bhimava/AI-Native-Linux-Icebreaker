@@ -143,6 +143,7 @@ def _normalise_key(key: str) -> str:
 # leak via free-form string params even when the key name is innocuous.
 _SECRET_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^sk-(?:ant-)?[A-Za-z0-9_\-]{16,}"),          # OpenAI / Anthropic
+    re.compile(r"^AIza[0-9A-Za-z_\-]{30,}"),                  # Google / Gemini
     re.compile(r"^xoxb-[A-Za-z0-9\-]{8,}"),                   # Slack bot tokens
     re.compile(r"^gh[ps]_[A-Za-z0-9]{36,}"),                  # GitHub personal/server
     re.compile(r"^AKIA[0-9A-Z]{16}$"),                        # AWS access key id

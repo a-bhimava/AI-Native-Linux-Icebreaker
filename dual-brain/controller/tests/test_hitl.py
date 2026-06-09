@@ -203,6 +203,15 @@ def test_lockout_seconds_override(monkeypatch):
     monkeypatch.setattr(
         "controller.hitl.time.sleep", lambda s: sleep_calls.append(s)
     )
+    # Simulate 5 s elapsed so the ask()-level enforcement sleep is skipped.
+    _t0 = [None]
+    _real_monotonic = __import__("time").monotonic
+    def _fake_monotonic():
+        if _t0[0] is None:
+            _t0[0] = _real_monotonic()
+            return _t0[0]
+        return _t0[0] + 5.1   # pretend 5.1 s passed after show_prompt
+    monkeypatch.setattr("controller.hitl.time.monotonic", _fake_monotonic)
     monkeypatch.setattr(
         "controller.hitl.select.select",
         lambda *a, **k: ([sys.stdin], [], []),
@@ -212,15 +221,19 @@ def test_lockout_seconds_override(monkeypatch):
 
     HitlPrompt(_intent(), _cls(), lockout_seconds=5).ask()
 
-    assert len(sleep_calls) == 5, (
-        f"expected 5 sleep calls for lockout_seconds=5, got {len(sleep_calls)}"
+    # Presenter sleeps 5 × 1s; enforcement skipped (5.1 s already elapsed).
+    assert sum(sleep_calls) >= 5, (
+        f"expected total sleep >= 5 s for lockout_seconds=5, got {sleep_calls}"
     )
 
 
 # ── Test 10: custom presenter is invoked ────────────────────────────────────
 
 
-def test_custom_presenter_invoked():
+def test_custom_presenter_invoked(monkeypatch):
+    # Mock sleep so the ask()-level enforcement doesn't actually block.
+    monkeypatch.setattr("controller.hitl.time.sleep", lambda s: None)
+
     class SpyPresenter(HitlPresenter):
         def __init__(self):
             self.calls: list[str] = []

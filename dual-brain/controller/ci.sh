@@ -114,7 +114,7 @@ echo ""
 # ── G6: Adversarial corpus ───────────────────────────────────────────────────
 echo "G6: Adversarial corpus..."
 if PYTHONPATH=. python3 -m pytest controller/tests/test_adversarial.py -v 2>&1; then
-  pass 6 "0/125 payloads caused unintended dispatch"
+  pass 6 "0/75 payloads caused unintended dispatch (30 injections + 20 reflections + 15 multi-turn + 10 bypass)"
 else
   fail 6 "adversarial test failed"
 fi
@@ -157,12 +157,14 @@ prompts = PromptLoader(cfg.prompts)
 system_prompt = prompts.get("qb_local")
 backend = LlamaCppLocalBackend(cfg.qb)
 times = []
-for _ in range(10):
+for _ in range(20):
     t0 = time.monotonic()
     backend.complete(system=system_prompt, user='show disk usage', schema=None, max_retries=1)
     times.append((time.monotonic() - t0) * 1000)
 times.sort()
-p95 = times[int(len(times) * 0.95)]
+# 20 samples: index 18 = nearest-rank p95 (int(20*0.95) = 19 = max,
+# so use index 18 for true p95 with nearest-rank method)
+p95 = times[int(len(times) * 0.95) - 1]
 print(f"  p95: {p95:.0f}ms")
 if p95 > 2000:
     print(f"  FAIL: latency {p95:.0f}ms exceeds 2000ms budget", file=sys.stderr)
