@@ -43,7 +43,7 @@ draft_model_id = "qwen-2.5-coder-0.5b-instruct-q4_k_m"
 
 endpoint = "http://127.0.0.1:8081"
 transport = "http"                                  # "unix" reserved for Phase 6
-grammar_path = "dual-brain/controller/grammars/qb_intent.gbnf"
+grammar_path = "grammars/qb_intent.gbnf"
 max_tokens = 512
 timeout_seconds = 30
 

@@ -15,6 +15,20 @@ set -euo pipefail
 DUAL_BRAIN="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DUAL_BRAIN"
 
+# Activate virtualenv if present alongside dual-brain/ or in HOME
+for _venv in \
+    "$HOME/dual-brain-venv" \
+    "$DUAL_BRAIN/../venv" \
+    "$DUAL_BRAIN/venv"
+do
+  if [ -f "$_venv/bin/activate" ]; then
+    # shellcheck disable=SC1090
+    source "$_venv/bin/activate"
+    break
+  fi
+done
+unset _venv
+
 pass()  { printf "  \033[32m✓\033[0m G%-2s %s\n" "$1" "$2"; }
 warn()  { printf "  \033[33m⚠\033[0m G%-2s %s\n" "$1" "$2"; }
 fail()  { printf "  \033[31m✗\033[0m G%-2s %s\n" "$1" "$2"; FAILED_GATES+=("G${1}"); }
@@ -60,10 +74,10 @@ echo ""
 
 # ── G2: Catalogue drift check ────────────────────────────────────────────────
 echo "G2: Catalogue drift check..."
-if python3 scripts/export_mcpd_catalogue.py --check 2>/dev/null; then
-  pass 2 "no catalogue drift (classifier ↔ mcpd parity)"
-elif [ ! -f "scripts/export_mcpd_catalogue.py" ]; then
+if [ ! -f "scripts/export_mcpd_catalogue.py" ]; then
   warn 2 "export_mcpd_catalogue.py not found — skipping (add script to enable)"
+elif python3 scripts/export_mcpd_catalogue.py check 2>/dev/null; then
+  pass 2 "no catalogue drift (classifier ↔ mcpd parity)"
 else
   fail 2 "catalogue drift detected"
 fi
@@ -135,15 +149,17 @@ if curl -s --max-time 1 http://127.0.0.1:8081/health > /dev/null 2>&1; then
   if python3 - <<'PYEOF'
 import sys, time
 sys.path.insert(0, '.')
-from controller.config import load
+from controller.config import load, PromptLoader
 from controller.backends.llama_local_backend import LlamaCppLocalBackend
 
 cfg = load()
+prompts = PromptLoader(cfg.prompts)
+system_prompt = prompts.get("qb_local")
 backend = LlamaCppLocalBackend(cfg.qb)
 times = []
 for _ in range(10):
     t0 = time.monotonic()
-    backend.complete(system='', user='show disk usage', schema=None, max_retries=1)
+    backend.complete(system=system_prompt, user='show disk usage', schema=None, max_retries=1)
     times.append((time.monotonic() - t0) * 1000)
 times.sort()
 p95 = times[int(len(times) * 0.95)]
@@ -163,16 +179,16 @@ fi
 
 echo ""
 
-# ── G10: Backend parity (requires API keys) ──────────────────────────────────
+# ── G10: Backend parity (mocked — requires anthropic + google-generativeai SDKs) ─
 echo "G10: Backend parity..."
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]] && [[ -n "${GEMINI_API_KEY:-}" ]]; then
+if python3 -c "import anthropic; import google.generativeai" 2>/dev/null; then
   if PYTHONPATH=. python3 -m pytest controller/tests/test_cross_backend.py -v 2>&1; then
     pass 10 "all backends emit same tier classifications"
   else
     fail 10 "backend parity failed"
   fi
 else
-  warn 10 "ANTHROPIC_API_KEY / GEMINI_API_KEY not set — skipping"
+  warn 10 "anthropic / google-generativeai SDK not installed — skipping"
 fi
 
 echo ""

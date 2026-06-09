@@ -285,15 +285,22 @@ def _build_backend_config(raw: dict) -> BackendConfig:
             except UnknownModelError as exc:
                 raise BrainConfigError(str(exc)) from None
 
+        # Resolve relative grammar_path relative to the controller package
+        # so the value is cwd-independent.
+        grammar_path_resolved: Path | None = None
+        if grammar_path_str:
+            gp = Path(grammar_path_str).expanduser()
+            if not gp.is_absolute():
+                gp = (Path(__file__).parent / gp).resolve()
+            grammar_path_resolved = gp
+
         return BackendConfig(
             name=name,
             model=entry.display_name,
             max_tokens=section["max_tokens"],
             timeout_seconds=section["timeout_seconds"],
             endpoint=section["endpoint"],
-            grammar_path=(
-                Path(grammar_path_str) if grammar_path_str else None
-            ),
+            grammar_path=grammar_path_resolved,
             api_key=None,
             model_id=model_id,
             draft_model_id=draft_model_id,
