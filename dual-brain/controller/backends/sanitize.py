@@ -23,10 +23,14 @@ import re
 from typing import Final
 
 SECRET_PATTERNS: Final = (
-    re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"),
-    re.compile(r"AIza[0-9A-Za-z_\-]{30,}"),
-    re.compile(r"ya29\.[0-9A-Za-z_\-]{20,}"),
-    re.compile(r"eyJ[A-Za-z0-9_\-\.]{30,}"),
+    re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"),        # Anthropic
+    re.compile(r"sk-[A-Za-z0-9_\-]{32,}"),             # OpenAI (sk- without ant-)
+    re.compile(r"AIza[0-9A-Za-z_\-]{30,}"),            # Google / Gemini
+    re.compile(r"ya29\.[0-9A-Za-z_\-]{20,}"),          # Google OAuth access token
+    re.compile(r"xoxb-[A-Za-z0-9\-]{8,}"),             # Slack bot token
+    re.compile(r"gh[ps]_[A-Za-z0-9]{36,}"),            # GitHub personal / server-to-server
+    re.compile(r"AKIA[0-9A-Z]{16}"),                   # AWS access key id
+    re.compile(r"eyJ[A-Za-z0-9_\-\.]{30,}"),           # JWT
     re.compile(r"Bearer\s+[A-Za-z0-9_\-\.]{20,}", re.IGNORECASE),
 )
 

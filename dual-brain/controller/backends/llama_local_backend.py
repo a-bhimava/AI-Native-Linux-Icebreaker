@@ -71,20 +71,19 @@ class LlamaCppLocalBackend(BrainBackend):
                 "(e.g. http://127.0.0.1:8081)"
             )
 
-        if config.grammar_path is None:
-            raise BrainConfigError(
-                "local backend requires `grammar_path` in config "
-                "(e.g. dual-brain/controller/grammars/qb_intent.gbnf)"
-            )
-
-        grammar_path = Path(config.grammar_path).expanduser()
-        if not grammar_path.is_file():
-            raise BrainConfigError(
-                f"grammar file not found: {grammar_path}"
-            )
+        # grammar_path is optional: QB needs GBNF for constrained decoding;
+        # PB relies on post-hoc tool-call validation instead.
+        if config.grammar_path is not None:
+            grammar_path = Path(config.grammar_path).expanduser()
+            if not grammar_path.is_file():
+                raise BrainConfigError(
+                    f"grammar file not found: {grammar_path}"
+                )
+            self._grammar: str | None = grammar_path.read_text(encoding="utf-8")
+        else:
+            self._grammar = None
 
         self._endpoint = str(config.endpoint).rstrip("/")
-        self._grammar = grammar_path.read_text(encoding="utf-8")
         self._timeout = config.timeout_seconds
 
         # Lazy import — requests is in requirements.txt for M2.5.
@@ -129,11 +128,13 @@ class LlamaCppLocalBackend(BrainBackend):
             "temperature": envelope.sampling["temperature"],
             "top_p": envelope.sampling["top_p"],
             "max_tokens": self._config.max_tokens,
-            # GBNF passed inline — llama-server applies it at sampling time.
-            "grammar": self._grammar,
             "cache_prompt": True,
             "stream": False,
         }
+        # GBNF passed inline when present — llama-server applies it at
+        # sampling time.  PB omits grammar and relies on post-hoc validation.
+        if self._grammar is not None:
+            payload["grammar"] = self._grammar
 
         # D17 stage 2 — auditor scans the outbound payload for forbidden
         # keys (tools / grounding / etc.). The local backend never adds

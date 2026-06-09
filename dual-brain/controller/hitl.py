@@ -210,7 +210,13 @@ class HitlPrompt:
         data = self._build_display_data()
         try:
             self._presenter.show_prompt(data)
+            prompt_shown_at = time.monotonic()
             self._presenter.lockout(self._lockout_seconds)
+            # Enforce minimum wait regardless of presenter implementation
+            # (INV-6: approve must be unavailable for at least lockout_seconds).
+            elapsed = time.monotonic() - prompt_shown_at
+            if elapsed < self._lockout_seconds:
+                time.sleep(self._lockout_seconds - elapsed)
             return self._presenter.read_decision(self._timeout_seconds)
         except KeyboardInterrupt:
             print("\n  ✗ Interrupted — operation denied.", flush=True)

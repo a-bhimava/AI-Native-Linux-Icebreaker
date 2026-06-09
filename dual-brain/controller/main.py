@@ -75,6 +75,11 @@ class Controller:
         self._store = store
         self._prompts = prompt_loader
         self._schemas_dir = self._resolve_schemas_dir()
+        # Load intent schema once at init — QB complete() needs it for
+        # API backends (Anthropic/Gemini use native JSON-schema output mode).
+        self._intent_schema: dict = json.loads(
+            (Path(__file__).parent / "schemas" / "intent.json").read_text(encoding="utf-8")
+        )
 
     def backend_name(self) -> str:
         return self._cfg.qb.name
@@ -82,13 +87,14 @@ class Controller:
     def run_turn(self, user_input: str, session: Any) -> TurnResult:
         t0 = time.monotonic()
         try:
-            return self._run_turn_inner(user_input, session, t0)
+            result = self._run_turn_inner(user_input, session, t0)
         except Exception as exc:
             duration = (time.monotonic() - t0) * 1000
             try:
                 self._audit.write_fields(self._make_error_fields(session, str(exc), duration))
             except Exception:
                 pass
+            session.touch()
             return TurnResult(
                 success=False,
                 output=f"Internal error: {type(exc).__name__}: {exc}",
@@ -96,6 +102,7 @@ class Controller:
                 backend=session.backend,
                 duration_ms=duration,
             )
+        return result
 
     def _run_turn_inner(self, user_input: str, session: Any, t0: float) -> TurnResult:
         qb_system = self._prompts.get(f"qb_{session.backend}")
@@ -107,7 +114,7 @@ class Controller:
         qb_response = self._qb.complete(
             system=qb_system,
             user=user_input,
-            schema=None,
+            schema=self._intent_schema,
             max_retries=self._cfg.run.qb_max_retries,
         )
         raw_intent = qb_response.content_json
@@ -165,7 +172,7 @@ class Controller:
             duration = (time.monotonic() - t0) * 1000
             self._audit.write_fields(AuditFields(
                 session_id=session.session_id, turn_index=session.turn_index,
-                intent_id=intent["intent_id"], action=intent["action"],
+                intent_id=intent_id, action=intent["action"],
                 target=intent["target"], tier=int(cls_result.tier),
                 reason=intent["reason"], risk_level=intent["risk_level"],
                 outcome=Outcome.PB_SCHEMA_ERROR, duration_ms=duration,
@@ -187,7 +194,7 @@ class Controller:
             duration = (time.monotonic() - t0) * 1000
             self._audit.write_fields(AuditFields(
                 session_id=session.session_id, turn_index=session.turn_index,
-                intent_id=intent["intent_id"], action=intent["action"],
+                intent_id=intent_id, action=intent["action"],
                 target=intent["target"], tier=int(cls_result.tier),
                 reason=intent["reason"], risk_level=intent["risk_level"],
                 outcome=Outcome.QB_VERIFIER_REJECTED, duration_ms=duration,
@@ -215,7 +222,7 @@ class Controller:
             duration = (time.monotonic() - t0) * 1000
             self._audit.write_fields(AuditFields(
                 session_id=session.session_id, turn_index=session.turn_index,
-                intent_id=intent["intent_id"], action=intent["action"],
+                intent_id=intent_id, action=intent["action"],
                 target=intent["target"], tier=int(cls_result.tier),
                 reason=intent["reason"], risk_level=intent["risk_level"],
                 outcome=Outcome.TOOL_TIMEOUT, duration_ms=duration,
@@ -234,7 +241,7 @@ class Controller:
             duration = (time.monotonic() - t0) * 1000
             self._audit.write_fields(AuditFields(
                 session_id=session.session_id, turn_index=session.turn_index,
-                intent_id=intent["intent_id"], action=intent["action"],
+                intent_id=intent_id, action=intent["action"],
                 target=intent["target"], tier=int(cls_result.tier),
                 reason=intent["reason"], risk_level=intent["risk_level"],
                 outcome=Outcome.TOOL_ERROR, duration_ms=duration,
@@ -265,7 +272,8 @@ class Controller:
             ).ask()
             if decision != Decision.APPROVED:
                 return self._denied(session, intent, cls_result, decision,
-                                    qb_response, t0, extra_cost=pb_cost,
+                                    qb_response, t0, intent_id=intent_id,
+                                    extra_cost=pb_cost,
                                     extra_tokens_in=pb_response.tokens_in,
                                     extra_tokens_out=pb_response.tokens_out)
 
@@ -279,7 +287,7 @@ class Controller:
         duration = (time.monotonic() - t0) * 1000
         self._audit.write_fields(AuditFields(
             session_id=session.session_id, turn_index=session.turn_index,
-            intent_id=intent["intent_id"], action=intent["action"],
+            intent_id=intent_id, action=intent["action"],
             target=intent["target"], tier=int(cls_result.tier),
             reason=intent["reason"], risk_level=intent["risk_level"],
             outcome=Outcome.EXECUTED, duration_ms=duration,
@@ -376,6 +384,7 @@ class Controller:
     def _denied(
         self, session: Any, intent: dict, cls_result: Any, decision: Decision,
         qb_response: Any, t0: float,
+        intent_id: str = "",
         extra_cost: float = 0.0, extra_tokens_in: int = 0, extra_tokens_out: int = 0,
     ) -> TurnResult:
         outcome = decision.to_outcome() or Outcome.HITL_DENIED
@@ -383,7 +392,7 @@ class Controller:
         cost = (qb_response.cost_usd or 0.0) + extra_cost
         self._audit.write_fields(AuditFields(
             session_id=session.session_id, turn_index=session.turn_index,
-            intent_id=intent["intent_id"], action=intent["action"],
+            intent_id=intent_id, action=intent["action"],
             target=intent["target"], tier=int(cls_result.tier),
             reason=intent["reason"], risk_level=intent["risk_level"],
             outcome=outcome, duration_ms=duration,

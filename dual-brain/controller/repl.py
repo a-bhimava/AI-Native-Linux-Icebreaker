@@ -144,6 +144,9 @@ class Repl:
             except KeyboardInterrupt:
                 self._print("\n  Cancelled.\n")
                 return
+            except Exception as exc:
+                self._print(f"\n  Error: {exc}\n")
+                return
         self._display_result(result)
 
     def _display_result(self, result: Any) -> None:
