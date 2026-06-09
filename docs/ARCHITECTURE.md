@@ -104,7 +104,7 @@ User Input
 }
 ```
 
-The Controller validates this against the JSON schema in `src/controller/schemas/intent.json`, rejects any extra fields, rejects any shell metacharacters in string values, stores the intent, and passes only the UUID `a3f7c2d1-...` to the Privileged Brain.
+The Controller validates this against the JSON schema in `dual-brain/controller/schemas/intent.json`, rejects any extra fields, rejects any shell metacharacters in string values, stores the intent, and passes only the UUID `a3f7c2d1-...` to the Privileged Brain.
 
 ---
 
@@ -342,9 +342,9 @@ QB + (intent_id + command_text) → structured verdict
 **Fail-open:** If QB is unreachable, returns `matches=True` and the pipeline continues. The COW dry-run and HITL gate remain as downstream guards.
 
 **Files:**
-- `src/controller/intent_store.py` — thread-safe opaque UUID → Intent Object store, TTL expiry, `revise()` method
-- `src/controller/verifier.py` — QB API call, verdict schema validation, metacharacter sanitization of corrections
-- `src/controller/risk_classifier.py` — `run_post_generation_hooks()` wiring
+- `dual-brain/controller/intent_store.py` — thread-safe opaque UUID → Intent Object store, TTL expiry, `revise()` method
+- `dual-brain/controller/verifier.py` — QB API call, verdict schema validation, metacharacter sanitization of corrections
+- `dual-brain/controller/risk_classifier.py` — `run_post_generation_hooks()` wiring
 
 **Latency cost:** ~50–80ms QB inference, gated to Tier 2+ only. Tier 0/1 unaffected.
 
@@ -362,8 +362,8 @@ QB + (intent_id + command_text) → structured verdict
 **Deduplication logic:** Commands are semantically keyed by normalizing single-character flag order within pipeline segments (`-la` == `-al`, pipe spacing ignored).
 
 **Files:**
-- `src/controller/voting.py` — async k=3 parallel inference, semantic dedup, `VoteResult` with `Confidence.HIGH/LOW`
-- `src/controller/risk_classifier.py` — `run_post_generation_hooks()` routes Tier 3 through voting before verifier
+- `dual-brain/controller/voting.py` — async k=3 parallel inference, semantic dedup, `VoteResult` with `Confidence.HIGH/LOW`
+- `dual-brain/controller/risk_classifier.py` — `run_post_generation_hooks()` routes Tier 3 through voting before verifier
 
 **Latency cost:** Three parallel calls ~0.8s total (gated to Tier 3, which already blocks on user HITL).
 
@@ -467,18 +467,18 @@ User NL Input
 
 | Module | File(s) | Status |
 |---|---|---|
-| Intent Object schema | `src/controller/schemas/intent.json` | Complete |
-| Risk classifier | `src/controller/risk_classifier.py` | Complete (Tier 0–3 rules + hook wiring) |
-| Intent store (Arch 2) | `src/controller/intent_store.py` | Complete |
-| QB verifier (Arch 2) | `src/controller/verifier.py` | Complete |
-| Majority vote (Arch 3) | `src/controller/voting.py` | Complete |
+| Intent Object schema | `dual-brain/controller/schemas/intent.json` | Complete |
+| Risk classifier | `dual-brain/controller/risk_classifier.py` | Complete (Tier 0–3 rules + hook wiring) |
+| Intent store (Arch 2) | `dual-brain/controller/intent_store.py` | Complete |
+| QB verifier (Arch 2) | `dual-brain/controller/verifier.py` | Complete |
+| Majority vote (Arch 3) | `dual-brain/controller/voting.py` | Complete |
 | Semantic cache (Arch 4) | `shell/pb_cache.py` | Complete |
 | CoT grammar (Arch 1) | `privileged-brain/inference/grammar/bash_cot.gbnf` | Complete |
 | CoT data pipeline (Arch 1) | `privileged-brain/scripts/process_datasets.py` | Complete (`--cot`) |
 | CoT training hook (Arch 1) | `privileged-brain/scripts/sft_train.py` | Complete (`--cot`) |
 | Shell CoT stripping (Arch 1) | `shell/pb_trigger.bash`, `pb_trigger.zsh` | Complete |
 | COW diff analysis (Arch 5) | `src/mcpd/sandbox/cow_analysis.py` | Complete |
-| Controller package | `src/controller/__init__.py` | Complete |
+| Controller package | `dual-brain/controller/__init__.py` | Complete |
 | Test suite | `tests/` (4 files, 57 tests) | 57/57 passing |
 | Data filter pipeline | `process_datasets.py::is_valid()` | 5 passes complete |
 | SFT training | `privileged-brain/scripts/sft_train.py` | Complete, adapter at `training/adapters/sft/` |

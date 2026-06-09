@@ -1,0 +1,39 @@
+# Dual-Brain Controller — Phase 2 Python dependencies
+#
+# Install on the GCP VM after extracting the dual-brain tarball:
+#   python3 -m venv ~/dual-brain-venv
+#   source ~/dual-brain-venv/bin/activate
+#   pip install -r dual-brain/requirements.txt
+#
+# All version pins are floor-only (>=) to allow VM-side patch updates.
+# Hard upper bounds added where a breaking change is known.
+
+# Schema validation (M2.2) — Intent Object JSON Schema enforcement
+jsonschema>=4.20,<5
+
+# Property-based / fuzz testing (M2.2, M2.5, M2.13)
+hypothesis>=6.100
+
+# HTTP client for llama-server (M2.5 LlamaCppLocalBackend)
+requests>=2.31
+
+# Test runner
+pytest>=7.4
+pytest-timeout>=2.2
+
+# Brain backends (M2.6, M2.7)
+# Floor versions chosen so native JSON output APIs (Anthropic
+# output_config.format, Gemini response_schema) are stable. The
+# Anthropic native JSON output requires anthropic >= 0.40 in principle,
+# but Claude Haiku 4.5 (the model that supports output_config.format)
+# only loads against newer SDKs; runtime install at deploy should be
+# the latest stable.
+anthropic>=0.40
+google-generativeai>=0.8
+
+# Multi-turn REPL line editing + history (M2.11)
+prompt-toolkit>=3.0
+
+# TOML config parsing (M2.4)
+# tomllib is stdlib in Python 3.11+; tomli is the back-port for 3.10.
+tomli>=2.0; python_version < "3.11"

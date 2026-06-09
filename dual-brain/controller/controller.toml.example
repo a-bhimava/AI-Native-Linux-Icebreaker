@@ -1,0 +1,132 @@
+# Icebreaker Controller — example config.
+#
+# Bootstrap on the GCP VM:
+#   mkdir -p ~/.config/icebreaker
+#   cp dual-brain/controller/controller.toml.example \
+#      ~/.config/icebreaker/controller.toml
+#   $EDITOR ~/.config/icebreaker/controller.toml
+#
+# The live config path is $XDG_CONFIG_HOME/icebreaker/controller.toml,
+# falling back to ~/.config/icebreaker/controller.toml.
+#
+# SECURITY: never put an API key value in this file. The api_key_env
+# field is the NAME of an environment variable that holds the key.
+# config.load() rejects any TOML key whose name matches
+# /api_key|secret|token|password|bearer/i (with `api_key_env` allowlisted).
+
+
+# Quarantined Brain — translates user NL into an Intent Object.
+# Choose one: "local", "anthropic", "gemini".
+# Only the section matching `backend` is required.
+[qb]
+backend = "local"
+
+
+[qb.local]
+# Local llama-server backed by a plug-and-play model registry.
+#
+# model_id is a CATALOGUE KEY (lookup in controller/catalogue.toml). The
+# Controller never sees a GGUF filename — the registry resolves model_id
+# to an on-disk path inside the ops scripts.
+#
+# To list available models:    python3 -m controller.model_registry list --role qb
+# To get a hardware recommendation: python3 -m controller.model_registry recommend
+# To install a model:          python3 -m controller.model_registry install --id <id>
+#
+# To swap models: change `model_id` here, then restart llama-server-qb.
+# No code change required.
+model_id = "qwen-2.5-1.5b-instruct-q4_k_m"
+
+# Optional speculative-decoding draft (must reference a catalogue entry
+# with role="draft"). Shared with PB; same file mmap'd by both servers.
+draft_model_id = "qwen-2.5-coder-0.5b-instruct-q4_k_m"
+
+endpoint = "http://127.0.0.1:8081"
+transport = "http"                                  # "unix" reserved for Phase 6
+grammar_path = "grammars/qb_intent.gbnf"
+max_tokens = 512
+timeout_seconds = 30
+
+
+[qb.anthropic]
+# Claude Haiku 4.5 — required for native JSON output mode
+# (output_config.format = "json_schema"). ~$1 / 1M input tokens,
+# ~$5 / 1M output tokens (confirm against published rates at deploy).
+model = "claude-haiku-4-5"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 1024
+timeout_seconds = 30
+
+
+[qb.gemini]
+# Gemini 2.0 Flash — generous free tier (~1,500 req/day).
+model = "gemini-2.0-flash"
+api_key_env = "GEMINI_API_KEY"
+max_tokens = 1024
+timeout_seconds = 30
+
+
+# HITL gate — tunable safety parameters (all optional; defaults shown).
+# Increase lockout_seconds if users are rubber-stamping too fast.
+# Decrease timeout_seconds if unattended terminals are a concern.
+#
+# [hitl]
+# lockout_seconds = 3     # seconds the Approve button is disabled (INV-6 minimum: 1)
+# timeout_seconds = 30    # seconds before auto-deny
+# presenter = "terminal"  # Phase 5: swap for "gtk" or "web"
+
+
+# Orchestration runtime — all optional; defaults shown.
+# mcpd_binary is relative to the repo root; set to an absolute path for system install.
+# audit_log is append-only (INV-8); never writable by the AI models.
+#
+# [run]
+# mcpd_binary          = "src/mcpd/target/release/mcpd"
+# audit_log            = "~/.local/state/icebreaker/controller-audit.log"
+# pb_endpoint          = "http://127.0.0.1:8080"
+# pb_model_id          = "run7_cot"
+# pb_max_tokens        = 256
+# pb_timeout_seconds   = 10
+# mcpd_timeout_seconds = 10.0
+# qb_max_retries       = 3
+# mcpd_schemas_dir     = ""   # empty = auto-detected from mcpd_binary path
+
+
+# REPL session — all optional; defaults shown.
+# Increase max_turns if you need longer workflows; decrease session_ttl_seconds
+# on shared or kiosk terminals to auto-close idle sessions.
+#
+# [session]
+# session_ttl_seconds   = 1800   # 30 min inactivity — set 0 to disable
+# max_turns             = 50     # auto-close after N turns (P2-F20 memory bound)
+# history_path          = "~/.local/state/icebreaker/repl_history"
+# show_spinner          = true
+# color                 = "auto"   # "auto" | "always" | "never"
+# prompt_prefix         = "icebreaker"
+# max_tool_output_lines = 40       # lines of tool output forwarded to QB for summary
+
+
+# System prompts — all optional. Defaults to the in-package controller/prompts/ directory.
+# Override prompts_dir to point at a custom directory (e.g. for A/B prompt testing).
+# Per-backend paths take priority over prompts_dir.
+# Phase 6: set prompts_dir = "/etc/icebreaker/prompts" in the system config.
+#
+# [prompts]
+# prompts_dir  = "dual-brain/controller/prompts"
+# qb_local     = ""   # empty = use prompts_dir/qb_local.txt
+# qb_anthropic = ""
+# qb_gemini    = ""
+# pb           = ""
+# qb_verifier  = ""
+
+
+# Optional: override where the model registry looks for catalogue + GGUF files.
+# Defaults below are what the registry uses without an explicit [paths] section.
+#
+# [paths]
+# catalogue_path = "dual-brain/controller/catalogue.toml"
+# model_search_dirs = [
+#     "models",                              # repo-relative (dev)
+#     "~/.local/share/icebreaker/models",    # user pool
+#     "/var/lib/icebreaker/models",          # system pool (Phase 6)
+# ]

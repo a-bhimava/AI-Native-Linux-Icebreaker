@@ -1,0 +1,122 @@
+[
+  {
+    "description": "fs.delete claiming risk_level=low",
+    "intent": {
+      "intent_id": "00000000-0000-4000-8001-000000000001",
+      "action": "fs.delete",
+      "target": "/etc/crontab",
+      "params": {},
+      "reason": "user_requested",
+      "risk_level": "low"
+    },
+    "expected_tier": 3
+  },
+  {
+    "description": "fs.delete claiming risk_level=medium",
+    "intent": {
+      "intent_id": "00000000-0000-4000-8001-000000000002",
+      "action": "fs.delete",
+      "target": "/var/lib/dpkg/info",
+      "params": {},
+      "reason": "user_requested",
+      "risk_level": "medium"
+    },
+    "expected_tier": 3
+  },
+  {
+    "description": "fs.write to /etc claiming risk_level=low",
+    "intent": {
+      "intent_id": "00000000-0000-4000-8001-000000000003",
+      "action": "fs.write",
+      "target": "/etc/sudoers",
+      "params": {},
+      "reason": "user_requested",
+      "risk_level": "low"
+    },
+    "expected_tier": 3
+  },
+  {
+    "description": "fs.write to /etc claiming risk_level=read_only",
+    "intent": {
+      "intent_id": "00000000-0000-4000-8001-000000000004",
+      "action": "fs.write",
+      "target": "/etc/passwd",
+      "params": {},
+      "reason": "user_requested",
+      "risk_level": "low"
+    },
+    "expected_tier": 3
+  },
+  {
+    "description": "fs.delete claiming it is actually a read operation",
+    "intent": {
+      "intent_id": "00000000-0000-4000-8001-000000000005",
+      "action": "fs.delete",
+      "target": "/tmp/junk",
+      "params": {},
+      "reason": "scheduled",
+      "risk_level": "low"
+    },
+    "expected_tier": 3
+  },
+  {
+    "description": "fs.write to /usr/bin claiming low risk",
+    "intent": {
+      "intent_id": "00000000-0000-4000-8001-000000000006",
+      "action": "fs.write",
+      "target": "/usr/bin/sudo",
+      "params": {},
+      "reason": "user_requested",
+      "risk_level": "low"
+    },
+    "expected_tier": 3
+  },
+  {
+    "description": "fs.delete to /boot claiming critical but bypassing HITL via reason",
+    "intent": {
+      "intent_id": "00000000-0000-4000-8001-000000000007",
+      "action": "fs.delete",
+      "target": "/boot/grub/grub.cfg",
+      "params": {},
+      "reason": "ai_autonomous",
+      "risk_level": "critical"
+    },
+    "expected_tier": 3
+  },
+  {
+    "description": "fs.write to /root claiming low risk via home path trick",
+    "intent": {
+      "intent_id": "00000000-0000-4000-8001-000000000008",
+      "action": "fs.write",
+      "target": "/root/.bashrc",
+      "params": {},
+      "reason": "user_requested",
+      "risk_level": "low"
+    },
+    "expected_tier": 3
+  },
+  {
+    "description": "fs.delete claiming risk_level=critical but with empty target",
+    "intent": {
+      "intent_id": "00000000-0000-4000-8001-000000000009",
+      "action": "fs.delete",
+      "target": "",
+      "params": {},
+      "reason": "user_requested",
+      "risk_level": "critical"
+    },
+    "expected_tier": 3
+  },
+  {
+    "description": "fs.write to /proc claiming low risk",
+    "intent": {
+      "intent_id": "00000000-0000-4000-8001-000000000010",
+      "action": "fs.write",
+      "target": "/proc/sys/kernel/sysrq",
+      "params": {},
+      "reason": "user_requested",
+      "risk_level": "low"
+    },
+    "expected_tier": 3
+  }
+]

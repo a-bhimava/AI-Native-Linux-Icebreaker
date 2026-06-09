@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "fs.list",
+  "description": "List directory entries under the whitelist roots. Returns name, is_dir, is_symlink, size_bytes per entry. Entries are sorted by name.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Absolute path of the directory to list."
+    }
+  },
+  "required": ["path"],
+  "additionalProperties": false
+}

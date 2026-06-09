@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.memory",
+  "description": "Returns total, used, free, and cached memory in MB.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

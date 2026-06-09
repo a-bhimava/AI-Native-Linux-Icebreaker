@@ -43,7 +43,7 @@ PROJECT="your-gcp-project-id"      # from GCP console top bar
 ## Step 2 — Create the VM
 
 ```bash
-cd "/Users/aditya/Documents/Project Icebreaker/privileged-brain/gcloud"
+cd "/Users/aditya/Documents/Icebreaker/privileged-brain/gcloud"
 bash mac_commands.sh create
 ```
 
@@ -205,7 +205,7 @@ bash mac_commands.sh delete
 ## Step 11 — Continue on Your Mac
 
 ```bash
-cd "/Users/aditya/Documents/Project Icebreaker/privileged-brain"
+cd "/Users/aditya/Documents/Icebreaker/privileged-brain"
 bash 05_convert_and_import.sh   # fuse LoRA → GGUF → Ollama
 ollama run privileged-brain "list all listening TCP ports"
 bash 07_evaluate.sh             # compare baseline vs fine-tuned

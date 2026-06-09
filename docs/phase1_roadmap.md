@@ -159,7 +159,7 @@ Ordered so each milestone unlocks the next. Each is sized for 1–3 days for a s
   - Path under `$HOME` AND not a hidden config file (no `.ssh/`, `.aws/`, `.gnupg/`) → Tier 1, execute directly under Landlock.
   - Otherwise → return `{"status": "requires_cow_approval", "intent_id": "<uuid>", "preview": {...}}`. Phase 3 will wire the commit path.
 - The `preview` field includes the affected paths' current sizes, mtimes, modes — enough for the UI to render a "before/after" hint before COW lands.
-- `intent_id` lives in `src/controller/intent_store.py` (already merged); mcpd just generates a UUID and returns it.
+- `intent_id` lives in `dual-brain/controller/intent_store.py` (already merged); mcpd just generates a UUID and returns it.
 - Reuse M1.2 path validators.
 - **Exit-test:** `fs.delete("/etc/hosts")` returns `requires_cow_approval` (not an error); `fs.write("$HOME/test.txt", "x")` executes and creates the file.
 

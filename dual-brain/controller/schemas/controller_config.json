@@ -1,0 +1,169 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Icebreaker Controller Config",
+  "type": "object",
+  "required": ["qb"],
+  "additionalProperties": false,
+  "properties": {
+    "qb": {
+      "type": "object",
+      "required": ["backend"],
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["local", "anthropic", "gemini"]
+        },
+        "local": {"$ref": "#/definitions/local_section"},
+        "anthropic": {"$ref": "#/definitions/api_section"},
+        "gemini": {"$ref": "#/definitions/api_section"}
+      }
+    },
+    "hitl": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lockout_seconds": {
+          "type": "integer", "minimum": 1, "maximum": 30,
+          "description": "INV-6 approve-button lockout in seconds."
+        },
+        "timeout_seconds": {
+          "type": "integer", "minimum": 5, "maximum": 300,
+          "description": "Decision timeout in seconds — auto-deny on expiry."
+        },
+        "presenter": {
+          "type": "string", "enum": ["terminal"],
+          "description": "Phase 5 hook: swap 'terminal' for 'gtk' or 'web'."
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "catalogue_path": {
+          "type": "string",
+          "description": "Path to the model catalogue (catalogue.toml). Defaults to the in-repo file alongside the controller code."
+        },
+        "model_search_dirs": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1,
+          "description": "Ordered list of directories the ModelRegistry searches for installed GGUF files. First match wins."
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Orchestration runtime parameters. All optional.",
+      "properties": {
+        "mcpd_binary":          {"type": "string", "description": "Path to the mcpd binary (relative to repo root or absolute)."},
+        "audit_log":            {"type": "string", "description": "Path to the append-only audit log (INV-8). Supports ~/ expansion."},
+        "pb_endpoint":          {"type": "string", "description": "HTTP endpoint for the Privileged Brain llama-server."},
+        "pb_model_id":          {"type": "string", "description": "Model ID for PB (used in audit rows)."},
+        "pb_max_tokens":        {"type": "integer", "minimum": 1, "maximum": 4096},
+        "pb_timeout_seconds":   {"type": "integer", "minimum": 1, "maximum": 300},
+        "mcpd_timeout_seconds": {"type": "number",  "minimum": 0.1, "maximum": 300.0},
+        "qb_max_retries":       {"type": "integer", "minimum": 1, "maximum": 10},
+        "mcpd_schemas_dir":     {"type": "string", "description": "Directory containing mcpd tool JSON schemas. Empty = auto-detect from mcpd_binary."}
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "REPL session and UX parameters. All optional.",
+      "properties": {
+        "session_ttl_seconds": {
+          "type": "integer", "minimum": 0, "maximum": 86400,
+          "description": "Inactivity timeout in seconds. 0 = disabled."
+        },
+        "max_turns": {
+          "type": "integer", "minimum": 1, "maximum": 1000,
+          "description": "Maximum turns before session auto-closes (P2-F20 memory bound)."
+        },
+        "history_path": {
+          "type": "string",
+          "description": "Path to readline history file. Supports ~/ expansion."
+        },
+        "show_spinner": {
+          "type": "boolean",
+          "description": "Show live braille spinner while QB/PB/mcpd process."
+        },
+        "color": {
+          "type": "string", "enum": ["auto", "always", "never"],
+          "description": "ANSI colour output. 'auto' enables when stdout is a TTY."
+        },
+        "prompt_prefix": {
+          "type": "string", "minLength": 1,
+          "description": "Prefix shown in the REPL prompt: `(N) [backend] prefix > `."
+        },
+        "max_tool_output_lines": {
+          "type": "integer", "minimum": 1, "maximum": 10000,
+          "description": "Lines of tool output forwarded to QB for summarisation."
+        }
+      }
+    },
+    "prompts": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "System prompt file locations. All optional — defaults to the in-package controller/prompts/ directory.",
+      "properties": {
+        "prompts_dir": {
+          "type": "string",
+          "description": "Directory containing prompt .txt files. Empty = in-package default. Phase 6: set to /etc/icebreaker/prompts."
+        },
+        "qb_local":       {"type": "string", "description": "Override path for qb_local.txt. Empty = use prompts_dir."},
+        "qb_anthropic":   {"type": "string", "description": "Override path for qb_anthropic.txt. Empty = use prompts_dir."},
+        "qb_gemini":      {"type": "string", "description": "Override path for qb_gemini.txt. Empty = use prompts_dir."},
+        "pb":             {"type": "string", "description": "Override path for pb.txt. Empty = use prompts_dir."},
+        "qb_verifier":    {"type": "string", "description": "Override path for qb_verifier.txt. Empty = use prompts_dir."}
+      }
+    }
+  },
+  "definitions": {
+    "local_section": {
+      "type": "object",
+      "required": ["model_id", "endpoint", "max_tokens", "timeout_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]*$",
+          "minLength": 1,
+          "description": "Catalogue key (looked up in catalogue.toml). The Controller never sees the on-disk filename — resolved via the model registry."
+        },
+        "draft_model_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]*$",
+          "minLength": 1,
+          "description": "Optional speculative-decoding draft. Must reference a catalogue entry with role='draft'."
+        },
+        "endpoint": {"type": "string", "pattern": "^(https?|unix)://"},
+        "transport": {
+          "type": "string",
+          "enum": ["http", "unix"],
+          "description": "Transport for llama-server. 'http' today; 'unix' reserved for Phase 6 distro packaging."
+        },
+        "grammar_path": {"type": "string"},
+        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 32768},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}
+      }
+    },
+    "api_section": {
+      "type": "object",
+      "required": ["model", "api_key_env", "max_tokens", "timeout_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "api_key_env": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "minLength": 1
+        },
+        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 32768},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}
+      }
+    }
+  }
+}

@@ -32,9 +32,14 @@ Read both before making any architectural change.
 │   ├── data/                      # Training data (synthetic + processed)
 │   └── *.sh                       # Shell wrappers for the training pipeline
 ├── src/
-│   ├── mcpd/                      # Rust MCP daemon (NOT YET BUILT — Phase 1)
-│   ├── controller/                # Dual-Brain Controller (NOT YET BUILT — Phase 2)
-│   └── inference/                 # llama.cpp integration layer
+│   └── mcpd/                      # Rust MCP daemon (Phase 1 — COMPLETE, on main)
+├── dual-brain/                    # Phase 2 deployable bundle (Python)
+│   ├── controller/                #   - Controller package (skeleton in; M2.0+ adds backends, audit, hitl, session, repl)
+│   ├── scripts/                   #   - Operator scripts (export_mcpd_catalogue.py, start_pb.sh, start_qb_local.sh)
+│   ├── docs/phase2/               #   - Mirror of project Phase 2 planning docs
+│   └── README.md                  #   - "tar dual-brain → scp → extract on VM" deploy workflow
+├── shell/                         # V1 shell trigger — preserved untouched; coexists with Controller
+├── backups/                       # Local snapshots of VM state (e.g. backups/jun4/)
 ├── cx-distro/                     # ISO build pipeline (NOT YET BUILT — Phase 6)
 └── models/
     └── checksums.sha256           # SHA-256 of all GGUF model weight files
@@ -127,8 +132,8 @@ The following files implement core security mechanisms. **Any PR touching these 
 
 | File | Why It's Sensitive |
 |---|---|
-| `src/controller/schema_validation.*` | Schema bypass here = prompt injection succeeds |
-| `src/controller/intent_store.*` | Opaque ID store — any leak of raw text here breaks INV-1 |
+| `dual-brain/controller/schema_validation.*` | Schema bypass here = prompt injection succeeds |
+| `dual-brain/controller/intent_store.*` | Opaque ID store — any leak of raw text here breaks INV-1 |
 | `src/mcpd/tools/fs.rs` | Path traversal, arbitrary write — most dangerous mcpd module |
 | `src/mcpd/server.rs` | Network listener check — INV-3 |
 | `src/mcpd/sandbox/landlock.rs` | Ruleset definition — too-permissive rules = sandbox escape |
@@ -233,7 +238,7 @@ If your generated code disagrees with `AI_Native_OS_Whitepaper.md` or `docs/IMPL
 | Module | Owner |
 |---|---|
 | `src/mcpd/` | Rust engineer |
-| `src/controller/` | Backend engineer |
+| `dual-brain/controller/` | Backend engineer |
 | `privileged-brain/` | ML engineer |
 | `cx-distro/` | DevOps engineer |
 | `inference/grammar/` | ML engineer |

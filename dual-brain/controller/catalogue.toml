@@ -1,0 +1,178 @@
+# Icebreaker model catalogue.
+#
+# Authoritative list of supported QB / PB / draft models. The Controller
+# never sees a filename in code — it only sees `model_id`, and looks up
+# the on-disk file via this catalogue + the model_registry resolver.
+#
+# This file is the MENU. The receipt of what was actually downloaded
+# and checksum-verified lives in `models/checksums.sha256`, written by
+# `python3 -m controller.model_registry install`.
+#
+# Source URLs point to trusted GGUF mirrors. Each entry's `license`
+# field controls whether `install` requires `--accept-license` before
+# downloading (any license that's not in ALLOW_LIST_LICENSES requires
+# explicit acceptance).
+#
+# Schema version bumps must be coordinated with model_registry.py's
+# parser; bump on any breaking field change.
+
+schema_version = "1"
+
+
+# ─── QB candidates ──────────────────────────────────────────────────────────
+
+[[model]]
+id = "qwen-2.5-1.5b-instruct-q4_k_m"
+display_name = "Qwen 2.5 1.5B Instruct"
+role = "qb"
+family = "qwen2.5"
+file_name = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+parameter_count_b = 1.5
+quantization = "Q4_K_M"
+size_bytes = 986_500_000
+license = "Apache-2.0"
+min_ram_mb = 2000
+min_disk_mb = 1000
+tags = ["default", "balanced", "small-hardware"]
+description = "Balanced QB default. Strong instruction-following at ~1 GB. Use for general first-run installs."
+
+[model.source]
+type = "huggingface"
+repo = "lmstudio-community/Qwen2.5-1.5B-Instruct-GGUF"
+file = "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
+
+[model.throughput_estimates]
+m4 = 70
+rtx_4060 = 110
+cpu_only = 12
+
+
+[[model]]
+id = "qwen-2.5-0.5b-instruct-q4_k_m"
+display_name = "Qwen 2.5 0.5B Instruct"
+role = "qb"
+family = "qwen2.5"
+file_name = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+parameter_count_b = 0.5
+quantization = "Q4_K_M"
+size_bytes = 400_000_000
+license = "Apache-2.0"
+min_ram_mb = 600
+min_disk_mb = 500
+tags = ["fast", "low-ram"]
+description = "Fast QB. Lower NL quality, but GBNF + narrow action surface keeps the task tractable. Good for 4 GB-RAM systems."
+
+[model.source]
+type = "huggingface"
+repo = "lmstudio-community/Qwen2.5-0.5B-Instruct-GGUF"
+file = "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"
+
+[model.throughput_estimates]
+m4 = 130
+rtx_4060 = 200
+cpu_only = 35
+
+
+[[model]]
+id = "phi-4-mini-instruct-q4_k_m"
+display_name = "Phi-4 Mini Instruct"
+role = "qb"
+family = "phi-4"
+file_name = "phi-4-mini-instruct-q4_k_m.gguf"
+parameter_count_b = 3.8
+quantization = "Q4_K_M"
+size_bytes = 3_000_000_000
+license = "MIT"
+min_ram_mb = 4000
+min_disk_mb = 3500
+tags = ["quality", "large-hardware"]
+description = "Strong instruction-following; original whitepaper QB. Too slow on CPU-only or <8 GB systems; recommended for GPU-equipped hardware."
+
+[model.source]
+type = "huggingface"
+repo = "bartowski/Phi-4-mini-instruct-GGUF"
+file = "Phi-4-mini-instruct-Q4_K_M.gguf"
+
+[model.throughput_estimates]
+m4 = 35
+rtx_4060 = 80
+cpu_only = 6
+
+
+[[model]]
+id = "gemma-3-2b-it-q4_k_m"
+display_name = "Gemma 3 2B-IT"
+role = "qb"
+family = "gemma-3"
+file_name = "gemma-3-2b-it-q4_k_m.gguf"
+parameter_count_b = 2.0
+quantization = "Q4_K_M"
+size_bytes = 1_600_000_000
+license = "Gemma-Terms-of-Use"
+min_ram_mb = 3000
+min_disk_mb = 2000
+tags = ["balanced", "google", "requires-license-acceptance"]
+description = "Alternative balanced QB from Google. Requires acceptance of Gemma Terms of Use before download."
+
+[model.source]
+type = "huggingface"
+repo = "google/gemma-3-2b-it-gguf"
+file = "gemma-3-2b-it-q4_k_m.gguf"
+
+[model.throughput_estimates]
+m4 = 50
+rtx_4060 = 95
+cpu_only = 10
+
+
+# ─── PB (Privileged Brain) — whitepaper-locked default ─────────────────────
+
+[[model]]
+id = "qwen-2.5-coder-1.5b-instruct-q4_k_m"
+display_name = "Qwen 2.5 Coder 1.5B Instruct"
+role = "pb"
+family = "qwen2.5-coder"
+# Note: the file already on disk uses the project's historical name.
+# Phase 6 distro packaging will rename to the canonical form.
+file_name = "run7_cot_q4km.gguf"
+parameter_count_b = 1.5
+quantization = "Q4_K_M"
+size_bytes = 940_000_000
+license = "Apache-2.0"
+min_ram_mb = 2000
+min_disk_mb = 1000
+tags = ["default", "whitepaper-locked"]
+description = "Privileged Brain. Fine-tuned on bash command emission. Locked by whitepaper INV-1 — do not swap without architectural review."
+
+[model.source]
+type = "huggingface"
+repo = "lmstudio-community/Qwen2.5-Coder-1.5B-Instruct-GGUF"
+file = "Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf"
+
+[model.throughput_estimates]
+m4 = 75
+rtx_4060 = 115
+cpu_only = 13
+
+
+# ─── Draft models (used for speculative decoding) ──────────────────────────
+
+[[model]]
+id = "qwen-2.5-coder-0.5b-instruct-q4_k_m"
+display_name = "Qwen 2.5 Coder 0.5B (draft)"
+role = "draft"
+family = "qwen2.5-coder"
+file_name = "qwen2.5-coder-0.5b-instruct-q4_k_m.gguf"
+parameter_count_b = 0.5
+quantization = "Q4_K_M"
+size_bytes = 300_000_000
+license = "Apache-2.0"
+min_ram_mb = 500
+min_disk_mb = 400
+tags = ["draft", "speculative-decoding", "shared-pb-qb"]
+description = "Speculative-decoding draft model. Shared by PB and QB llama-server instances (OS page cache deduplicates the mmap)."
+
+[model.source]
+type = "huggingface"
+repo = "lmstudio-community/Qwen2.5-Coder-0.5B-Instruct-GGUF"
+file = "Qwen2.5-Coder-0.5B-Instruct-Q4_K_M.gguf"
