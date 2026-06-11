@@ -52,6 +52,21 @@ _PROVIDER_STRIP_KEYS: Final = frozenset(
 # (Anthropic). Strip both unconditionally — local validator covers them.
 _PROVIDER_STRIP_ARRAY_BOUNDS: Final = frozenset({"minItems", "maxItems"})
 
+# JSON Schema metadata / identifier keywords that the providers' native
+# structured-output Schema types reject. Gemini's ``response_schema`` is an
+# OpenAPI-subset that raises ``ValueError: Unknown field for Schema: $schema``
+# when these appear. They carry no validation semantics, so stripping them is
+# lossless — the local validator still sees the ORIGINAL schema. ``description``
+# is intentionally NOT here (Gemini supports it and it aids the model).
+_PROVIDER_STRIP_META: Final = frozenset({"$schema", "$id", "$comment", "title"})
+
+# Keywords Gemini's ``response_schema`` OpenAPI-subset rejects but Anthropic's
+# ``input_schema`` supports. Stripped ONLY on the Gemini path (``strip_format``
+# marks the Gemini target) so the Anthropic schema keeps its full strictness.
+# ``additionalProperties`` (boolean-false OR schema form) and ``pattern`` have
+# no Gemini equivalent; the local validator still enforces both.
+_GEMINI_ONLY_STRIP_KEYS: Final = frozenset({"additionalProperties", "pattern"})
+
 
 def transform_schema_for_provider(
     schema: Any,
@@ -91,7 +106,11 @@ def transform_schema_for_provider(
                 continue
             if key in _PROVIDER_STRIP_ARRAY_BOUNDS:
                 continue
+            if key in _PROVIDER_STRIP_META:
+                continue
             if key == "format" and strip_format:
+                continue
+            if strip_format and key in _GEMINI_ONLY_STRIP_KEYS:
                 continue
             if key == "oneOf" and convert_oneof_to_anyof:
                 out["anyOf"] = [

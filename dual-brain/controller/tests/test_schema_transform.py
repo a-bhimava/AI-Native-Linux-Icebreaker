@@ -298,6 +298,15 @@ def test_intent_schema_round_trip_for_gemini():
         "maxItems",
         "oneOf",
         "format",  # extra: Gemini doesn't support format=uuid
+        # JSON Schema metadata keys Gemini's response_schema rejects with
+        # "Unknown field for Schema: $schema" — caught only on a live call,
+        # so guard them here. ``description`` stays (Gemini supports it).
+        "$schema",
+        "$id",
+        "title",
+        # Gemini's OpenAPI-subset also rejects these (Anthropic keeps them).
+        "additionalProperties",
+        "pattern",
     }
     leaked = keys & forbidden
     assert not leaked, f"forbidden keys leaked: {leaked}"
