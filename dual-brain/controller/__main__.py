@@ -61,10 +61,17 @@ def _build_controller(
 
     signal.signal(signal.SIGTERM, _on_sigterm)
 
+    mcpd: McpdClient | None = None
     try:
         qb = _build_qb(cfg)
         pb = _build_pb(cfg)
-        mcpd = McpdClient(Path(cfg.run.mcpd_binary).expanduser())
+        # spawn() is the factory: it Popen's mcpd and returns a connected
+        # client. The bare constructor takes an already-spawned process plus
+        # keyword-only binary_path/default_timeout, so must not be called here.
+        mcpd = McpdClient.spawn(
+            Path(cfg.run.mcpd_binary).expanduser(),
+            default_timeout=cfg.run.mcpd_timeout_seconds,
+        )
         store = IntentStore()
         prompts = PromptLoader(cfg.prompts)
 
@@ -80,6 +87,8 @@ def _build_controller(
         yield controller, cfg
     finally:
         signal.signal(signal.SIGTERM, original_sigterm)
+        if mcpd is not None:
+            mcpd.close()
         audit.close()
 
 
