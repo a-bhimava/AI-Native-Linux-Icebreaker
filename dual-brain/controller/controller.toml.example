@@ -59,8 +59,10 @@ timeout_seconds = 30
 
 
 [qb.gemini]
-# Gemini 2.0 Flash — generous free tier (~1,500 req/day).
-model = "gemini-2.0-flash"
+# Gemini 2.5 Flash — stable GA flash model with native response_schema
+# structured output. (gemini-2.0-flash was retired; if 2.5-flash is ever
+# deprecated, pick a current model via `genai.list_models()`.)
+model = "gemini-2.5-flash"
 api_key_env = "GEMINI_API_KEY"
 max_tokens = 1024
 timeout_seconds = 30
