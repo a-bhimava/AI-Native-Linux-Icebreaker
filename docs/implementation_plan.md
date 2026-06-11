@@ -2,7 +2,38 @@
 
 **Reference:** [`AI_Native_OS_Whitepaper.md`](../AI_Native_OS_Whitepaper.md)  
 **Status:** Living document — update when phase gates pass or decisions change  
-**Last updated:** May 2026
+**Last updated:** June 2026
+
+---
+
+## 0. Current Implementation Status (June 2026)
+
+This summary is authoritative for *where the project actually is*; the detailed
+phase sections below describe the original plan. Mirrors the Phase Status table in
+[`CLAUDE.md`](../CLAUDE.md).
+
+| Phase | Status | Notes |
+|---|---|---|
+| **Phase 0** — Environment & models | ✅ **Complete** | Models load, MCP handshake works |
+| **Phase 1** — mcpd (Rust daemon) | ✅ **Complete** | M1.0–M1.10; exit gates green on Linux |
+| **Phase 3** — Kernel sandboxing | ✅ **Folded into Phase 1** | Landlock / Seccomp-BPF / COW shipped *with* mcpd as M1.3 / M1.4 / M1.5 — not a separate phase. Heading kept below for whitepaper continuity. |
+| **Phase 2** — Dual-Brain Controller | ✅ **Complete (pending PR merge to `main`)** | M2.0–M2.14 on `feature/phase2-controller`; full gate suite `controller/ci.sh` **G1–G11 green** on the cloud VM `icebreaker-phase2-vm` (G9 N/A in the cloud-QB config). See close-out note below. |
+| **Phase 4** — Fine-tune Privileged Brain | 🔄 **In progress** | `run7_cot_q4km.gguf` (Qwen2.5-Coder-1.5B SFT) is the active PB; used live in the Phase-2 end-to-end. |
+| **Phase 5** — UX + Graduated Determinism | ⬜ Not started | Tier 0–3 classifier already lives in the Controller (`risk_classifier.py`); UX/HITL polish remains |
+| **Phase 6** — ISO distribution | ⬜ Not started | |
+| **Phase 7** — Hardening + release | ⬜ Not started | |
+
+**Phase 2 close-out (June 2026).** Validated on a GCP VM (`icebreaker-phase2-vm`,
+n1-standard-4 + T4, Ubuntu 24.04). Config under test: **QB = Google Gemini
+(`gemini-2.5-flash`, cloud); PB = local fine-tuned GGUF** served by `llama-server`.
+A full natural-language → QB → Intent Object → PB → mcpd dispatch round-trip
+executes end-to-end (e.g. *"what is the system status"* returns live load/memory).
+The mocked gate suite cannot exercise a live provider, so a live Gemini smoke test
+was added — it caught **three real bugs the mocks missed**: (1) the Gemini
+`response_schema` transform left JSON-Schema meta-keys (`$schema`/`$id`/`title`,
+`additionalProperties`, `pattern`) that Gemini rejects; (2) the shipped default model
+`gemini-2.0-flash` was retired; (3) the CLI entry point built `McpdClient` with the
+wrong constructor (now uses `McpdClient.spawn`). All fixed; regression guards added.
 
 ---
 
@@ -111,6 +142,7 @@ This document defines the exact sequence in which these must be built, why that 
 ---
 
 ### Phase 0 — Foundation & Environment Setup
+**Status:** ✅ Complete  
 **Duration:** Week 1  
 **Owned by:** All engineers (setup sprint)
 
@@ -146,6 +178,8 @@ This document defines the exact sequence in which these must be built, why that 
 ---
 
 ### Phase 1 — Build the MCP Daemon (mcpd)
+**Status:** ✅ Complete (M1.0–M1.10; exit gates green on Linux). Also delivered the
+Phase 3 kernel-sandboxing mechanisms (Landlock M1.3, Seccomp-BPF M1.4, COW M1.5).  
 **Duration:** Weeks 2–4  
 **Owned by:** Rust engineer(s)
 
@@ -196,6 +230,10 @@ This document defines the exact sequence in which these must be built, why that 
 ---
 
 ### Phase 2 — Dual-Brain Controller
+**Status:** ✅ Complete, pending PR merge to `main` (M2.0–M2.14; `controller/ci.sh`
+G1–G11 green on the cloud VM — see § 0). Implemented as Python under
+`dual-brain/controller/` (not Rust). The Controller also already houses the Tier 0–3
+risk classifier nominally scoped to Phase 5.  
 **Duration:** Weeks 5–7  
 **Owned by:** Backend engineer(s)
 
@@ -243,8 +281,12 @@ This document defines the exact sequence in which these must be built, why that 
 ---
 
 ### Phase 3 — Kernel-Level Sandboxing
-**Duration:** Weeks 8–10  
-**Owned by:** Systems engineer(s)
+**Status:** ✅ **Folded into Phase 1 — NOT a separate phase.** Landlock, Seccomp-BPF,
+and the COW overlay shipped *inside* mcpd as milestones M1.3 / M1.4 / M1.5 (see
+`src/mcpd/src/sandbox/` on `main`). The tasks and exit criteria below were satisfied
+there; this heading is retained for whitepaper/numbering continuity only.  
+**Duration:** Weeks 8–10 (absorbed into Weeks 2–4)  
+**Owned by:** Systems engineer(s) / Rust engineer(s)
 
 #### Inputs Required
 - mcpd running with tool modules (Phase 1)
@@ -304,6 +346,9 @@ This document defines the exact sequence in which these must be built, why that 
 ---
 
 ### Phase 4 — Fine-Tuning the Privileged Brain
+**Status:** 🔄 In progress. SFT produced `run7_cot_q4km.gguf` (Qwen2.5-Coder-1.5B,
+Q4_K_M), now the active PB and exercised live in the Phase-2 end-to-end. DPO + the
+full FEH evaluation gate remain.  
 **Duration:** Weeks 11–15 (parallel track — can run alongside Phase 2/3)  
 **Owned by:** ML engineer(s)  
 **Existing scaffolding:** `privileged-brain/` directory with training scripts
@@ -747,31 +792,33 @@ Every PR to `main` must pass:
 
 Use this checklist at the end of each phase before starting the next.
 
-### Phase 0 → Phase 1
-- [ ] Both GGUF models load and generate output
-- [ ] MCP handshake completes over stdio
-- [ ] All developers can reproduce environment in <30 minutes
-- [ ] Model SHA-256 checksums recorded
+### Phase 0 → Phase 1 ✅ PASSED
+- [x] Both GGUF models load and generate output
+- [x] MCP handshake completes over stdio
+- [x] All developers can reproduce environment in <30 minutes
+- [x] Model SHA-256 checksums recorded
 
-### Phase 1 → Phase 2
-- [ ] All mcpd tool modules pass unit tests
-- [ ] MCP discovery returns full schema catalogue
-- [ ] `ss -tlnp` shows zero mcpd listeners
-- [ ] Path traversal fuzz returns 100% rejection
-- [ ] Schema version file exists and is versioned
+### Phase 1 → Phase 2 ✅ PASSED
+- [x] All mcpd tool modules pass unit tests
+- [x] MCP discovery returns full schema catalogue (22 tools)
+- [x] `ss -tlnp` shows zero mcpd listeners
+- [x] Path traversal fuzz returns 100% rejection
+- [x] Schema version file exists and is versioned (schema 1.0.0)
 
-### Phase 2 → Phase 3
-- [ ] 20/20 injection payloads → zero execution
-- [ ] Controller rejects malformed/extra-field intents
-- [ ] Quarantined Brain MCP tool list is empty
-- [ ] Audit log records all intents, including rejected
+### Phase 2 → Phase 3 ✅ PASSED
+*(Verified via `controller/ci.sh` G1–G11 on `icebreaker-phase2-vm`, June 2026. The
+injection corpus grew from 20 to 75 payloads — G6.)*
+- [x] 20/20 (now 75/75) injection payloads → zero execution
+- [x] Controller rejects malformed/extra-field intents
+- [x] Quarantined Brain MCP tool list is empty
+- [x] Audit log records all intents, including rejected
 
-### Phase 3 → Phase 4 (or simultaneous)
-- [ ] Zero sandbox escapes in self-audit
-- [ ] Landlock, Seccomp, COW each benchmark <1ms
-- [ ] Total security overhead <10ms
-- [ ] COW commit is atomic (crash injection verified)
-- [ ] Kernel version check works correctly
+### Phase 3 → Phase 4 (or simultaneous) ✅ PASSED (delivered within Phase 1)
+- [x] Zero sandbox escapes in self-audit
+- [x] Landlock, Seccomp, COW each benchmark <1ms
+- [x] Total security overhead <10ms
+- [x] COW commit is atomic (crash injection verified)
+- [x] Kernel version check works correctly
 
 ### Phase 4 → Phase 5
 - [ ] FEH score >90% on held-out test set
