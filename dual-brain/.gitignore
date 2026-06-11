@@ -6,3 +6,8 @@ venv/
 *.egg-info/
 .DS_Store
 controller/tests/__pycache__/
+
+# Deploy/secrets config — holds live VM details + API keys. NEVER commit.
+# The committed template is scripts/deploy.env.example.
+scripts/deploy.env
+secrets.env

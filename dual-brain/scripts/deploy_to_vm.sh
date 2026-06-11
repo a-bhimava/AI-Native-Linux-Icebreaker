@@ -22,6 +22,15 @@
 
 set -euo pipefail
 
+# ── Deploy config ─────────────────────────────────────────────────────────────
+# Source the gitignored deploy.env (if present) so VM_NAME / VM_ZONE / VM_PROJECT
+# and the API keys come from one declarative file rather than being hardcoded.
+# Template: scripts/deploy.env.example. The file also travels in the upload
+# tarball below, so the keys reach the VM for ci.sh gates G9/G10.
+_DEPLOY_ENV="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/deploy.env"
+# shellcheck source=/dev/null
+[ -f "$_DEPLOY_ENV" ] && source "$_DEPLOY_ENV"
+
 # ── Config ────────────────────────────────────────────────────────────────────
 VM_NAME="${1:-${VM_NAME:-instance-20260528-030421}}"
 VM_ZONE="${2:-${VM_ZONE:-us-central1-a}}"

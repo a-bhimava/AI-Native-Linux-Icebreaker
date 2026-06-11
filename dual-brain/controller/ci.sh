@@ -29,6 +29,14 @@ do
 done
 unset _venv
 
+# Source the gitignored deploy.env (if present) so ANTHROPIC_API_KEY / GEMINI_API_KEY
+# and ICEBREAKER_PORT_QB are available to gates G9 (latency) and G10 (backend parity)
+# without a manual export. Template: scripts/deploy.env.example.
+_DEPLOY_ENV="$DUAL_BRAIN/scripts/deploy.env"
+# shellcheck source=/dev/null
+[ -f "$_DEPLOY_ENV" ] && source "$_DEPLOY_ENV"
+unset _DEPLOY_ENV
+
 pass()  { printf "  \033[32m✓\033[0m G%-2s %s\n" "$1" "$2"; }
 warn()  { printf "  \033[33m⚠\033[0m G%-2s %s\n" "$1" "$2"; }
 fail()  { printf "  \033[31m✗\033[0m G%-2s %s\n" "$1" "$2"; FAILED_GATES+=("G${1}"); }
@@ -62,6 +70,14 @@ if ! python3 -c "import anthropic" 2>/dev/null; then
   IGNORE_OPTS+=("--ignore=controller/tests/test_cross_backend.py")
 fi
 
+# The llama local-backend tests health-probe the QB llama-server on construction,
+# so they fail without it. Include them only when the server is reachable — on the
+# VM it is up (started before the gate run), so they DO run there. Mirrors the
+# exclusion deploy_to_vm.sh already applies for the same reason.
+if ! curl -s --max-time 1 "http://127.0.0.1:${ICEBREAKER_PORT_QB:-8081}/health" >/dev/null 2>&1; then
+  IGNORE_OPTS+=("--ignore=controller/tests/test_llama_local_backend.py")
+fi
+
 if PYTHONPATH=. python3 -m pytest controller/tests/ -q --tb=short \
     "${IGNORE_OPTS[@]}" 2>&1 | tee /tmp/icebreaker_ci_g1.log; then
   TOTAL=$(grep -E "^[0-9]+ passed" /tmp/icebreaker_ci_g1.log | grep -oE "^[0-9]+" || echo "0")
@@ -76,10 +92,20 @@ echo ""
 echo "G2: Catalogue drift check..."
 if [ ! -f "scripts/export_mcpd_catalogue.py" ]; then
   warn 2 "export_mcpd_catalogue.py not found — skipping (add script to enable)"
-elif python3 scripts/export_mcpd_catalogue.py check 2>/dev/null; then
-  pass 2 "no catalogue drift (classifier ↔ mcpd parity)"
 else
-  fail 2 "catalogue drift detected"
+  set +e
+  G2_OUT="$(python3 scripts/export_mcpd_catalogue.py check 2>&1)"
+  G2_RC=$?
+  set -e
+  if [ "$G2_RC" -eq 0 ]; then
+    pass 2 "no catalogue drift (classifier ↔ mcpd parity)"
+  elif [ "$G2_RC" -eq 2 ]; then
+    # exit 2 == mcpd binary not found (export_mcpd_catalogue._find_mcpd). Build
+    # src/mcpd on the VM (cargo build --release) to enable the real drift check.
+    warn 2 "mcpd binary not found — build src/mcpd on the VM to enable (skipping)"
+  else
+    fail 2 "catalogue drift detected — see: $G2_OUT"
+  fi
 fi
 
 echo ""
