@@ -2,7 +2,9 @@
 
 ## §1 — Context & Status
 
-> **Status: planning complete after two scope rounds (2026-06-05). Implementation starts at M2.0.**
+> **Status: ✅ CLOSED 2026-06-11 — all milestones M2.0–M2.14 complete; exit gates G1–G11 green on the cloud VM `icebreaker-phase2-vm`; full QB→PB→mcpd pipeline verified live. Pending PR merge of `feature/phase2-controller` → `main`. See §11 Closeout for per-gate evidence and side-discoveries.**
+>
+> _(Original planning status: complete after two scope rounds, 2026-06-05; implementation started at M2.0.)_
 
 Phase 1 (mcpd Rust daemon) merged to main. The 22-tool MCP surface, kernel sandbox (Landlock + Seccomp-BPF + COW gate), and append-only audit log are live and verified on Linux.
 
@@ -10,7 +12,7 @@ Phase 2 builds **the Central Controller** — the security keystone that mediate
 
 **Scope refinements from planning round 2 (also 2026-06-05):**
 
-1. **Pluggable QB backend** — Local Phi-4-mini (whitepaper-faithful, GBNF-guaranteed) is the default. **Anthropic** (Claude) and **Google** (Gemini) are first-class additional backends selectable at runtime. OpenAI deferred. The `BrainBackend` interface is designed so OAuth-based consumer subscriptions (Claude.ai, ChatGPT Plus) can drop in during Phase 5 without breaking existing code.
+1. **Pluggable QB backend** — a local llama.cpp model (GBNF-guaranteed) is the default — **Qwen 2.5 1.5B-Instruct** as of M2.5 (the initial Phi-4-mini choice was dropped on latency grounds). **Anthropic** (Claude) and **Google** (Gemini) are first-class additional backends selectable at runtime. OpenAI deferred. The `BrainBackend` interface is designed so OAuth-based consumer subscriptions (Claude.ai, ChatGPT Plus) can drop in during Phase 5 without breaking existing code.
 2. **PB stays local** — fine-tuned Qwen 2.5 Coder 1.5B (`models/run7_cot_q4km.gguf`), GBNF-constrained. Non-negotiable: PB has tool access, so giving it network egress to an API provider defeats the on-device safety guarantee.
 3. **Dev + verification on the GCP VM only** — skip M4 iteration. All Phase 2 code runs against the real Linux mcpd binary throughout.
 4. **Multi-turn REPL is V1** — `python -m controller --repl` is a hard requirement. Single-shot CLI (`python -m controller "<one>"`) is the special case of a one-intent session that auto-exits.
@@ -42,9 +44,9 @@ Phase 2 builds **the Central Controller** — the security keystone that mediate
 - HITL terminal gate (`hitl.py`)
 - system prompts for QB (per-backend variants) and PB
 - start scripts for the PB llama-server (mandatory) and the local QB llama-server (optional, only if `qb.backend = "local"`)
-- a downloaded local QB model (`models/Phi-4-mini-instruct-Q4_K_M.gguf`) — only if local backend chosen
+- a downloaded local QB model (`models/qwen2.5-1.5b-instruct-q4_k_m.gguf`, the M2.5 default) — only if local backend chosen
 
-**Platform constraint:** All Phase 2 dev and verification on the GCP VM (Debian 12, kernel 6.1). Python 3.10+ from the system; brains on llama-server (local backend) or HTTPS to provider APIs (Anthropic / Google). mcpd integration tests use the real Linux mcpd binary built in Phase 1.
+**Platform constraint:** All Phase 2 dev and verification on a GCP Linux VM (as-built: Ubuntu 24.04 LTS, kernel 6.8 — the original plan targeted Debian 12 / kernel 6.1). Python 3.10+ from the system; brains on llama-server (local backend) or HTTPS to provider APIs (Anthropic / Google). mcpd integration tests use the real Linux mcpd binary built in Phase 1.
 
 **What is NOT in scope for Phase 2 (preserved untouched):**
 - `shell/pb_*` — the V1 shell trigger that pipes natural language → bash via PB directly. Separate code path. Different audit log (`~/.pb_audit.jsonl`). Coexists.
@@ -103,12 +105,12 @@ The 22 tools mcpd ships, with their Phase 2 tier classification. **`risk_classif
 
 ## §4 — Milestones M2.0 → M2.14
 
-Ordered after Plan agent review and scope-round 2. Each milestone unlocks the next. All work happens on the GCP VM (`instance-20260528-030421`, us-central1-a) via SSH.
+Ordered after Plan agent review and scope-round 2. Each milestone unlocks the next. All work happens on a GCP Linux VM via SSH (originally `instance-20260528-030421`/us-central1-a; that VM was retired and closeout migrated to `icebreaker-phase2-vm`/us-west4-b — see §11).
 
 ### M2.0 — VM pre-flight + skeleton fixes (1 day)
 **Files:** `dual-brain/controller/risk_classifier.py`, `dual-brain/controller/intent_store.py`, `scripts/export_mcpd_catalogue.py` (new), `requirements.txt` (new)
 **Actions:**
-- Sanity-check VM Python (≥3.10), install `pip install jsonschema hypothesis pytest requests anthropic google-genai` into a project venv.
+- Sanity-check VM Python (≥3.10), install `pip install jsonschema hypothesis pytest requests anthropic google-generativeai` into a project venv.
 - Write `scripts/export_mcpd_catalogue.py` that reads `src/mcpd/src/schema.rs` (or runs `mcpd` with `tools/list`) and emits the canonical tool lists.
 - Regenerate `_TIER0_TOOLS`, `_DESTRUCTIVE_TOOLS`, `_SYSTEM_WRITE_TOOLS` in `risk_classifier.py` from the exporter output. Drop the drifted entries.
 - Widen `intent_store.revise()` lock — entire critical section under `self._lock`, not just the inner calls. Add concurrent test.
@@ -150,13 +152,13 @@ Ordered after Plan agent review and scope-round 2. Each milestone unlocks the ne
 **Acceptance:** registry round-trip works; `LocalBackend` health-probes at startup; live VM smoke runs 10-intent corpus + a model-swap test (proves plug-and-play); audit rows show `backend="local"`, `cost_usd=null`, `model=<display_name>`.
 
 ### M2.6 — `AnthropicBackend` (2 days)
-**Files:** `dual-brain/controller/backends/anthropic.py` (new), `dual-brain/controller/tests/test_anthropic_backend.py` (new)
+**Files:** `dual-brain/controller/backends/anthropic_backend.py` (new), `dual-brain/controller/tests/test_anthropic_backend.py` (new)
 **Actions:** Anthropic Messages API via `anthropic` SDK. Uses **native JSON output mode** (`output_config.format = {"type": "json_schema", "schema": ...}`) — the provider's grammar-driven constrained decoding guarantees JSON shape server-side, without requiring `tool_use` (which would conflict with D17's outbound auditor blocklist). Our `transform_schema_for_provider` strips provider-unsupported keywords (`maxLength`, etc.) from the wire schema; the local `jsonschema` validator still enforces the full schema as the INV-2-pluggable safety floor. Model: `claude-haiku-4-5` (native JSON output requires Haiku 4.5+). API key from `ANTHROPIC_API_KEY` env var. Retry on schema failure up to 3 times. Cost estimate: track `input_tokens` + `output_tokens` * published rate.
 **Acceptance:** identical 20-corpus reference run as local backend produces identical tier classifications (G10 parity test); 0 schema bypass after retries; cost tracked in audit log.
 
 ### M2.7 — `GeminiBackend` (2 days)
-**Files:** `dual-brain/controller/backends/gemini.py` (new), `dual-brain/controller/tests/test_gemini_backend.py` (new)
-**Actions:** Google AI Studio Gemini API via `google-generativeai` SDK. Uses **structured output via `response_schema`** (Gemini's native JSON mode with schema constraint). Model: `gemini-2.0-flash` (very cheap, generous free tier). API key from `GEMINI_API_KEY` env var. Same retry-on-schema-failure shape as Anthropic backend.
+**Files:** `dual-brain/controller/backends/gemini_backend.py` (new), `dual-brain/controller/tests/test_gemini_backend.py` (new)
+**Actions:** Google AI Studio Gemini API via `google-generativeai` SDK. Uses **structured output via `response_schema`** (Gemini's native JSON mode with schema constraint). Model: `gemini-2.5-flash` (as-built; the planned `gemini-2.0-flash` was retired — see §11). API key from `GEMINI_API_KEY` env var. Same retry-on-schema-failure shape as Anthropic backend. **As-built note:** Gemini's `response_schema` is an OpenAPI subset — `transform_schema_for_provider` must strip JSON-Schema meta-keys (`$schema`/`$id`/`title`, `additionalProperties`, `pattern`) or the call fails; see §11.
 **Acceptance:** G10 parity holds across local + Anthropic + Gemini for the 20-corpus reference; 0 schema bypass after retries.
 
 ### M2.8 — `qb_intent.gbnf` + parity testing (2 days)
@@ -223,9 +225,9 @@ Ordered after Plan agent review and scope-round 2. Each milestone unlocks the ne
 | Decision | Choice | Rationale |
 |---|---|---|
 | Language | Python | Skeleton is Python; latency budget allows it (brain inference dominates); fastest path to working orchestration |
-| Dev + test target | **Linux VM only** (`instance-20260528-030421`, us-central1-a) | User-specified scope round 2. Matches production exactly; mcpd integration tests against real Linux Landlock + seccomp; avoids macOS-vs-Linux drift |
+| Dev + test target | **Linux VM only** (closeout on `icebreaker-phase2-vm`/us-west4-b; originally `instance-20260528-030421`/us-central1-a, retired — see §11) | User-specified scope round 2. Matches production exactly; mcpd integration tests against real Linux Landlock + seccomp; avoids macOS-vs-Linux drift |
 | Process model | Per-session: spawn mcpd subprocess at REPL start, kill at REPL exit. Long-lived llama-server (PB always; local QB if configured). Single-shot is a one-turn session. | Daemon mode (systemd / socket perms) is Phase 5; cold-mcpd ~50 ms amortises across all session turns; blast radius bounded per session |
-| **QB backend** | **Pluggable**: `local` (Phi-4-mini via llama.cpp + GBNF), `anthropic` (Claude Haiku 4.5 via Messages API + native JSON output `output_config.format`), `gemini` (Gemini 2.0 Flash via `response_schema`). Runtime-selectable via `~/.config/icebreaker/controller.toml` + `--backend` CLI flag. | User-specified scope round 2. Local default preserves whitepaper guarantees; API backends enable better quality / lower setup friction. `BrainBackend` interface is designed so OAuth backends (Claude.ai, ChatGPT Plus) drop in for Phase 5 |
+| **QB backend** | **Pluggable**: `local` (Qwen 2.5 1.5B-Instruct via llama.cpp + GBNF — Phi-4-mini was the initial choice, changed in M2.5), `anthropic` (Claude Haiku 4.5 via Messages API + native JSON output `output_config.format`), `gemini` (Gemini 2.5 Flash via `response_schema`). Runtime-selectable via `~/.config/icebreaker/controller.toml` + `--backend` CLI flag. | User-specified scope round 2. Local default preserves whitepaper guarantees; API backends enable better quality / lower setup friction. `BrainBackend` interface is designed so OAuth backends (Claude.ai, ChatGPT Plus) drop in for Phase 5 |
 | QB safety floor per backend | Local → GBNF makes invalid output near-impossible. API → mandatory `jsonschema` validation + retry-on-malformed up to 3 attempts (INV-2-pluggable) | GBNF is local-only. APIs guarantee output-shape via their native JSON output features (Anthropic `output_config.format`, Gemini `response_schema`) but their providers can still emit drift; retry loop is the safety floor |
 | PB backend | **Local fine-tuned Qwen 2.5 Coder 1.5B** (`models/run7_cot_q4km.gguf`), `mcp_tool_call.gbnf` constrained, llama-server port 8080. **Non-negotiable.** | PB has tool access. Sending an API provider every mcpd call + result violates the on-device safety guarantee — the whole reason for two brains disappears. Locked. |
 | Brain transport (local) | llama-server HTTP `/v1/chat/completions`, grammar-file pass-through | OpenAI-compatible client lib (`requests` or `openai` Python SDK) |
@@ -275,7 +277,7 @@ Ordered after Plan agent review and scope-round 2. Each milestone unlocks the ne
 
 **API access (optional, only for the corresponding backend):**
 - Anthropic API key in `ANTHROPIC_API_KEY` env var. Default model `claude-haiku-4-5` (required for native JSON output mode). ~$1 / 1M input tokens, $5 / 1M output tokens (confirm against published rates at deploy time)
-- Google Gemini API key in `GEMINI_API_KEY` env var. Default model `gemini-2.0-flash`. Free tier covers ~1,500 requests/day for dev
+- Google Gemini API key in `GEMINI_API_KEY` env var. Default model `gemini-2.5-flash` (as-built; `gemini-2.0-flash` was retired). Free tier covers ~1,500 requests/day for dev
 
 **mcpd binary:** `src/mcpd/target/release/mcpd` — built and tested in Phase 1, present on VM.
 
@@ -294,9 +296,9 @@ Ordered after Plan agent review and scope-round 2. Each milestone unlocks the ne
 | `dual-brain/controller/config.py` | New | M2.4 |
 | `dual-brain/controller/backends/__init__.py` | New | M2.4 |
 | `dual-brain/controller/backends/base.py` | New | M2.4 |
-| `dual-brain/controller/backends/llama_local.py` | New | M2.5 |
-| `dual-brain/controller/backends/anthropic.py` | New | M2.6 |
-| `dual-brain/controller/backends/gemini.py` | New | M2.7 |
+| `dual-brain/controller/backends/llama_local_backend.py` | New | M2.5 |
+| `dual-brain/controller/backends/anthropic_backend.py` | New | M2.6 |
+| `dual-brain/controller/backends/gemini_backend.py` | New | M2.7 |
 | `dual-brain/controller/grammars/qb_intent.gbnf` | New | M2.8 |
 | `dual-brain/controller/hitl.py` | New | M2.9 |
 | `dual-brain/controller/prompts/qb_local.txt` | New | M2.10 |
@@ -315,8 +317,8 @@ Ordered after Plan agent review and scope-round 2. Each milestone unlocks the ne
 | `scripts/start_qb_local.sh` | New | M2.5 |
 | `requirements.txt` | New | M2.0 |
 | `~/.config/icebreaker/controller.toml.example` | New | M2.4 |
-| `models/Phi-4-mini-instruct-Q4_K_M.gguf` | New (downloaded by start_qb_local.sh if absent) | M2.5 |
-| `docs/phase2/phase2_roadmap.md` | This file | planning |
+| `models/qwen2.5-1.5b-instruct-q4_k_m.gguf` | New (default local QB, registry-installed; M2.5 dropped Phi-4-mini as default) | M2.5 |
+| `docs/phase2/phase2_roadmap_CLOSED_2026-06-11.md` | This file (renamed on closure) | planning |
 | `docs/phase2/2026-06-05_plan_summary.md` | New (layman summary) | planning |
 | `docs/phase2/findings.md` | New (research surface) | planning |
 | `shell/pb_*` | **Do not modify** (V1 preserved) | — |
@@ -325,7 +327,7 @@ Ordered after Plan agent review and scope-round 2. Each milestone unlocks the ne
 
 ## §8 — Verification
 
-After M2.14, on the GCP VM (`instance-20260528-030421`):
+After M2.14, on the GCP VM (`icebreaker-phase2-vm`, us-west4-b — see §11):
 
 ```bash
 # 1. Bring up PB llama-server (one-time, leave running)
@@ -423,7 +425,74 @@ tail -4 ~/.local/state/icebreaker/controller-audit.log | jq '.session_id, .backe
 
 ## §11 — Closeout
 
-*Reserved. Will be filled at the end of Phase 2 with per-gate evidence, the three side-discoveries from canonical Linux verification (mirroring Phase 1 closeout), and the five commits that closed the phase.*
+**Phase 2 closed 2026-06-11.** All eleven exit gates green; the full Quarantined-Brain →
+Privileged-Brain → mcpd-dispatch pipeline verified end-to-end on the cloud VM. Code on
+`feature/phase2-controller` (HEAD `ef610bd`); pending PR merge to `main`.
+
+### Verification environment (deviation from plan)
+
+The original dev VM `instance-20260528-030421` (us-central1-a) was retired. Closeout ran on a
+fresh VM **`icebreaker-phase2-vm`** (us-west4-b, `n1-standard-4` + NVIDIA T4, Ubuntu 24.04 LTS).
+Config under test: **QB = Google Gemini `gemini-2.5-flash` (cloud); PB = local fine-tuned
+`run7_cot_q4km.gguf`** served by a CPU `llama-server` on :8080. mcpd built on the VM
+(`cargo build --release`, no `fs-test-roots`), binary at `~/src/mcpd/target/release/mcpd`.
+A gitignored `dual-brain/scripts/deploy.env` carries the VM target + `GEMINI_API_KEY`.
+
+### Per-gate evidence (`controller/ci.sh`, 2026-06-11)
+
+| Gate | Result |
+|---|---|
+| G1 | ✅ 742 passed |
+| G2 | ✅ catalogue parity — mcpd advertises 22 tools, classifier in sync |
+| G3 / G4 | ✅ QB has zero MCP attachment; PB receives UUID-only |
+| G5 | ✅ 252 schema/fuzz tests, 0 false accepts |
+| G6 | ✅ 0/75 adversarial payloads caused unintended dispatch |
+| G7 | ✅ audit-log provenance (56 tests) |
+| G8 | ✅ HITL sleep-before-select 3 s lockout |
+| G9 | ⚠ **N/A in the cloud-QB config** — no local QB llama-server, so the local-latency gate does not apply. Budget unchanged for a future local-QB run (p95 < 2000 ms consumer-CPU tier). |
+| G10 | ✅ backend parity (mocked SDKs) |
+| G11 | ✅ multi-turn INV-2-extended isolation |
+
+### Live end-to-end (beyond the mocked gates)
+
+The gate suite mocks the providers, so a **live Gemini smoke test** was added. Real single-shot
+round-trips executed the whole pipeline against the live API + local PB + sandboxed mcpd:
+- `"what is the system status"` → `system.status` → mcpd → live load averages + memory.
+- `"show system uptime"` → `system.uptime` → real uptime.
+- `"show disk usage"` → `system.disk` with PB-hallucinated params → **mcpd's INV-4 schema
+  validation correctly rejected it** (the safety boundary working as designed, not a bug).
+
+### Three side-discoveries from live verification (mirrors the Phase 1 closeout pattern)
+
+Every mocked gate passed, but live execution exposed three real bugs the mocks structurally
+could not catch — all fixed, each with a regression guard:
+
+1. **Gemini schema-transform** — `transform_schema_for_provider` left JSON-Schema meta-keys
+   (`$schema`/`$id`/`title`, plus `additionalProperties`/`pattern`) in the wire schema, which
+   Gemini's `response_schema` OpenAPI-subset rejects (`Unknown field for Schema: $schema`).
+   Added `_PROVIDER_STRIP_META` + `_GEMINI_ONLY_STRIP_KEYS` (Gemini-only, so Anthropic keeps full
+   strictness); hardened `test_schema_transform.py` to fail in CI, not only on a live call.
+2. **Retired model** — the shipped default `gemini-2.0-flash` 404'd; bumped to `gemini-2.5-flash`.
+3. **CLI mcpd wiring** — `__main__.py` built `McpdClient(path)` positionally instead of
+   `McpdClient.spawn(...)`, so the single-shot/REPL entry point had never actually run end-to-end.
+   Fixed to use the factory + close on teardown.
+
+### The five commits that closed the phase
+
+```
+80ae9fd  fix(backends): strip Gemini-unsupported schema keywords from response_schema
+cec196b  fix(cli): build mcpd client via McpdClient.spawn(), not the bare constructor
+a8a2180  fix(config): default Gemini QB model gemini-2.0-flash -> gemini-2.5-flash
+7330a88  feat(deploy): add deploy.env config layer for VM target + API keys
+ef610bd  docs: reconcile implementation_plan.md with actual phase status
+```
+
+### Remaining to officially close
+
+- Open PR `feature/phase2-controller` → `main` and merge (deferred by user request).
+- Optional: install the T4 driver + a CUDA `llama.cpp` for GPU PB inference (CPU was sufficient
+  for verification).
+- Optional: a full local-QB run to exercise G9 latency (N/A under the cloud-QB config used here).
 
 ---
 
