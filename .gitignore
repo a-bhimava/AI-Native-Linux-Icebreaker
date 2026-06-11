@@ -7,6 +7,10 @@ __pycache__/
 venv/
 .env
 
+# Deploy/secrets config — live VM details + API keys (template .example is tracked)
+dual-brain/scripts/deploy.env
+secrets.env
+
 # HuggingFace model cache (large binary files)
 privileged-brain/training/adapters/
 privileged-brain/data/raw/
