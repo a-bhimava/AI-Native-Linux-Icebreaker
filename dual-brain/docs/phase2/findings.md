@@ -1,5 +1,7 @@
 # Phase 2 — Research findings
 
+> **Status (June 2026): Phase 2 is COMPLETE.** This is the original 2026-06-05 research snapshot, kept for history. See `phase2_roadmap_CLOSED_2026-06-11.md` for the closeout.
+
 *What three Explore agents (whitepaper / implementation_plan+ARCHITECTURE+V1_ROADMAP / skeleton+grammars+training) and one Plan agent surfaced during the 2026-06-05 planning round.*
 
 ---

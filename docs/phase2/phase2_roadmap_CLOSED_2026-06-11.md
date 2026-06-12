@@ -2,7 +2,7 @@
 
 ## §1 — Context & Status
 
-> **Status: ✅ CLOSED 2026-06-11 — all milestones M2.0–M2.14 complete; exit gates G1–G11 green on the cloud VM `icebreaker-phase2-vm`; full QB→PB→mcpd pipeline verified live. Pending PR merge of `feature/phase2-controller` → `main`. See §11 Closeout for per-gate evidence and side-discoveries.**
+> **Status: ✅ CLOSED & MERGED — all milestones M2.0–M2.14 complete; exit gates G1–G11 green on the cloud VM `icebreaker-phase2-vm`; full QB→PB→mcpd pipeline verified live; merged to `main` (PRs #3/#4 + closeout #5). See §11 Closeout for per-gate evidence and side-discoveries.**
 >
 > _(Original planning status: complete after two scope rounds, 2026-06-05; implementation started at M2.0.)_
 
@@ -427,7 +427,7 @@ tail -4 ~/.local/state/icebreaker/controller-audit.log | jq '.session_id, .backe
 
 **Phase 2 closed 2026-06-11.** All eleven exit gates green; the full Quarantined-Brain →
 Privileged-Brain → mcpd-dispatch pipeline verified end-to-end on the cloud VM. Code on
-`feature/phase2-controller` (HEAD `ef610bd`); pending PR merge to `main`.
+`feature/phase2-controller` (HEAD `ef610bd`); merged to `main` (PRs #3/#4 + closeout #5).
 
 ### Verification environment (deviation from plan)
 

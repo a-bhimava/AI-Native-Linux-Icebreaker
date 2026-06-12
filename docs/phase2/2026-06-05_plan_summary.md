@@ -1,5 +1,7 @@
 # Phase 2 — Plan summary (laymans terms)
 
+> **Status (June 2026): Phase 2 is COMPLETE.** This is the original 2026-06-05 planning summary, kept for history. See `phase2_roadmap_CLOSED_2026-06-11.md` for the closeout — M2.0–M2.14 built, `controller/ci.sh` G1–G11 green on the cloud VM, merged to `main`.
+
 *Date: 2026-06-05. Author: planning rounds 1 + 2 (same day). Format: plain English.*
 
 ---
