@@ -17,7 +17,7 @@ phase sections below describe the original plan. Mirrors the Phase Status table 
 | **Phase 0** — Environment & models | ✅ **Complete** | Models load, MCP handshake works |
 | **Phase 1** — mcpd (Rust daemon) | ✅ **Complete** | M1.0–M1.10; exit gates green on Linux |
 | **Phase 3** — Kernel sandboxing | ✅ **Complete (folded into Phase 1)** | Landlock / Seccomp-BPF / COW shipped *with* mcpd as M1.3 / M1.4 / M1.5 — not a separate phase; exit criteria (zero sandbox escapes, <10 ms overhead, atomic COW) met within Phase 1 on `main`. Heading kept below for whitepaper continuity. |
-| **Phase 2** — Dual-Brain Controller | ✅ **Complete (pending PR merge to `main`)** | M2.0–M2.14 on `feature/phase2-controller`; full gate suite `controller/ci.sh` **G1–G11 green** on the cloud VM `icebreaker-phase2-vm` (G9 N/A in the cloud-QB config). See close-out note below. |
+| **Phase 2** — Dual-Brain Controller | ✅ **Complete (merged to `main`)** | M2.0–M2.14 on `feature/phase2-controller`; full gate suite `controller/ci.sh` **G1–G11 green** on the cloud VM `icebreaker-phase2-vm` (G9 N/A in the cloud-QB config). See close-out note below. |
 | **Phase 4** — Fine-tune Privileged Brain | ✅ **Complete** | `run7_cot_q4km.gguf` (Qwen2.5-Coder-1.5B SFT) **finalized as the PB**: 100% adversarial refusal, 95.5% grammar-valid MCP, 940 MB, checksum recorded. A run8 continued-tune was evaluated and **rejected** (regressed safety). See Phase 4 close-out. |
 | **Phase 5** — UX + Graduated Determinism | ⬜ Not started | Tier 0–3 classifier already lives in the Controller (`risk_classifier.py`); UX/HITL polish remains |
 | **Phase 6** — ISO distribution | ⬜ Not started | |
@@ -230,7 +230,7 @@ Phase 3 kernel-sandboxing mechanisms (Landlock M1.3, Seccomp-BPF M1.4, COW M1.5)
 ---
 
 ### Phase 2 — Dual-Brain Controller
-**Status:** ✅ Complete, pending PR merge to `main` (M2.0–M2.14; `controller/ci.sh`
+**Status:** ✅ Complete, merged to `main` (M2.0–M2.14; `controller/ci.sh`
 G1–G11 green on the cloud VM — see § 0). Implemented as Python under
 `dual-brain/controller/` (not Rust). The Controller also already houses the Tier 0–3
 risk classifier nominally scoped to Phase 5.  

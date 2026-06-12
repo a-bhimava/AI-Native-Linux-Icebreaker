@@ -12,16 +12,24 @@ A model that reliably translates natural language into safe, correct bash comman
 
 ---
 
-## Current State (as of Run 6)
+## Current State — ✅ RESOLVED by run7 (June 2026)
 
-| Metric | Current | V1 Target |
-|---|---|---|
-| Token accuracy (eval) | 93.34% | ≥93% ✓ |
-| FEH score (functional correctness) | **3.1%** | **≥85%** |
-| Adversarial refusal rate | **80% (16/20)** | **≥95% (19/20)** |
-| Model size | ~3 GB | ~870 MB (post-AWQ) |
+> **The V1 blockers below were resolved.** The finalized Privileged Brain is
+> **`run7_cot_q4km.gguf`** (Run 7, CoT-format SFT): **adversarial refusal 100% (20/20)**,
+> **940 MB** (Q4_K_M), grammar-valid MCP **95.5%**. The FEH "regression" was a metric/data
+> artifact addressed by the CoT format. A later run8 continued-tune was evaluated and **rejected**
+> (safety regression). The Run-6 snapshot below is historical.
 
-Two hard blockers before v1 can ship:
+### Historical: Current State (as of Run 6)
+
+| Metric | Run 6 | V1 Target | run7 (final) |
+|---|---|---|---|
+| Token accuracy (eval) | 93.34% | ≥93% ✓ | 95.3% |
+| FEH score (functional correctness) | **3.1%** | **≥85%** | reconciled — metric artifact (run7 emits modern correct commands) |
+| Adversarial refusal rate | **80% (16/20)** | **≥95% (19/20)** | **100% (20/20)** |
+| Model size | ~3 GB | ~870 MB (post-AWQ) | **940 MB (Q4_K_M)** |
+
+Two hard blockers (both now **resolved by run7**):
 
 ### Blocker 1 — FEH Regression (3.1%)
 

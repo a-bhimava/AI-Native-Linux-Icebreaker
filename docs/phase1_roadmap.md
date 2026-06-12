@@ -1,9 +1,9 @@
 # Phase 1 Roadmap — mcpd (Rust MCP Daemon)
 
-> **Status:** ~45% complete. JSON-RPC router and read-only system/process tools are in. fs, network, service, package, sandbox, schema validation, and tests are still to do.
+> **Status:** ✅ **COMPLETE (June 2026).** All milestones M1.0–M1.10 shipped — fs/network/service/package tools, Landlock + Seccomp-BPF sandbox, COW, schema validation, audit log, and the full test suite; all exit gates green on Linux. (The original mid-build status is preserved in §1 below for history.)
 > **Owner:** Rust engineer(s)
-> **Estimated remaining effort:** ~24 working days (single engineer)
-> **Critical path:** This phase gates Phases 2 (Controller), 3 (Sandboxing), 5 (UX). Nothing else moves until this ships.
+> **Estimated remaining effort:** 0 — shipped.
+> **Critical path (now cleared):** This phase gated Phases 2 (Controller — also complete) and 3 (Sandboxing — delivered here as M1.3/M1.4/M1.5).
 
 ---
 
