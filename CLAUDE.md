@@ -52,8 +52,8 @@ Read both before making any architectural change.
 | Phase 0 | Complete | Env setup, models, MCP handshake |
 | Phase 1 | Complete | mcpd Rust daemon (M1.0–M1.10, all exit gates green on Linux) |
 | Phase 2 | Not started | Dual-Brain Controller |
-| Phase 3 | Folded into Phase 1 | Landlock + Seccomp-BPF + COW landed alongside the mcpd tools (M1.3 / M1.4 / M1.5); kept as a heading for whitepaper continuity |
-| Phase 4 | In progress | Fine-tuning pipeline (`privileged-brain/`) |
+| Phase 3 | Complete (folded into Phase 1) | Landlock + Seccomp-BPF + COW landed alongside the mcpd tools (M1.3 / M1.4 / M1.5); exit criteria met within Phase 1; kept as a heading for whitepaper continuity |
+| Phase 4 | Complete | PB finalized: `run7_cot_q4km.gguf` — 100% adversarial refusal, 95.5% grammar-valid MCP, 940 MB, checksummed. run8 continued-tune rejected (safety regression). Pipeline in `privileged-brain/` |
 | Phase 5 | Not started | UX + Graduated Determinism |
 | Phase 6 | Not started | ISO distribution |
 | Phase 7 | Not started | Hardening + release |
