@@ -203,6 +203,86 @@ Command::new("sh").arg("-c").arg(user_input) // ❌
 
 ---
 
+## Engineering Best Practices
+
+These are the standing engineering norms for this codebase. They sit alongside the
+Architectural Invariants (which are non-negotiable) and encode *how* we build so the
+invariants survive contact with real features. Follow them by default; deviate only with a
+documented reason and human sign-off.
+
+### BP-1: Plug-and-Play by Default
+Anything we expect to swap or upgrade — models, brain backends, the risk classifier, the
+Tier-2 reviewer, the HITL presenter, the audit sink, the keymap — goes through a **registry +
+config selector**, never a hardcoded branch. Follow the established pattern (`model_registry.py`
++ `catalogue.toml`, the `BrainBackend` registry, the `HitlPresenter` ABC). Adding a new
+implementation must not require editing call sites.
+
+### BP-2: Feature-Flag New Behavior, Default to the Safe/Current Path
+Every new behavior ships behind a flag (TOML knob, env var, or cargo feature) that defaults to
+**off / current behavior**, so it can roll forward and back independently. **Never gate a
+security check behind a flag** — flags may only *add* surface, never *remove* a check (see
+§ Test-Only Knobs). Config additions must be backward-compatible: an older config keeps working.
+
+### BP-3: Sanitize All Externally-Influenced Text Before a Terminal
+Any string derived from a model, a document, or user input is **untrusted display data**. Strip
+ANSI escapes and C0/C1 control characters and neutralize `\r`/`\n` before rendering it to a TTY
+or log. Raw model/document text rendered to a terminal is a prompt-spoofing vector (it can
+redraw an approval prompt). Sanitize at the boundary, not ad-hoc per call site.
+
+### BP-4: Human-Gate Integrity
+A human approval gate must reflect a **deliberate, present-tense** decision: flush the input
+buffer before reading (no pre-buffered/pasted bytes may decide), require a single intentional
+keypress, enforce the approval lockout on a monotonic clock (INV-6), default to **deny** on
+timeout / non-TTY / interrupt, and reserve an always-available deny key (Esc).
+
+### BP-5: Risk Classification Is Escalate-Only
+An ML/LLM/policy pass may **raise** an operation's risk tier; it may **never lower** the
+rule-based floor. Encode this as a runtime assertion, not a convention. A classifier that emits
+malformed or unexpected output must fail toward *more* oversight, never less.
+
+### BP-6: Security Decisions Use Structured Facts, Not Model Free-Text
+The fields a human (or gate) relies on to make a security decision — action, resolved target,
+dry-run diff — come from validated schema and the sandbox COW preview. Model-authored free-text
+(a "reason", a summary) may be shown as clearly-delimited narration but must never be the basis
+of the risk label or the decision.
+
+### BP-7: Audit Is Complete, Append-Only, and Tamper-Evident
+Record **every** intent including rejected/denied ones, with full provenance (INV-8). Open with
+O_APPEND, `fsync` each line, and hash-chain entries so edits/deletions are detectable. The audit
+log must never be writable by the AI models or their inference processes; prefer a
+privilege-separated sink for non-repudiation.
+
+### BP-8: Secret Hygiene End-to-End
+Config references secret **names** (env vars / credential handles), never values. Secrets never
+land in logs, audit lines, REPL history, or error messages — redact by key name, value pattern,
+**and** entropy. Scrub the environment of child processes (e.g. the `mcpd` subprocess inherits
+no API keys). Prefer systemd credentials / a keyring over plain env vars in deployment.
+
+### BP-9: Least Privilege & Defense in Depth
+Every layer assumes the layer above it failed: userspace `validate()` *and* kernel Landlock
+*and* seccomp *and* COW *and* the human gate. Never collapse two layers into one "because the
+other one already checks it." Grant the narrowest filesystem/syscall/network scope that works;
+widen only with documented justification.
+
+### BP-10: Resource Governance — Fail Safe, Never Silently Drop
+Bound untrusted input size, turn/request rate, and per-session cost. On limit breach or
+backend failure, **deny/abort + audit + surface to the user** — never silently swallow, and
+never let an injection or runaway loop become a cost/DoS amplifier.
+
+### BP-11: Configurable UX with Safe Defaults and Preserved Discoverability
+User-facing interaction (keybindings, color, presenter) is config-driven with sensible defaults
+(numeric + mnemonic keys). Customization must not cost discoverability — a help affordance
+(`?`) always shows the *active* bindings. Validate user config (no duplicate/ambiguous
+bindings; reserved keys stay reserved).
+
+### BP-12: Test the Boundary, Not the Happy Path
+Any two components that must agree (e.g. a GBNF grammar and a JSON schema) get a **differential
+test**. Every trust boundary gets an **adversarial corpus**. New security behavior adds a CI
+gate to `ci.sh` and, for security-critical files, a regression guard. Live integration catches
+what mocks cannot — add a smoke test against the real binary/provider before declaring done.
+
+---
+
 ## Agent Workflow Rules
 
 These rules apply to any AI coding agent (Claude Code, Codex, Gemini CLI, etc.) working on this codebase.
@@ -373,4 +453,4 @@ qemu-system-x86_64 -m 8G -boot d -cdrom ainative.iso -enable-kvm
 
 ---
 
-*Last updated: June 2026 (Phase 1 mcpd exit gates passed on Linux; `fs-test-roots` test-only feature added). Update this file whenever an architectural decision changes, a new invariant is established, or a phase gate passes.*
+*Last updated: June 2026 (Phase 2 Controller merged; Phase 5 planning — added the Engineering Best Practices section (BP-1…BP-12) and reconciled the Phase Status table). Update this file whenever an architectural decision changes, a new invariant is established, or a phase gate passes.*

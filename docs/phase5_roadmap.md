@@ -108,60 +108,334 @@ Phase-5 headline (graduated determinism with a snappy, configurable, spoof-proof
 
 ### M5.1 — Hardened, configurable, single-keypress HITL gate  *(security-critical; SF-1/2/3/4)*
 
-**Files:** `dual-brain/controller/hitl.py`, new `dual-brain/controller/keymap.py`, new
-`dual-brain/controller/trust_store.py`, `dual-brain/controller/config.py` (`[keymap]`, extend
-`HitlConfig`), `dual-brain/controller/main.py` (trust consult + `[M]` reclassify loop), tests.
+**Files:** `dual-brain/controller/hitl.py` (mod), new `dual-brain/controller/keymap.py`, new
+`dual-brain/controller/trust_store.py`, `dual-brain/controller/config.py` (+ `[keymap]`,
+extend `HitlConfig`), `dual-brain/controller/schemas/controller_config.json` (mod),
+`dual-brain/controller/main.py` (mod — trust consult + `[M]` reclassify loop), new tests
+`tests/test_keymap.py`, `tests/test_trust_store.py`, `tests/test_hitl_sanitize.py`,
+`tests/test_hitl_rawinput.py`, `tests/test_hitl_actions.py`, new corpora
+`tests/corpus/hitl_spoof.json`, `tests/corpus/lockout_bypass.json`.
 
-**Actions:**
-- **SF-1:** add `_sanitize_display(s)` — strip ANSI + C0/C1 control chars, neutralize
-  `\r`/`\n`, flag homoglyph/confusable runs — and apply it to **every** field in
-  `HitlDisplayData`, not just `cow_summary`.
-- **SF-2/3:** after `lockout()` completes, `termios.tcflush(sys.stdin, TCIFLUSH)`, then read a
-  **single raw keypress** (`tty.setcbreak`) instead of `readline()`. Preserve the non-TTY →
-  deny path and the `time.monotonic()` lockout enforcement (INV-6).
-- **Keymap-driven decisions:** map keypresses through the loaded `Keymap` (defaults `1/2/3` +
-  `a/r/m`...); `?` renders the active legend.
-- **Implement the deferred actions** (replace stubs at `hitl.py:125-127`): `[E]xplain` →
-  QB plain-language consequence via the `_qb_summarise` pattern, re-display, lockout re-applies;
-  `[M]odify` → edit `target`/`params` → `intent_store.revise()` → re-validate → **re-classify**
-  → fresh HITL on the revised intent.
-- **SF-4 — bounded session-trust (`[T]rust`):** `trust_store.py` records a per-session entry
-  keyed by `(action, target-prefix)`, **Tier ≤ 2 only (never Tier 3)**, audited, revocable;
-  `run_turn` consults it to skip a repeated Tier-2 prompt; `/trust list|revoke` manages it.
+#### M5.1a — `keymap.py` (new module)
 
-**Acceptance:** HITL-spoof corpus 0/N renders an escape; pre-buffered stdin during lockout is
-discarded; keymap overrides load and `?` shows them; `[E]/[M]/[T]` work; `[T]` cannot cover
-Tier 3; every decision (incl. trust grant/use) is audited.
+```python
+class Action(str, Enum):
+    APPROVE = "approve"; DENY = "deny"; MODIFY = "modify"
+    EXPLAIN = "explain"; TRUST = "trust"; HELP = "help"
+
+@dataclass(frozen=True)
+class Keymap:
+    bindings: Mapping[str, Action]          # single printable char -> Action
+    def resolve(self, key: str) -> Optional[Action]: ...
+    def keys_for(self, action: Action) -> tuple[str, ...]: ...
+    def legend(self) -> str:                # rendered by '?' and the HITL footer
+        ...
+
+DEFAULTS: dict[Action, tuple[str, ...]] = {
+    Action.APPROVE: ("1", "a", "y"), Action.DENY: ("2", "d", "n"),
+    Action.MODIFY:  ("3", "m"),      Action.EXPLAIN: ("4", "e"),
+    Action.TRUST:   ("5", "t"),      Action.HELP: ("?",),
+}
+
+def load_keymap(cfg: "KeymapConfig") -> Keymap:
+    # 1. start from DEFAULTS; 2. overlay user bindings from [keymap];
+    # 3. validate: each key is exactly one printable, non-control char;
+    #    no key bound to two Actions (raise BrainConfigError on collision);
+    #    DENY must retain at least one binding; ESC (\x1b) is reserved -> always DENY
+    #    and may not be remapped. Return frozen Keymap.
+```
+
+`Esc` is hard-reserved to DENY (cannot be remapped) so a hostile/incorrect keymap can never
+produce an un-exitable prompt (P5-F11).
+
+#### M5.1b — `hitl.py` hardening
+
+- **SF-1 — sanitize all rendered fields.** Add module function:
+  ```python
+  _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+  _CTRL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")  # C0/C1 minus \t, plus DEL
+  def _sanitize_display(s: str, *, max_len: int = 256) -> str:
+      s = _ANSI.sub("", s); s = _CTRL.sub("", s)
+      s = s.replace("\r", " ").replace("\n", " ")
+      return s[:max_len] + ("…" if len(s) > max_len else "")
+  ```
+  Apply in `HitlDisplayData` construction to **every** string field (`action`, `target`,
+  `reason`, `blocked_pattern`, `backend`) — not just `cow_summary`. Add an optional
+  `_confusable_warn(target)` that appends `⚠ contains non-ASCII/look-alike chars` when the
+  target mixes scripts (cheap `str.isascii()` + Unicode script check), so homoglyph paths are
+  surfaced rather than silently rendered.
+- **SF-2/3 — flush + single raw keypress.** Replace the line-reader. New presenter method:
+  ```python
+  def read_decision(self, keymap, timeout_seconds) -> Decision:
+      if not sys.stdin.isatty(): return Decision.NON_TTY
+      termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)   # discard pre-buffered bytes
+      with _cbreak(sys.stdin):                                # tty.setcbreak save/restore
+          deadline = time.monotonic() + timeout_seconds
+          while True:
+              remaining = deadline - time.monotonic()
+              if remaining <= 0: return Decision.TIMEOUT
+              r,_,_ = select.select([sys.stdin],[],[], min(remaining,1.0))
+              if not r: continue
+              ch = os.read(sys.stdin.fileno(), 1).decode("utf-8","ignore")
+              if ch == "\x1b": return Decision.DENIED          # ESC reserved
+              action = keymap.resolve(ch)
+              if action: return _action_to_decision(action)    # may be EXPLAIN/MODIFY/TRUST
+              # unknown key: re-render the footer legend, keep waiting
+  ```
+  The `tcflush` happens **after** `lockout()` returns, closing SF-2; the single `os.read(…,1)`
+  closes SF-3. INV-6 lockout enforcement in `HitlPrompt.ask()` (the `time.monotonic()` floor)
+  is unchanged.
+- **New decisions.** Extend `Decision` with `MODIFY`, `EXPLAIN`, `TRUST`. `EXPLAIN` loops back
+  into the same prompt after showing the explanation; `MODIFY`/`TRUST`/`APPROVE`/`DENY` are
+  terminal for `ask()`.
+- **Footer** rendered from `keymap.legend()` so it always reflects the active bindings.
+
+#### M5.1c — `trust_store.py` (new module, SF-4)
+
+```python
+@dataclass(frozen=True)
+class TrustGrant:
+    action: str; target_prefix: str; max_tier: int   # always <= 2
+    session_id: str; granted_at: float; expires_at: float
+
+class TrustStore:                       # in-memory, per-session; persistence OFF by default
+    def grant(self, intent, tier: int, session_id, ttl_s: int) -> TrustGrant:
+        if tier >= Tier.HIGH: raise ValueError("Tier 3 is never trustable")
+        ...                              # key = (action, realpath-prefix of target)
+    def is_trusted(self, intent, tier: int, session_id) -> bool:
+        if tier >= Tier.HIGH: return False   # hard floor — defense in depth
+        ...                              # match + not expired + same session
+    def revoke(self, index_or_key) -> None: ...
+    def list(self, session_id) -> list[TrustGrant]: ...
+```
+
+Hard rule encoded in **two** places (`grant` raises, `is_trusted` returns False) so a Tier-3
+op can never be auto-approved even if a grant were forged. Grant and each trusted-skip are
+audited with a distinct outcome (`TRUST_GRANTED` / `TRUST_APPLIED`).
+
+#### M5.1d — `main.py` wiring
+
+- After **Step 3 (classify)**, before Step 4: if `cls.tier == Tier.MEDIUM` and
+  `trust_store.is_trusted(intent, tier, session_id)` → skip the notification prompt, audit
+  `TRUST_APPLIED`, proceed.
+- **Step 4 (HITL)** now receives the `Keymap`; on `Decision.TRUST` → `trust_store.grant(...)`
+  then proceed; on `Decision.MODIFY` → call `intent_store.revise(intent_id, edits)` →
+  `intent_schema.validate` → `classify` again → re-enter the gate (bounded loop, max 3
+  modify-cycles, then deny); on `Decision.EXPLAIN` handled inside `ask()`.
+- New helper `_qb_explain(intent, cls)` → one `BrainBackend.complete()` with a "explain the
+  consequence of this action in 2-3 plain sentences" system prompt (schema
+  `{explanation: str}`); reuses the `_qb_summarise` plumbing.
+
+#### M5.1 config additions
+
+```toml
+[hitl]
+lockout_seconds = 3        # INV-6 (unchanged default)
+timeout_seconds = 30
+presenter = "terminal"
+trust_ttl_seconds = 1800   # session-trust lifetime; 0 disables [T]rust entirely
+
+[keymap]                   # all optional; defaults shown in §3
+approve = ["1","a","y"]
+deny    = ["2","d","n"]
+modify  = ["3","m"]
+explain = ["4","e"]
+trust   = ["5","t"]
+```
+
+#### M5.1 test plan
+
+| Test | Asserts |
+|---|---|
+| `test_hitl_sanitize.py` | every field in a 30-payload spoof corpus (ANSI cursor moves, `\r` overwrite, fake `✓ Approved`, newline injection) renders with zero escape bytes; `_render` output passes a `no-control-char` assertion |
+| `test_hitl_rawinput.py` | bytes written to a PTY *during* the lockout are flushed and ignored; only a keypress *after* the flush decides; ESC → DENY; timeout → TIMEOUT; non-TTY → NON_TTY |
+| `test_keymap.py` | defaults load; user overlay applies; duplicate-key collision raises; multi-char/control-char binding rejected; ESC cannot be remapped; `legend()` lists active keys |
+| `test_trust_store.py` | grant for Tier ≤ 2 works; `grant`/`is_trusted` both refuse Tier 3; expiry honored; wrong-session miss; revoke removes |
+| `test_hitl_actions.py` | `[E]` shows explanation and re-prompts; `[M]` → revise→reclassify→re-gate; modify-loop cap enforced; all outcomes audited |
+
+**Acceptance / G5.1–G5.4:** spoof corpus 0/N escapes; pre-buffered stdin discarded; keymap
+overrides load and `?`/footer show them; `[E]/[M]/[T]` work; `[T]` provably cannot cover
+Tier 3; trust grant + every trusted-skip + every decision is in the audit log.
 
 ### M5.2 — Tier 2 LLM review pass, escalate-only  *(the Graduated-Determinism headline)*
 
 **Files:** new `dual-brain/controller/tier2_review.py`, `dual-brain/controller/risk_classifier.py`
-(expose a pluggable `classifier`/`tier2` strategy registry — principle #2),
-`dual-brain/controller/main.py` (insert between step 3 classify and step 5 store),
-`config.py` (`[risk]`, `[tier2]`), tests.
+(mod — pluggable strategy registry), `dual-brain/controller/main.py` (mod — insert review
+between Step 3 and Step 5), `config.py` (+ `[risk]`, `[tier2]`),
+`dual-brain/controller/prompts/tier2_review.txt` (new), new tests `tests/test_tier2_review.py`,
+`tests/test_classifier_registry.py`, corpus `tests/corpus/tier2_escalation.json`.
 
-**Actions:** a `BrainBackend.complete()` call with schema `{approved, escalate, reason}` that
-reviews **Tier-2** intents for scope-escalation / injection / unintended consequence; on
-`escalate` → route to the Tier-3 HITL gate; else proceed with the existing non-blocking
-notification. **Invariant: the review may only escalate 2→3 — it can never lower a rule-based
-tier.** Behind `[tier2] enabled` and `[tier2] strategy` (default `"llm"`). Decision audited.
+#### M5.2a — pluggable classifier registry (`risk_classifier.py`)
 
-**Acceptance:** flagged medium-risk ops escalate to HITL; Tier 0/1/3 rule-based classification
-is unchanged (parity on the existing tier corpus); the reviewer is swappable via config.
+Keep the existing `classify()` as the default `"rules"` strategy; add a thin registry so the
+algorithm is swappable (principle #2) without touching `main.py`:
+
+```python
+Classifier = Callable[[dict], ClassificationResult]
+_REGISTRY: dict[str, Classifier] = {"rules": classify}
+def register_classifier(name: str, fn: Classifier) -> None: ...
+def get_classifier(name: str) -> Classifier:           # "rules" (default) | "ml" | "policy"
+    return _REGISTRY[name]
+```
+
+#### M5.2b — `tier2_review.py` (new module)
+
+```python
+TIER2_SCHEMA = {                       # forced JSON shape for every reviewer backend
+  "type":"object","additionalProperties":False,
+  "required":["escalate","reason"],
+  "properties":{"escalate":{"type":"boolean"},
+                "reason":{"type":"string","maxLength":300}}}
+
+@dataclass(frozen=True)
+class Tier2Decision: escalate: bool; reason: str
+
+class Tier2Reviewer(ABC):
+    @abstractmethod
+    def review(self, intent: dict, cls: ClassificationResult) -> Tier2Decision: ...
+
+class LlmTier2Reviewer(Tier2Reviewer):           # default strategy="llm"
+    def __init__(self, qb_backend, prompt_loader): ...
+    def review(self, intent, cls):
+        # structured-only: send action/target/params/reason fields, NEVER raw user text
+        resp = self._qb.complete(system=self._prompt, user=json.dumps({...}),
+                                 schema=TIER2_SCHEMA, max_retries=2)
+        return Tier2Decision(bool(resp.content_json["escalate"]),
+                             resp.content_json["reason"])
+
+class RuleTier2Reviewer(Tier2Reviewer): ...      # strategy="rule" — deterministic offline
+_REVIEWERS = {"llm": LlmTier2Reviewer, "rule": RuleTier2Reviewer}
+def get_reviewer(strategy, **deps) -> Tier2Reviewer: ...
+```
+
+The reviewer receives **only structured intent fields** (action/target/params/reason), never
+the raw user message — INV-1/INV-2 hold; the reviewer is a QB-side check, not a PB input.
+
+#### M5.2c — `main.py` wiring + the escalate-only invariant
+
+Between Step 3 (classify) and Step 5 (store):
+
+```python
+if cls.tier == Tier.MEDIUM and self._cfg.tier2.enabled:
+    decision = self._tier2.review(intent, cls)
+    if decision.escalate:
+        cls = replace(cls, tier=Tier.HIGH,            # ONLY upward
+                      reason=f"Tier-2 review escalated: {decision.reason}")
+    # else: tier stays MEDIUM (existing notify path)
+assert cls.tier >= original_tier   # hard guard: review can never lower a rule-based tier
+```
+
+The `assert cls.tier >= original_tier` makes the escalate-only rule a runtime invariant, not
+just a convention. A reviewer that returns malformed/garbage output (caught by `TIER2_SCHEMA`
++ retry) fails safe → no escalation change, op stays at its rule-based tier.
+
+#### M5.2 config
+
+```toml
+[risk]
+strategy = "rules"        # pluggable classifier algorithm; default rule-based
+[tier2]
+enabled = true
+strategy = "llm"          # "llm" (default) | "rule" | "external"
+max_retries = 2
+```
+
+#### M5.2 test plan
+
+| Test | Asserts |
+|---|---|
+| `test_tier2_review.py` | escalating decision routes a Tier-2 intent into the HITL gate; non-escalating proceeds to notify; malformed reviewer output fails safe (no change); reviewer sees no raw user text |
+| `test_classifier_registry.py` | `"rules"` default resolves; a registered mock strategy swaps in; unknown strategy raises |
+| escalate-only parity | the existing Tier corpus reclassified with `[tier2] enabled` yields **identical** Tier 0/1/3 results; only some Tier-2 entries move to Tier 3, never the reverse |
+
+**Acceptance / G5.5:** flagged medium-risk ops escalate to HITL; Tier 0/1/3 rule-based output
+unchanged; `assert` guard holds under fuzzed reviewer output; reviewer swappable via config.
 
 ### M5.3 — Tamper-evident audit + stronger redaction  *(security-critical; SF-5/6)*
 
-**Files:** `dual-brain/controller/audit.py` (+ a `--verify` CLI), `config.py` (`[audit]`), tests.
+**Files:** `dual-brain/controller/audit.py` (mod), new `dual-brain/controller/__main__`-style
+`python -m controller.audit --verify` entry, `config.py` (+ `[audit]`), new tests
+`tests/test_audit_chain.py`, `tests/test_audit_redaction.py`.
 
-**Actions:** add `prev_hash` (SHA-256 chain over the canonical serialized line) and a
-`verify_chain()` checker + CLI; make the sink pluggable (`[audit] sink`, file default;
-journald / root-owned system-appender documented for daemon mode so the AI/user can append but
-not rewrite); strengthen redaction with entropy heuristics + per-tool field allowlists; never
-log raw `target` for credential-class tools. Preserve O_APPEND + per-line `fsync` + 0o640 +
-INV-8.
+#### M5.3a — hash chain (SF-5)
 
-**Acceptance:** any edit/deletion of a past line is detected by `verify_chain()`; the
-strengthened-redaction corpus shows zero secrets on disk; INV-8 still holds.
+Each line gains two fields appended to the canonical entry (kept last so existing readers
+ignore them gracefully):
+
+```
+seq        int   monotonic per-log counter, starts 0
+prev_hash  str   hex SHA-256 of the *previous* line's canonical bytes ("GENESIS" for seq 0)
+```
+
+`AuditLog` changes:
+- on `_open()`, read the tail line (if any) to recover `(_last_seq, _last_hash)`; on a fresh
+  file start at `seq=0, prev_hash="GENESIS"`.
+- in `write()`, under the existing `self._lock`: set `seq`/`prev_hash`, serialize canonically
+  (`json.dumps(..., sort_keys=True, separators=(",",":"))`), `os.write` + `os.fsync` (INV-8
+  unchanged), then update `_last_hash = sha256(line_bytes)` and `_last_seq += 1`.
+- new classmethod:
+  ```python
+  @staticmethod
+  def verify_chain(path) -> tuple[bool, Optional[int]]:
+      # recompute prev_hash for every line; return (ok, first_bad_seq_or_None).
+      # detects edits (hash mismatch), deletions/reordering (seq gap), truncation.
+  ```
+- CLI: `python -m controller.audit --verify [path]` prints OK or the first bad seq and exits
+  non-zero (wired into `ci.sh`).
+
+Note in §Cross-Cutting: the chain detects tampering but a same-uid attacker who recomputes the
+whole chain could still rewrite history — full non-repudiation needs the **root-owned
+system-appender** sink (below / daemon mode), where the unprivileged session can append but
+not rewrite. The hash chain is the in-scope P0 floor; the system sink is the P2 ceiling.
+
+#### M5.3b — redaction hardening (SF-6)
+
+- Extend `_redact_params` with an entropy gate:
+  ```python
+  def _high_entropy(s: str, *, min_len=20, bits=3.5) -> bool: ...  # Shannon bits/char
+  ```
+  redact any string value that is long + high-entropy even when key/prefix look innocuous.
+- Per-tool field allowlist — only known-safe fields are logged verbatim for sensitive tools:
+  ```python
+  _TOOL_FIELD_ALLOWLIST = {            # tool -> fields safe to log raw; others -> <REDACTED>
+      "fs.write": {"path"},            # never log 'content'
+      "package.install": {"name"},
+      ...
+  }
+  ```
+- For credential-class tools, redact `target` too (not only `params`).
+
+#### M5.3c — pluggable sink
+
+```python
+class AuditSink(ABC):
+    @abstractmethod
+    def write_line(self, data: bytes) -> None: ...
+class FileSink(AuditSink): ...           # current behavior — O_APPEND|fsync|0o640 (default)
+class JournaldSink(AuditSink): ...       # forwards to systemd-journald (daemon)
+class SystemAppenderSink(AuditSink): ... # root-owned setgid appender (P2, non-repudiation)
+```
+Selected by `[audit] sink = "file"` (default). `FileSink` preserves every current INV-8
+property; the chain logic lives above the sink so all sinks inherit tamper-evidence.
+
+#### M5.3 config
+
+```toml
+[audit]
+sink = "file"                  # "file" (default) | "journald" | "system-appender"
+path = "~/.local/state/icebreaker/controller-audit.log"
+redact_entropy_bits = 3.5
+```
+
+#### M5.3 test plan
+
+| Test | Asserts |
+|---|---|
+| `test_audit_chain.py` | `verify_chain` OK on an untouched log; flags the exact `seq` after an edited line, a deleted line (seq gap), reordering, and truncation; genesis handled; tail-recovery across reopen continues the chain |
+| `test_audit_redaction.py` | high-entropy unprefixed secret redacted; `fs.write` `content` never logged; credential-tool `target` redacted; non-secret fields preserved; existing M2.3 redaction corpus still passes |
+
+**Acceptance / G5.6:** any edit/deletion of a prior line is detected; strengthened-redaction
+corpus shows zero secrets on disk; INV-8 (O_APPEND, fsync, 0o640, not model-writable) intact.
 
 ### P0 exit gates (Phase-5 wave-1 definition-of-done)
 
@@ -291,6 +565,84 @@ strengthened-redaction corpus shows zero secrets on disk; INV-8 still holds.
 - `dual-brain/controller/config.py` (`SecretRef`, `[hitl] presenter` seam, secret-key rejection)
 - `dual-brain/controller/risk_classifier.py`, `main.py`, `intent_store.py`, `repl.py`
 - `CLAUDE.md` § INV-1…INV-8, § Test-Only Knobs (feature-flag pattern)
+
+---
+
+## §12 — Implementation Appendix
+
+### Consolidated additive `controller.toml` (Phase 5 sections)
+
+All sections are optional and default to current behavior when absent — so an existing
+Phase-2 config keeps working, and each feature is independently flag-gated.
+
+```toml
+[hitl]
+lockout_seconds   = 3          # INV-6 (unchanged)
+timeout_seconds   = 30
+presenter         = "terminal" # "terminal" | "gtk" | "web"  (P2)
+trust_ttl_seconds = 1800       # session-trust lifetime; 0 disables [T]rust
+
+[keymap]                       # raw single-keypress; Esc=deny reserved
+approve = ["1","a","y"]
+deny    = ["2","d","n"]
+modify  = ["3","m"]
+explain = ["4","e"]
+trust   = ["5","t"]
+
+[risk]
+strategy = "rules"             # pluggable classifier; "rules" default
+
+[tier2]
+enabled  = true
+strategy = "llm"               # "llm" | "rule" | "external"
+max_retries = 2
+
+[audit]
+sink = "file"                  # "file" | "journald" | "system-appender" (P2)
+redact_entropy_bits = 3.5
+
+[cost]                         # P1
+session_ceiling_usd = 1.00     # 0 = no ceiling
+warn_fraction       = 0.8
+
+[limits]                       # P1
+max_input_chars   = 4000
+max_turns_per_min = 30
+```
+
+### New / modified module map (P0)
+
+| Module | New? | Public surface |
+|---|---|---|
+| `controller/keymap.py` | new | `Action`, `Keymap`, `load_keymap()`, `DEFAULTS` |
+| `controller/trust_store.py` | new | `TrustGrant`, `TrustStore.{grant,is_trusted,revoke,list}` |
+| `controller/tier2_review.py` | new | `Tier2Decision`, `Tier2Reviewer`, `get_reviewer()`, `TIER2_SCHEMA` |
+| `controller/hitl.py` | mod | `_sanitize_display`, raw-keypress `read_decision`, `Decision.{MODIFY,EXPLAIN,TRUST}` |
+| `controller/risk_classifier.py` | mod | `register_classifier`, `get_classifier` (default `"rules"`=`classify`) |
+| `controller/audit.py` | mod | `seq`/`prev_hash` chain, `verify_chain()`, `AuditSink`/`FileSink`, redaction++ |
+| `controller/main.py` | mod | trust consult, Tier-2 escalate-only insert, `[M]` reclassify loop, `_qb_explain` |
+| `controller/config.py` + `schemas/controller_config.json` | mod | `[hitl]+`, `[keymap]`, `[risk]`, `[tier2]`, `[audit]`, `[cost]`, `[limits]` |
+
+### New `Outcome` values (audit.py)
+
+`TRUST_GRANTED`, `TRUST_APPLIED`, `TIER2_ESCALATED`, `MODIFIED` — so the usability sim
+(M5.V2) and the audit viewer (M5.P1-viewer) can distinguish these flows from existing
+outcomes when deriving KPI-5 metrics.
+
+### Build sequencing (per-PR, each behind its flag)
+
+```
+PR-1  keymap.py + config [keymap]                 (no behavior change until wired)
+PR-2  hitl.py SF-1 sanitize + SF-2/3 raw input    (security-critical — 2 reviewers)
+PR-3  trust_store.py + [T]rust wiring in main.py   (depends PR-1, PR-2)
+PR-4  hitl [E]/[M] actions + intent_store.revise   (depends PR-2)
+PR-5  classifier registry + tier2_review.py + wire (depends nothing in M5.1)
+PR-6  audit.py hash-chain + redaction++ + verify    (security-critical — 2 reviewers)
+PR-7  ci.sh P0 gates G5.1–G5.6 + closeout stub
+```
+
+PR-2 and PR-6 touch security-critical files → WF-6 (two human reviewers, explicit `LGTM`).
+PR-1/PR-5/PR-6 are independent and can land in parallel; PR-3/PR-4 gate on PR-2.
 
 ---
 
