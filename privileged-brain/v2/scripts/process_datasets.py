@@ -377,6 +377,7 @@ def main():
         (Path("data/synthetic/synthetic_pairs.jsonl"),             "nl", "bash"),
         (Path("data/synthetic/synthetic_advanced.jsonl"),          "nl", "bash"),
         (Path("data/synthetic/beginner/beginner_pairs.jsonl"),     "nl", "bash"),
+        (Path("data/synthetic/curated_pb.jsonl"),                  "nl", "bash"),
     ]:
         rows = load_jsonl(fpath)
         pairs = []
