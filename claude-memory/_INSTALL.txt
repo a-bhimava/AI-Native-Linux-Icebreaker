@@ -1,0 +1,31 @@
+Icebreaker — Claude Code memory bundle
+======================================
+
+These are the project's Claude Code memory files (refreshed/consolidated to the
+final Phase 0–4 state). They live OUTSIDE the repo on each machine, so they do
+not travel with the folder — install them once on the new Mac.
+
+The memory directory Claude Code uses for this project is:
+  ~/.claude/projects/-Users-aditya-Documents-Icebreaker/memory/
+
+INSTALL (run from the repo root on the new Mac):
+
+  mkdir -p ~/.claude/projects/-Users-aditya-Documents-Icebreaker/memory
+  cp claude-memory/*.md ~/.claude/projects/-Users-aditya-Documents-Icebreaker/memory/
+
+That copies MEMORY.md (the index) + the 6 memory files. Done — Claude Code loads
+MEMORY.md at session start automatically.
+
+Files in this bundle:
+  MEMORY.md                            index (loaded each session)
+  feedback_no_coauthor.md              no Claude attribution in git
+  feedback_user_style.md               research-first / reliability-first
+  reference_gemini_schema_transform.md Gemini response_schema strip rule
+  phase4-pb-final.md                   Phases 0–4 done; run7 is the PB; run8 rejected
+  phase2-e2e-vm-setup.md               QB→PB→mcpd end-to-end bring-up
+  project_gcp_vm.md                    GCP VMs, GPU quota=1, deploy.env secrets
+
+Note: the new Mac's home path must be /Users/aditya for that directory name to
+match. If the username differs, the memory dir name changes accordingly
+(~/.claude/projects/<slugified-project-path>/memory/) — Claude Code derives it
+from the project's absolute path.
