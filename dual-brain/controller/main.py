@@ -7,6 +7,7 @@ All dependencies are injected so the class is fully testable without live server
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -154,6 +155,13 @@ class Controller:
             return self._schema_rejected(session, str(exc), qb_response, t0)
 
         intent = validated.intent
+
+        # ── Step 2b: Resolve target realpath (TOCTOU mitigation, SF-10) ──────
+        raw_target = intent.get("target", "")
+        if raw_target:
+            intent["target_realpath"] = os.path.realpath(raw_target)
+        else:
+            intent["target_realpath"] = ""
 
         # ── Step 3: Risk classification ───────────────────────────────────────
         cls_result = classify(intent)

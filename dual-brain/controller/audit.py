@@ -100,6 +100,10 @@ class Outcome(str, Enum):
     # Process / session
     BACKEND_SWAPPED         = "backend_swapped"          # P2-F22 — start of new session
 
+    # Resource governance (M5.P1-sec)
+    LIMIT_EXCEEDED          = "limit_exceeded"           # input too large or rate limit hit
+    COST_EXCEEDED           = "cost_exceeded"            # session cost ceiling breached
+
 
 # ── Required entry fields ──────────────────────────────────────────────────
 

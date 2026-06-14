@@ -156,6 +156,7 @@ class SessionConfig:
     session_ttl_seconds: int = 1800       # inactivity timeout; 0 = disabled
     max_turns: int = 50                   # P2-F20 memory bound
     history_path: str = "~/.local/state/icebreaker/repl_history"
+    ephemeral_history: bool = True      # True = in-memory only (SF-8 safe default)
     show_spinner: bool = True
     color: str = "auto"                   # "auto" | "always" | "never"
     prompt_prefix: str = "icebreaker"     # shown as `(N) [backend] prefix > `
@@ -175,6 +176,18 @@ class Tier2Config:
 
 
 @dataclass(frozen=True)
+class CostConfig:
+    session_ceiling_usd: float = 0.0    # 0 = no ceiling
+    warn_fraction: float = 0.8          # alert at this fraction of ceiling
+
+
+@dataclass(frozen=True)
+class LimitsConfig:
+    max_input_chars: int = 4000
+    max_turns_per_min: int = 30
+
+
+@dataclass(frozen=True)
 class ControllerConfig:
     qb: BackendConfig
     hitl: HitlConfig
@@ -185,6 +198,8 @@ class ControllerConfig:
     keymap: Keymap = field(default_factory=Keymap)
     risk: RiskConfig = field(default_factory=RiskConfig)
     tier2: Tier2Config = field(default_factory=Tier2Config)
+    cost: CostConfig = field(default_factory=CostConfig)
+    limits: LimitsConfig = field(default_factory=LimitsConfig)
 
 
 def _default_config_path() -> Path:
@@ -381,6 +396,7 @@ def _build_session_config(raw: dict) -> SessionConfig:
         session_ttl_seconds=section.get("session_ttl_seconds", 1800),
         max_turns=section.get("max_turns", 50),
         history_path=section.get("history_path", "~/.local/state/icebreaker/repl_history"),
+        ephemeral_history=section.get("ephemeral_history", True),
         show_spinner=section.get("show_spinner", True),
         color=section.get("color", "auto"),
         prompt_prefix=section.get("prompt_prefix", "icebreaker"),
@@ -401,6 +417,22 @@ def _build_tier2_config(raw: dict) -> Tier2Config:
         enabled=section.get("enabled", False),
         strategy=section.get("strategy", "llm"),
         max_retries=section.get("max_retries", 2),
+    )
+
+
+def _build_cost_config(raw: dict) -> CostConfig:
+    section = raw.get("cost", {})
+    return CostConfig(
+        session_ceiling_usd=section.get("session_ceiling_usd", 0.0),
+        warn_fraction=section.get("warn_fraction", 0.8),
+    )
+
+
+def _build_limits_config(raw: dict) -> LimitsConfig:
+    section = raw.get("limits", {})
+    return LimitsConfig(
+        max_input_chars=section.get("max_input_chars", 4000),
+        max_turns_per_min=section.get("max_turns_per_min", 30),
     )
 
 
@@ -455,7 +487,10 @@ def load(path: Path | None = None) -> ControllerConfig:
     keymap = _build_keymap(raw)
     risk = _build_risk_config(raw)
     tier2 = _build_tier2_config(raw)
+    cost = _build_cost_config(raw)
+    limits = _build_limits_config(raw)
     return ControllerConfig(
         qb=qb, hitl=hitl, prompts=prompts, session=session, run=run,
         config_path=resolved.resolve(), keymap=keymap, risk=risk, tier2=tier2,
+        cost=cost, limits=limits,
     )

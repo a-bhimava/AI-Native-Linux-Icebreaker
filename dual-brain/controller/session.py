@@ -23,6 +23,8 @@ class SessionState:
     turn_index: int = 0
     _last_activity: float = field(init=False, default=0.0, repr=False)
     _qb_messages: list = field(init=False, default_factory=list, repr=False)
+    _accumulated_cost_usd: float = field(init=False, default=0.0, repr=False)
+    _turn_timestamps: list = field(init=False, default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         self._last_activity = time.monotonic()
@@ -60,6 +62,25 @@ class SessionState:
             {"intent_id": intent_id, "allowed_tool": allowed_tool, "tool_schema": tool_schema},
             separators=(",", ":"),
         )
+
+    def add_cost(self, usd: float) -> None:
+        self._accumulated_cost_usd += usd
+
+    @property
+    def accumulated_cost_usd(self) -> float:
+        return self._accumulated_cost_usd
+
+    def check_rate_limit(self, max_per_min: int) -> bool:
+        """Return True if within rate limit, False if exceeded."""
+        if max_per_min <= 0:
+            return True
+        now = time.monotonic()
+        cutoff = now - 60.0
+        self._turn_timestamps = [t for t in self._turn_timestamps if t > cutoff]
+        if len(self._turn_timestamps) >= max_per_min:
+            return False
+        self._turn_timestamps.append(now)
+        return True
 
     def reset_memory(self) -> None:
         self._qb_messages.clear()

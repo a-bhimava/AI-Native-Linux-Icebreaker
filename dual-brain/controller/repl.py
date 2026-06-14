@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Generator
 
 try:
     from prompt_toolkit import PromptSession
-    from prompt_toolkit.history import FileHistory
+    from prompt_toolkit.history import FileHistory, History, InMemoryHistory
     _HAS_PROMPT_TOOLKIT = True
 except ImportError:
     _HAS_PROMPT_TOOLKIT = False
@@ -76,10 +76,16 @@ class Repl:
             or (cfg.color == "auto" and sys.stdout.isatty())
         )
         self._session: SessionState = SessionState.new(controller.backend_name(), cfg)
-        history_path = Path(cfg.history_path).expanduser()
-        history_path.parent.mkdir(parents=True, exist_ok=True)
+        if cfg.ephemeral_history:
+            history: History = InMemoryHistory()
+        else:
+            history_path = Path(cfg.history_path).expanduser()
+            history_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            history = FileHistory(str(history_path))
+            if history_path.exists():
+                history_path.chmod(0o600)
         self._prompt_session: PromptSession = PromptSession(
-            history=FileHistory(str(history_path)),
+            history=history,
             enable_history_search=True,
         )
 
@@ -138,6 +144,33 @@ class Repl:
         return f"({turn}) [{backend}] {prefix} > "
 
     def _run_turn(self, user_input: str) -> None:
+        limits = getattr(self._cfg, "limits", None)
+        cost_cfg = getattr(self._cfg, "cost", None)
+
+        if limits and limits.max_input_chars > 0 and len(user_input) > limits.max_input_chars:
+            self._print(
+                f"  ✗ Input too large ({len(user_input)} chars, "
+                f"max {limits.max_input_chars}). Shorten your message.\n"
+            )
+            return
+
+        if limits and not self._session.check_rate_limit(limits.max_turns_per_min):
+            self._print(
+                f"  ✗ Rate limit exceeded ({limits.max_turns_per_min} turns/min). "
+                "Wait a moment.\n"
+            )
+            return
+
+        if cost_cfg and cost_cfg.session_ceiling_usd > 0:
+            if self._session.accumulated_cost_usd >= cost_cfg.session_ceiling_usd:
+                self._print(
+                    f"  ✗ Cost ceiling reached "
+                    f"(${self._session.accumulated_cost_usd:.4f} / "
+                    f"${cost_cfg.session_ceiling_usd:.2f}). "
+                    "Start a new session.\n"
+                )
+                return
+
         with self._spinner("Thinking..."):
             try:
                 result = self._ctrl.run_turn(user_input, self._session)
@@ -147,6 +180,27 @@ class Repl:
             except Exception as exc:
                 self._print(f"\n  Error: {exc}\n")
                 return
+
+        turn_cost = getattr(result, "cost_usd", None) or 0.0
+        self._session.add_cost(turn_cost)
+
+        if cost_cfg and cost_cfg.session_ceiling_usd > 0:
+            fraction = self._session.accumulated_cost_usd / cost_cfg.session_ceiling_usd
+            if fraction >= 1.0:
+                self._print(
+                    f"  ⚠ Cost ceiling reached "
+                    f"(${self._session.accumulated_cost_usd:.4f} / "
+                    f"${cost_cfg.session_ceiling_usd:.2f}). "
+                    "Next turn will be denied.\n"
+                )
+            elif fraction >= cost_cfg.warn_fraction:
+                pct = int(fraction * 100)
+                self._print(
+                    f"  ⚠ Cost at {pct}% of session ceiling "
+                    f"(${self._session.accumulated_cost_usd:.4f} / "
+                    f"${cost_cfg.session_ceiling_usd:.2f})\n"
+                )
+
         self._display_result(result)
 
     def _display_result(self, result: Any) -> None:
@@ -237,12 +291,21 @@ class Repl:
         c = self._use_color
         ttl = self._cfg.session_ttl_seconds
         ttl_str = f"{ttl}s" if ttl > 0 else "disabled"
+        cost_cfg = getattr(self._cfg, "cost", None)
+        if cost_cfg and cost_cfg.session_ceiling_usd > 0:
+            cost_str = (
+                f"${s.accumulated_cost_usd:.4f} / "
+                f"${cost_cfg.session_ceiling_usd:.2f}"
+            )
+        else:
+            cost_str = f"${s.accumulated_cost_usd:.4f} (no ceiling)"
         lines = [
             "",
             f"  Session ID:  {s.session_id}",
             f"  Backend:     {s.backend}",
             f"  Turn:        {s.turn_index} / {self._cfg.max_turns}",
             f"  TTL:         {ttl_str}",
+            f"  Cost:        {cost_str}",
             "",
         ]
         print("\n".join(lines))
