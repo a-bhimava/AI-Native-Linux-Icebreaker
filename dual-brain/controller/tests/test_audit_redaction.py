@@ -49,12 +49,12 @@ def _fields(**overrides) -> AuditFields:
 # ── _high_entropy ────────────────────────────────────────────────────────────
 
 def test_high_entropy_base64_blob():
-    blob = "aGVsbG8gd29ybGQgdGhpcyBpcyBhIGJhc2U2NCBlbmNvZGVkIHN0cmluZw=="
+    blob = "aGVsbG8gd29ybGQgdGhpcyBpcyBhIGJhc2U2NCBlbmNvZGVkIHN0cmluZw=="  # pragma: allowlist secret
     assert _high_entropy(blob) is True
 
 
 def test_high_entropy_mixed_case_secret():
-    secret = "aB3cD4eF5gH6iJ7kL8mN9oP0qRsTuVwXyZ1a2b3c"
+    secret = "aB3cD4eF5gH6iJ7kL8mN9oP0qRsTuVwXyZ1a2b3c"  # pragma: allowlist secret
     assert _high_entropy(secret) is True
 
 
@@ -118,7 +118,7 @@ def test_no_allowlist_still_redacts_secrets():
 # ── Entropy-based redaction in params ────────────────────────────────────────
 
 def test_high_entropy_param_value_redacted():
-    params = {"data": "aGVsbG8gd29ybGQgdGhpcyBpcyBhIGJhc2U2NCBlbmNvZGVkIHN0cmluZw=="}
+    params = {"data": "aGVsbG8gd29ybGQgdGhpcyBpcyBhIGJhc2U2NCBlbmNvZGVkIHN0cmluZw=="}  # pragma: allowlist secret
     redacted = _redact_params(params, action="system.status")
     assert redacted["data"] == REDACTED_PLACEHOLDER
 
@@ -137,7 +137,7 @@ def test_high_entropy_redacted_on_disk(tmp_path):
     try:
         log.write_fields(_fields(
             action="system.status",
-            extra={"params": {"blob": "aB3cD4eF5gH6iJ7kL8mN9oP0qRsTuVwXyZ1a2b3c"}},
+            extra={"params": {"blob": "aB3cD4eF5gH6iJ7kL8mN9oP0qRsTuVwXyZ1a2b3c"}},  # pragma: allowlist secret
         ))
     finally:
         log.close()
