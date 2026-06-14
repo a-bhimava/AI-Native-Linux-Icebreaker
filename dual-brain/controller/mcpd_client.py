@@ -49,6 +49,37 @@ from typing import Any, Optional, Union
 # Per-call default timeout (P2-F8 mitigation).
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
+# ── Environment scrubbing (SF-7 / BP-8) ───────────────────────────────────
+# Only these variables are inherited by the mcpd subprocess.  API keys,
+# database URLs, and other secrets are excluded.
+
+_SAFE_ENV_VARS: frozenset[str] = frozenset({
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL",
+    "LC_ALL", "LC_CTYPE", "LANG", "TZ",
+    "TERM", "COLORTERM",
+})
+
+
+def _scrubbed_env(
+    *,
+    audit_log: Optional[Union[str, Path]] = None,
+    rust_log: Optional[str] = None,
+    extra: Optional[dict[str, str]] = None,
+) -> dict[str, str]:
+    """Build a scrubbed environment for the mcpd subprocess.
+
+    Only whitelisted variables are inherited from the parent process.
+    API keys and other secrets are excluded (SF-7).
+    """
+    env = {k: v for k, v in os.environ.items() if k in _SAFE_ENV_VARS}
+    if audit_log is not None:
+        env["MCPD_AUDIT_LOG"] = str(Path(audit_log).expanduser())
+    if rust_log is not None:
+        env["RUST_LOG"] = rust_log
+    if extra:
+        env.update(extra)
+    return env
+
 # Bytes read per os.read() call when assembling a response line.
 _READ_CHUNK = 4096
 
@@ -214,13 +245,7 @@ class McpdClient:
         if not os.access(binary, os.X_OK):
             raise McpdProcessError(f"mcpd binary at {binary} is not executable")
 
-        env = os.environ.copy()
-        if audit_log is not None:
-            env["MCPD_AUDIT_LOG"] = str(Path(audit_log).expanduser())
-        if rust_log is not None:
-            env["RUST_LOG"] = rust_log
-        if extra_env:
-            env.update(extra_env)
+        env = _scrubbed_env(audit_log=audit_log, rust_log=rust_log, extra=extra_env)
 
         stderr_target = subprocess.PIPE if capture_stderr else subprocess.DEVNULL
 

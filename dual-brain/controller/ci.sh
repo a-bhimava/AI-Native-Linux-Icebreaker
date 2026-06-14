@@ -325,6 +325,19 @@ fi
 rm -f "$_SMOKE_LOG"
 
 echo ""
+
+# ── G5.P1a: Credential & resource hygiene ────────────────────────────────
+echo "G5.P1a: Credential & resource hygiene..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_mcpd_env_scrub.py \
+    controller/tests/test_repl_history.py \
+    controller/tests/test_cost_limits.py \
+    controller/tests/test_toctou.py -x -q 2>&1; then
+  pass 5.P1a "env scrub + history + cost/limits + TOCTOU OK"
+else
+  fail 5.P1a "credential / resource hygiene test failed"
+fi
+
+echo ""
 echo "═══════════════════════════════════════════════════════════"
 
 if [ ${#FAILED_GATES[@]} -eq 0 ]; then

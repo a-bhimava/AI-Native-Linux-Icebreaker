@@ -115,13 +115,30 @@ timeout_seconds = 30
 # on shared or kiosk terminals to auto-close idle sessions.
 #
 # [session]
-# session_ttl_seconds   = 1800   # 30 min inactivity — set 0 to disable
-# max_turns             = 50     # auto-close after N turns (P2-F20 memory bound)
+# session_ttl_seconds   = 1800    # 30 min inactivity — set 0 to disable
+# max_turns             = 50      # auto-close after N turns (P2-F20 memory bound)
 # history_path          = "~/.local/state/icebreaker/repl_history"
+# ephemeral_history     = true    # true = in-memory only (SF-8); false = file-based
 # show_spinner          = true
-# color                 = "auto"   # "auto" | "always" | "never"
+# color                 = "auto"  # "auto" | "always" | "never"
 # prompt_prefix         = "icebreaker"
-# max_tool_output_lines = 40       # lines of tool output forwarded to QB for summary
+# max_tool_output_lines = 40      # lines of tool output forwarded to QB for summary
+
+
+# Cost governance — per-session cost ceiling (SF-9, BP-10).
+# Resets on /reset or new session. 0 = no ceiling (unlimited).
+#
+# [cost]
+# session_ceiling_usd = 1.00     # deny turns once this is reached
+# warn_fraction       = 0.8      # alert at 80% of ceiling
+
+
+# Resource limits — input size cap + rate limiting (SF-9, BP-10).
+# On breach: deny + audit + user message (never silent).
+#
+# [limits]
+# max_input_chars   = 4000       # reject inputs larger than this (0 = no limit)
+# max_turns_per_min = 30         # rate limit (0 = unlimited)
 
 
 # System prompts — all optional. Defaults to the in-package controller/prompts/ directory.
