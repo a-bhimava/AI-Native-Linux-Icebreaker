@@ -76,6 +76,22 @@ timeout_seconds = 30
 # lockout_seconds = 3     # seconds the Approve button is disabled (INV-6 minimum: 1)
 # timeout_seconds = 30    # seconds before auto-deny
 # presenter = "terminal"  # Phase 5: swap for "gtk" or "web"
+# trust_ttl_seconds = 0   # 0 = [T]rust disabled (default); set > 0 to enable trust grants
+
+
+# HITL keymap — configurable key bindings for the approval gate.
+# Each action accepts a list of single-character bindings.
+# Defaults: numeric (1–5) + mnemonic (a/d/m/e/t) + universal (y/n).
+# Esc is always DENY (hard-reserved, cannot be remapped).
+# '?' is always HELP (cannot be unbound).
+#
+# [keymap]
+# approve = ["1", "a", "y"]
+# deny    = ["2", "d", "n"]
+# modify  = ["3", "m"]
+# explain = ["4", "e"]
+# trust   = ["5", "t"]
+# help    = ["?"]
 
 
 # Orchestration runtime — all optional; defaults shown.

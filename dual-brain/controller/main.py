@@ -13,11 +13,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .audit import AuditFields, AuditLog, Outcome, make_entry
-from .hitl import Decision, HitlPresenter, HitlPrompt
+from .hitl import Decision, HitlPresenter, HitlPrompt, TerminalPresenter
 from .intent_schema import IntentValidationError, validate
 from .intent_store import IntentStore
 from .mcpd_client import JsonRpcError, McpdClient, McpdProcessError, McpdTimeoutError
-from .risk_classifier import classify
+from .risk_classifier import ClassificationResult, Tier, classify
+from .tier2_review import Tier2Reviewer, get_reviewer
+from .trust_store import TrustStore
 
 _SUMMARISE_SCHEMA = {
     "type": "object",
@@ -35,6 +37,17 @@ _VERIFY_SCHEMA = {
     "required": ["verified", "reason"],
     "additionalProperties": False,
 }
+
+_EXPLAIN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "explanation": {"type": "string"},
+    },
+    "required": ["explanation"],
+    "additionalProperties": False,
+}
+
+_MAX_MODIFY_CYCLES = 3
 
 
 @dataclass(frozen=True)
@@ -66,6 +79,7 @@ class Controller:
         audit_log: AuditLog,
         store: IntentStore,
         prompt_loader: Any,
+        trust_store: TrustStore | None = None,
     ) -> None:
         self._cfg = cfg
         self._qb = qb_backend
@@ -74,6 +88,16 @@ class Controller:
         self._audit = audit_log
         self._store = store
         self._prompts = prompt_loader
+        self._trust_store = trust_store or (
+            TrustStore() if cfg.hitl.trust_ttl_seconds > 0 else None
+        )
+        self._tier2: Tier2Reviewer | None = None
+        if getattr(cfg, "tier2", None) and cfg.tier2.enabled:
+            self._tier2 = get_reviewer(
+                cfg.tier2.strategy,
+                qb_backend=qb_backend,
+                max_retries=cfg.tier2.max_retries,
+            )
         self._schemas_dir = self._resolve_schemas_dir()
         # Load intent schema once at init — QB complete() needs it for
         # API backends (Anthropic/Gemini use native JSON-schema output mode).
@@ -134,17 +158,130 @@ class Controller:
         # ── Step 3: Risk classification ───────────────────────────────────────
         cls_result = classify(intent)
 
+        # ── Step 3b: Tier-2 review (escalate-only) ───────────────────────────
+        original_tier = cls_result.tier
+        if self._tier2 and cls_result.tier == Tier.MEDIUM:
+            t2_decision = self._tier2.review(intent, cls_result)
+            if t2_decision.escalate:
+                cls_result = ClassificationResult(
+                    tier=Tier.HIGH, reason=t2_decision.reason,
+                    reversible=cls_result.reversible,
+                )
+            assert cls_result.tier >= original_tier, "Tier-2 review must never downgrade"
+
+        # ── Step 3c: Trust consult (skip HITL if trusted) ────────────────────
+        trust_ttl = self._cfg.hitl.trust_ttl_seconds
+        if self._trust_store and trust_ttl > 0 and cls_result.requires_hitl:
+            grant = self._trust_store.is_trusted(
+                intent["action"], intent["target"],
+                cls_result.tier, session.session_id,
+            )
+            if grant:
+                duration = (time.monotonic() - t0) * 1000
+                self._audit.write_fields(AuditFields(
+                    session_id=session.session_id, turn_index=session.turn_index,
+                    intent_id="", action=intent["action"],
+                    target=intent["target"], tier=int(cls_result.tier),
+                    reason=intent["reason"], risk_level=intent["risk_level"],
+                    outcome=Outcome.TRUST_APPLIED, duration_ms=duration,
+                    backend=session.backend, model=self._cfg.qb.model,
+                    tokens_in=qb_tokens_in, tokens_out=qb_tokens_out,
+                    cost_estimate_usd=qb_cost,
+                    extra={"grant_id": grant.grant_id},
+                ))
+                remaining = max(0, int(grant.expires_at - time.monotonic()))
+                print(
+                    f"\n  ✓ Auto-approved via trust grant "
+                    f"{grant.action} → {grant.target_prefix} "
+                    f"(expires in {remaining}s, /trust revoke {grant.grant_id})\n",
+                    flush=True,
+                )
+                # Skip HITL, fall through to Step 5
+                cls_result_requires_hitl = False
+            else:
+                cls_result_requires_hitl = True
+        else:
+            cls_result_requires_hitl = cls_result.requires_hitl
+
         # ── Step 4: HITL gate (Tier 3 only) ──────────────────────────────────
-        if cls_result.requires_hitl:
-            decision = HitlPrompt(
-                intent, cls_result,
-                backend=session.backend,
-                lockout_seconds=self._cfg.hitl.lockout_seconds,
-                timeout_seconds=self._cfg.hitl.timeout_seconds,
-                presenter=self._build_presenter(),
-            ).ask()
-            if decision != Decision.APPROVED:
-                return self._denied(session, intent, cls_result, decision, qb_response, t0)
+        if cls_result_requires_hitl:
+            modify_count = 0
+            while True:
+                hitl_prompt = HitlPrompt(
+                    intent, cls_result,
+                    backend=session.backend,
+                    lockout_seconds=self._cfg.hitl.lockout_seconds,
+                    timeout_seconds=self._cfg.hitl.timeout_seconds,
+                    presenter=self._build_presenter(),
+                )
+                decision = hitl_prompt.ask()
+
+                hitl_extra = {
+                    "decision_id": hitl_prompt.decision_id,
+                    "key_pressed_class": hitl_prompt.key_pressed_class,
+                    "latency_ms": hitl_prompt.decision_latency_ms,
+                }
+
+                if decision == Decision.EXPLAIN:
+                    explanation = self._qb_explain(intent, cls_result)
+                    print(f"\n  {explanation}\n", flush=True)
+                    continue
+
+                if decision == Decision.MODIFY:
+                    modify_count += 1
+                    if modify_count >= _MAX_MODIFY_CYCLES:
+                        print("\n  Modify limit reached — operation denied.", flush=True)
+                        return self._denied(
+                            session, intent, cls_result, Decision.DENIED,
+                            qb_response, t0, extra=hitl_extra,
+                        )
+                    print("\n  [Modify] — not yet wired to intent revision (M5.1d)", flush=True)
+                    continue
+
+                if decision == Decision.TRUST:
+                    if trust_ttl <= 0:
+                        print("\n  Trust is disabled in config (trust_ttl_seconds = 0).\n", flush=True)
+                        continue
+                    if cls_result.tier >= Tier.HIGH:
+                        print("\n  Cannot trust Tier 3+ operations.\n", flush=True)
+                        continue
+                    grant = self._trust_store.grant(
+                        action=intent["action"],
+                        target_prefix=intent["target"],
+                        max_tier=cls_result.tier,
+                        session_id=session.session_id,
+                        ttl_seconds=trust_ttl,
+                    )
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id,
+                        turn_index=session.turn_index,
+                        intent_id="", action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"],
+                        risk_level=intent["risk_level"],
+                        outcome=Outcome.TRUST_GRANTED, duration_ms=0,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=0, tokens_out=0,
+                        cost_estimate_usd=0.0,
+                        extra={
+                            "grant_id": grant.grant_id,
+                            "ttl_seconds": trust_ttl,
+                            **hitl_extra,
+                        },
+                    ))
+                    print(
+                        f"\n  ✓ Trust granted for {grant.action} "
+                        f"→ {grant.target_prefix} ({trust_ttl}s)\n",
+                        flush=True,
+                    )
+                    break  # treat as approved
+
+                if decision != Decision.APPROVED:
+                    return self._denied(
+                        session, intent, cls_result, decision,
+                        qb_response, t0, extra=hitl_extra,
+                    )
+                break
 
         # ── Step 5: Store intent → opaque UUID ───────────────────────────────
         intent_id = self._store.put(intent)
@@ -262,20 +399,27 @@ class Controller:
             cow_preview_text = ""
             if tool_result.cow_preview:
                 cow_preview_text = json.dumps(tool_result.cow_preview, indent=2)
-            decision = HitlPrompt(
+            cow_prompt = HitlPrompt(
                 intent, cls_result,
                 backend=session.backend,
                 cow_summary=cow_preview_text,
                 lockout_seconds=self._cfg.hitl.lockout_seconds,
                 timeout_seconds=self._cfg.hitl.timeout_seconds,
                 presenter=self._build_presenter(),
-            ).ask()
+            )
+            decision = cow_prompt.ask()
             if decision != Decision.APPROVED:
+                cow_extra = {
+                    "decision_id": cow_prompt.decision_id,
+                    "key_pressed_class": cow_prompt.key_pressed_class,
+                    "latency_ms": cow_prompt.decision_latency_ms,
+                }
                 return self._denied(session, intent, cls_result, decision,
                                     qb_response, t0, intent_id=intent_id,
                                     extra_cost=pb_cost,
                                     extra_tokens_in=pb_response.tokens_in,
-                                    extra_tokens_out=pb_response.tokens_out)
+                                    extra_tokens_out=pb_response.tokens_out,
+                                    extra=cow_extra)
 
         # ── Step 11: QB summarisation (INV-2-extended) ───────────────────────
         raw_output = json.dumps(tool_result.result)
@@ -346,6 +490,30 @@ class Controller:
         except Exception:
             return raw_output[:200]
 
+    def _qb_explain(self, intent: dict, cls_result: Any) -> str:
+        explain_system = (
+            "Explain in 2-3 plain sentences what this system action will do and "
+            "any risks. Be concise and factual. Output only JSON: "
+            '{"explanation": "<text>"}'
+        )
+        user_msg = json.dumps({
+            "action": intent.get("action"),
+            "target": intent.get("target"),
+            "risk_level": intent.get("risk_level"),
+            "tier": int(cls_result.tier),
+            "reversible": cls_result.reversible,
+        }, separators=(",", ":"))
+        try:
+            resp = self._qb.complete(
+                system=explain_system,
+                user=user_msg,
+                schema=_EXPLAIN_SCHEMA,
+                max_retries=1,
+            )
+            return resp.content_json.get("explanation", "No explanation available.")
+        except Exception:
+            return "Could not generate explanation."
+
     def _validate_tool_call(self, tool_call: dict, expected_action: str) -> None:
         if not isinstance(tool_call, dict):
             raise ValueError("PB output is not a JSON object")
@@ -378,14 +546,16 @@ class Controller:
             return str(candidate)
         return ""
 
-    def _build_presenter(self) -> Optional[HitlPresenter]:
-        return None  # TerminalPresenter is the default in HitlPrompt
+    def _build_presenter(self) -> HitlPresenter:
+        keymap = getattr(self._cfg, "keymap", None)
+        return TerminalPresenter(keymap=keymap)
 
     def _denied(
         self, session: Any, intent: dict, cls_result: Any, decision: Decision,
         qb_response: Any, t0: float,
         intent_id: str = "",
         extra_cost: float = 0.0, extra_tokens_in: int = 0, extra_tokens_out: int = 0,
+        extra: Optional[dict] = None,
     ) -> TurnResult:
         outcome = decision.to_outcome() or Outcome.HITL_DENIED
         duration = (time.monotonic() - t0) * 1000
@@ -400,6 +570,7 @@ class Controller:
             tokens_in=qb_response.tokens_in + extra_tokens_in,
             tokens_out=qb_response.tokens_out + extra_tokens_out,
             cost_estimate_usd=cost,
+            extra=extra,
         ))
         return TurnResult(
             success=False, output="Operation denied.",

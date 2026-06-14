@@ -47,11 +47,16 @@ of one complete line ≤ PIPE_BUF).
 
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 import os
 import re
+import sys
 import threading
 import time
+from abc import ABC, abstractmethod
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -86,6 +91,11 @@ class Outcome(str, Enum):
     BRAIN_ERROR             = "brain_error"              # QB / PB exception or truncation
     QB_VERIFIER_REJECTED    = "qb_verifier_rejected"     # M2.12 round-trip "no"
     PB_SCHEMA_ERROR         = "pb_schema_error"          # M2.12 PB output failed tool schema check
+
+    # Trust grants (M5.1)
+    TRUST_APPLIED           = "trust_applied"            # auto-approved via trust grant
+    TRUST_GRANTED           = "trust_granted"            # user pressed [T]rust
+    MODIFY_REQUESTED        = "modify_requested"         # user pressed [M]odify
 
     # Process / session
     BACKEND_SWAPPED         = "backend_swapped"          # P2-F22 — start of new session
@@ -165,7 +175,23 @@ def _value_looks_secret(value: Any) -> bool:
     return any(p.match(value) for p in _SECRET_VALUE_PATTERNS)
 
 
-def _redact_params(params: Any) -> Any:
+def _high_entropy(s: str, *, min_len: int = 24, bits: float = 4.0) -> bool:
+    """Return True if string has high Shannon entropy (likely a secret)."""
+    if not isinstance(s, str) or len(s) < min_len:
+        return False
+    freq = Counter(s)
+    n = len(s)
+    entropy = -sum((c / n) * math.log2(c / n) for c in freq.values())
+    return entropy >= bits
+
+
+_TOOL_FIELD_ALLOWLIST: dict[str, frozenset[str]] = {
+    "fs.write": frozenset({"path"}),
+    "fs.delete": frozenset({"path"}),
+}
+
+
+def _redact_params(params: Any, *, action: str = "") -> Any:
     """Walk a params dict redacting suspected secret keys + values.
 
     Only one level deep — the Intent Object schema forbids nested objects
@@ -173,9 +199,14 @@ def _redact_params(params: Any) -> Any:
     """
     if not isinstance(params, dict):
         return params
+    allowlist = _TOOL_FIELD_ALLOWLIST.get(action)
     out: dict[str, Any] = {}
     for k, v in params.items():
-        if _key_looks_secret(k) or _value_looks_secret(v):
+        if allowlist is not None and k not in allowlist:
+            out[k] = REDACTED_PLACEHOLDER
+        elif _key_looks_secret(k) or _value_looks_secret(v):
+            out[k] = REDACTED_PLACEHOLDER
+        elif _high_entropy(str(v)):
             out[k] = REDACTED_PLACEHOLDER
         else:
             out[k] = v
@@ -255,14 +286,39 @@ def make_entry(fields: AuditFields) -> dict:
     }
 
     if fields.extra:
-        # Redact params before merging.
         for k, v in fields.extra.items():
             if k == "params":
-                entry[k] = _redact_params(v)
+                entry[k] = _redact_params(v, action=fields.action)
             else:
                 entry[k] = v
 
     return entry
+
+
+# ── Hash-chain constants ──────────────────────────────────────────────────
+
+GENESIS_HASH = "GENESIS"
+
+
+def _canonical_line(entry: dict) -> bytes:
+    """Deterministic JSON serialization for hash computation."""
+    return json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+
+
+def _hash_line(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+# ── AuditSink ABC ─────────────────────────────────────────────────────────
+
+class AuditSink(ABC):
+    """Pluggable output sink for audit entries (P2-ready)."""
+
+    @abstractmethod
+    def write_line(self, data: bytes) -> None: ...
+
+    @abstractmethod
+    def close(self) -> None: ...
 
 
 # ── AuditLog ───────────────────────────────────────────────────────────────
@@ -297,6 +353,8 @@ class AuditLog:
         self._fsync = fsync_each_write
         self._lock = threading.Lock()
         self._fd: int = -1
+        self._last_seq: int = -1
+        self._last_hash: str = GENESIS_HASH
         self._open()
 
     # ── Path resolution ────────────────────────────────────────────────
@@ -319,6 +377,9 @@ class AuditLog:
         # exists with looser perms we don't tighten — that's an admin call.
         self._path.parent.mkdir(parents=True, exist_ok=True, mode=self.PARENT_MODE)
         existed_before = self._path.exists()
+        # Tail recovery: read last line to continue the hash chain.
+        if existed_before:
+            self._recover_tail()
         # O_APPEND | O_CREAT — file mode applied only on creation.
         self._fd = os.open(
             str(self._path),
@@ -328,6 +389,23 @@ class AuditLog:
         if not existed_before:
             # Set explicit mode in case umask masked it on creation.
             os.chmod(self._path, self.FILE_MODE)
+
+    def _recover_tail(self) -> None:
+        """Read the last line of an existing log to resume the hash chain."""
+        try:
+            text = self._path.read_text(encoding="utf-8").strip()
+            if not text:
+                return
+            last_line = text.split("\n")[-1]
+            entry = json.loads(last_line)
+            seq = entry.get("seq")
+            if seq is not None:
+                self._last_seq = int(seq)
+                self._last_hash = _hash_line(
+                    _canonical_line(entry)
+                )
+        except (OSError, json.JSONDecodeError, ValueError):
+            pass
 
     def close(self) -> None:
         with self._lock:
@@ -367,14 +445,18 @@ class AuditLog:
         if missing:
             raise ValueError(f"audit entry missing required field(s): {missing}")
 
-        # Serialise once; the os.write below is atomic for our line sizes.
-        line = json.dumps(entry, separators=(",", ":"), default=str) + "\n"
-        encoded = line.encode("utf-8")
-
         with self._lock:
             if self._fd < 0:
                 raise OSError("AuditLog is closed")
-            os.write(self._fd, encoded)
+            # Stamp hash-chain fields.
+            self._last_seq += 1
+            entry["seq"] = self._last_seq
+            entry["prev_hash"] = self._last_hash
+            # Canonical serialization for both the on-disk line and the chain hash.
+            canonical = _canonical_line(entry)
+            self._last_hash = _hash_line(canonical)
+            # Write the entry (canonical form + newline).
+            os.write(self._fd, canonical + b"\n")
             if self._fsync:
                 os.fsync(self._fd)
 
@@ -382,6 +464,45 @@ class AuditLog:
         """Convenience: build the entry then write it. Equivalent to
         ``log.write(make_entry(fields))``."""
         self.write(make_entry(fields))
+
+    # ── Chain verification ────────────────────────────────────────────
+
+    @classmethod
+    def verify_chain(cls, path: Path) -> tuple[bool, Optional[int]]:
+        """Verify the hash chain of an audit log file.
+
+        Returns (True, None) if the chain is intact, or
+        (False, seq) where seq is the first entry with a broken link.
+        """
+        path = Path(path).expanduser().resolve()
+        text = path.read_text(encoding="utf-8").strip()
+        if not text:
+            return (True, None)
+
+        lines = text.split("\n")
+        prev_hash = GENESIS_HASH
+
+        for i, raw_line in enumerate(lines):
+            try:
+                entry = json.loads(raw_line)
+            except json.JSONDecodeError:
+                return (False, i)
+
+            seq = entry.get("seq")
+            entry_prev_hash = entry.get("prev_hash")
+
+            if seq is None or entry_prev_hash is None:
+                return (False, i)
+
+            if seq != i:
+                return (False, i)
+
+            if entry_prev_hash != prev_hash:
+                return (False, seq)
+
+            prev_hash = _hash_line(_canonical_line(entry))
+
+        return (True, None)
 
 
 # ── Module-level convenience ───────────────────────────────────────────────
@@ -403,3 +524,34 @@ def get_default() -> AuditLog:
 
 def write_default(entry: Mapping[str, Any]) -> None:
     get_default().write(entry)
+
+
+# ── CLI: python -m controller.audit --verify [path] ──────────────────────
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Audit log utilities")
+    parser.add_argument("--verify", metavar="PATH", help="Verify hash chain integrity")
+    args = parser.parse_args()
+
+    if args.verify:
+        p = Path(args.verify)
+        if not p.exists():
+            print(f"File not found: {p}", file=sys.stderr)
+            sys.exit(2)
+        try:
+            ok, bad_seq = AuditLog.verify_chain(p)
+        except Exception as exc:
+            print(f"Error reading {p}: {exc}", file=sys.stderr)
+            sys.exit(2)
+        lines = p.read_text().strip().split("\n") if p.read_text().strip() else []
+        if ok:
+            print(f"OK ({len(lines)} entries)")
+            sys.exit(0)
+        else:
+            print(f"TAMPERED at seq {bad_seq}")
+            sys.exit(1)
+    else:
+        parser.print_help()
+        sys.exit(0)

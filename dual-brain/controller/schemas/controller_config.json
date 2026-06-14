@@ -104,6 +104,37 @@
         }
       }
     },
+    "keymap": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "HITL approval-gate key bindings. All optional — defaults to numeric + mnemonic + universal bindings. Each value is an array of single-character strings.",
+      "properties": {
+        "approve": {
+          "type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1}, "minItems": 1,
+          "description": "Keys that trigger APPROVE. Default: [\"1\", \"a\", \"y\"]."
+        },
+        "deny": {
+          "type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1}, "minItems": 1,
+          "description": "Keys that trigger DENY. Default: [\"2\", \"d\", \"n\"]. Esc is always DENY regardless."
+        },
+        "modify": {
+          "type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1}, "minItems": 1,
+          "description": "Keys that trigger MODIFY. Default: [\"3\", \"m\"]."
+        },
+        "explain": {
+          "type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1}, "minItems": 1,
+          "description": "Keys that trigger EXPLAIN. Default: [\"4\", \"e\"]."
+        },
+        "trust": {
+          "type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1}, "minItems": 1,
+          "description": "Keys that trigger TRUST. Default: [\"5\", \"t\"]. Disabled when trust_ttl_seconds = 0."
+        },
+        "help": {
+          "type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1}, "minItems": 1,
+          "description": "Keys that trigger HELP. Default: [\"?\"]. '?' must always be included."
+        }
+      }
+    },
     "prompts": {
       "type": "object",
       "additionalProperties": false,

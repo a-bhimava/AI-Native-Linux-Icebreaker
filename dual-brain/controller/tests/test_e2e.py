@@ -40,7 +40,7 @@ _UUID4_RE = re.compile(
 def _cfg() -> SimpleNamespace:
     return SimpleNamespace(
         qb=SimpleNamespace(name="local", model="test-model"),
-        hitl=SimpleNamespace(lockout_seconds=3, timeout_seconds=30),
+        hitl=SimpleNamespace(lockout_seconds=3, timeout_seconds=30, trust_ttl_seconds=0),
         run=SimpleNamespace(
             qb_max_retries=1,
             mcpd_timeout_seconds=10.0,

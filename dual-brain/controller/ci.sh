@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ci.sh — Icebreaker Phase 2 exit-gate verification (G1–G11).
+# ci.sh — Icebreaker Phase 2 + Phase 5 exit-gate verification (G1–G11, G5.1–G5.6).
 #
 # Run from the dual-brain/ directory:
 #   bash controller/ci.sh
@@ -45,7 +45,7 @@ FAILED_GATES=()
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  Icebreaker Phase 2 — Exit Gate Verification"
+echo "  Icebreaker Phase 2 + Phase 5 — Exit Gate Verification"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
@@ -231,10 +231,104 @@ else
 fi
 
 echo ""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase 5 gates (G5.1–G5.6)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── G5.1: HITL spoof-sanitization + a11y fallback ───────────────────────────
+echo "G5.1: HITL spoof-sanitization + a11y fallback..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_hitl_sanitize.py \
+    controller/tests/test_hitl_a11y.py -x -q 2>&1; then
+  pass 5.1 "HITL sanitize + a11y OK"
+else
+  fail 5.1 "HITL sanitize / a11y test failed"
+fi
+
+echo ""
+
+# ── G5.2: Lockout / raw-input ──────────────────────────────────────────────
+echo "G5.2: Lockout / raw-input..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_hitl_rawinput.py -x -q 2>&1; then
+  pass 5.2 "raw-input lockout OK"
+else
+  fail 5.2 "raw-input lockout test failed"
+fi
+
+echo ""
+
+# ── G5.3: Keymap ───────────────────────────────────────────────────────────
+echo "G5.3: Keymap..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_keymap.py -x -q 2>&1; then
+  pass 5.3 "keymap OK"
+else
+  fail 5.3 "keymap test failed"
+fi
+
+echo ""
+
+# ── G5.4: Actions + trust store + audit fields ────────────────────────────
+echo "G5.4: Actions + trust store + audit fields..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_hitl_actions.py \
+    controller/tests/test_trust_store.py \
+    controller/tests/test_hitl_audit_fields.py -x -q 2>&1; then
+  pass 5.4 "actions + trust store + audit fields OK"
+else
+  fail 5.4 "actions / trust store / audit fields test failed"
+fi
+
+echo ""
+
+# ── G5.5: Tier-2 escalate-only + classifier registry ─────────────────────
+echo "G5.5: Tier-2 escalate-only + classifier registry..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_tier2_review.py \
+    controller/tests/test_classifier_registry.py -x -q 2>&1; then
+  pass 5.5 "tier-2 review + classifier registry OK"
+else
+  fail 5.5 "tier-2 review / classifier registry test failed"
+fi
+
+echo ""
+
+# ── G5.6: Audit hash-chain + redaction ────────────────────────────────────
+echo "G5.6: Audit hash-chain + redaction..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_audit_chain.py \
+    controller/tests/test_audit_redaction.py -x -q 2>&1; then
+  pass 5.6 "audit hash-chain + redaction OK"
+else
+  fail 5.6 "audit hash-chain / redaction test failed"
+fi
+
+echo ""
+
+# ── G5.6b: CLI verify smoke ──────────────────────────────────────────────
+echo "G5.6b: CLI audit --verify smoke..."
+_SMOKE_LOG=$(mktemp /tmp/audit-smoke-XXXXXX.log)
+if PYTHONPATH=. python3 -c "
+from controller.audit import AuditLog, AuditFields, Outcome
+log = AuditLog(path='${_SMOKE_LOG}', fsync_each_write=False)
+try:
+    log.write_fields(AuditFields(
+        session_id='ci-smoke', turn_index=0, intent_id='ci-0',
+        action='system.status', target='', tier=0, reason='ci',
+        risk_level='read_only', outcome=Outcome.EXECUTED,
+        duration_ms=1.0, backend='local', model='test',
+        tokens_in=0, tokens_out=0, cost_estimate_usd=0.0,
+    ))
+finally:
+    log.close()
+" 2>&1 && PYTHONPATH=. python3 -m controller.audit --verify "$_SMOKE_LOG" 2>&1; then
+  pass 5.6b "CLI verify smoke OK"
+else
+  fail 5.6b "CLI verify smoke failed"
+fi
+rm -f "$_SMOKE_LOG"
+
+echo ""
 echo "═══════════════════════════════════════════════════════════"
 
 if [ ${#FAILED_GATES[@]} -eq 0 ]; then
-  echo "  All gates passed. Phase 2 is ready for PR review."
+  echo "  All gates passed. Phase 2 + Phase 5 P0 ready for PR review."
   echo "═══════════════════════════════════════════════════════════"
   echo ""
   exit 0
