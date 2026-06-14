@@ -1,0 +1,38 @@
+[
+  {
+    "name": "pre_buffered_approve",
+    "buffered_bytes": "a",
+    "expected_flushed": true,
+    "note": "A single 'a' byte buffered during lockout must be flushed — cannot auto-approve"
+  },
+  {
+    "name": "pre_buffered_approve_newline",
+    "buffered_bytes": "a\n",
+    "expected_flushed": true,
+    "note": "Approve + newline from readline-era — flushed in single-keypress mode"
+  },
+  {
+    "name": "pre_buffered_yes",
+    "buffered_bytes": "y",
+    "expected_flushed": true,
+    "note": "Universal 'y' for yes — flushed during lockout"
+  },
+  {
+    "name": "pre_buffered_numeric",
+    "buffered_bytes": "1",
+    "expected_flushed": true,
+    "note": "Numeric approve key buffered — flushed"
+  },
+  {
+    "name": "pre_buffered_paste_bomb",
+    "buffered_bytes": "aaaaaaaaaa",
+    "expected_flushed": true,
+    "note": "Paste of multiple approve chars — all flushed"
+  },
+  {
+    "name": "pre_buffered_escape_sequence",
+    "buffered_bytes": "[A",
+    "expected_flushed": true,
+    "note": "ANSI escape sequence injected during lockout — flushed"
+  }
+]

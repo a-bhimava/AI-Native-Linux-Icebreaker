@@ -169,6 +169,28 @@ def classify(intent: dict) -> ClassificationResult:
     )
 
 
+# ── Pluggable classifier registry (M5.2b) ────────────────────────────────────
+
+from typing import Callable
+
+Classifier = Callable[[dict], ClassificationResult]
+
+_REGISTRY: dict[str, Classifier] = {}
+
+
+def register_classifier(name: str, fn: Classifier) -> None:
+    _REGISTRY[name] = fn
+
+
+def get_classifier(name: str) -> Classifier:
+    if name not in _REGISTRY:
+        raise KeyError(f"Unknown classifier strategy {name!r}. Available: {sorted(_REGISTRY)}")
+    return _REGISTRY[name]
+
+
+register_classifier("rules", classify)
+
+
 # CLI for ad-hoc testing
 if __name__ == "__main__":
     test_cases = [

@@ -1,16 +1,33 @@
+"""HITL approval gate — hardened single-keypress terminal UI.
+
+Phase 5 M5.1b hardening (SF-1/SF-2/SF-3):
+  - All rendered fields are sanitized (ANSI, C0/C1, \\r\\n stripped)
+  - Input buffer flushed (tcflush) after lockout before reading
+  - Single raw keypress via tty.setcbreak + os.read(..., 1)
+  - Esc always → DENY, Ctrl+C → DENY, EOF → DENY, timeout → TIMEOUT
+  - ASCII fallback when $NO_COLOR set or locale is non-UTF-8
+"""
+
 from __future__ import annotations
 
+import os
 import re
 import select
+import signal
 import sys
 import time
+import uuid
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
 from .audit import Outcome
+from .keymap import Action, Keymap
 from .risk_classifier import ClassificationResult, Tier
+
+# ── ANSI / color helpers ───────────────────────────────────────────────────
 
 _BOLD   = "\033[1m"
 _DIM    = "\033[2m"
@@ -20,6 +37,51 @@ _GREEN  = "\033[32m"
 _RESET  = "\033[0m"
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+_C0_C1 = re.compile(r"[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f\x80-\x9f]")
+
+
+# ── Display sanitization (SF-1) ───────────────────────────────────────────
+
+
+def _sanitize_display(s: str, *, max_len: int = 256) -> str:
+    """Strip ANSI escapes, C0/C1 control chars, neutralize \\r\\n, truncate."""
+    if not isinstance(s, str):
+        s = str(s)
+    s = _ANSI_ESCAPE.sub("", s)
+    s = s.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    s = _C0_C1.sub("", s)
+    if len(s) > max_len:
+        s = s[:max_len] + ("..." if _ascii_safe() else "…")
+    return s
+
+
+def _confusable_warn(target: str) -> str:
+    """Return a warning suffix if target contains non-ASCII (potential homoglyph)."""
+    if target and not target.isascii():
+        return " [contains non-ASCII characters]" if _ascii_safe() else " ⚠ contains non-ASCII/look-alike chars"
+    return ""
+
+
+# ── Environment detection ─────────────────────────────────────────────────
+
+
+def _ascii_safe() -> bool:
+    """Return True if we should use ASCII-only output (no UTF-8 box chars)."""
+    for var in ("LC_ALL", "LC_CTYPE", "LANG"):
+        val = os.environ.get(var, "")
+        if val and "utf" in val.lower():
+            return False
+    return True
+
+
+def _colors_enabled() -> bool:
+    """Return True if ANSI color codes should be used."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    return sys.stdout.isatty()
+
+
+# ── Decision enum ─────────────────────────────────────────────────────────
 
 
 class Decision(str, Enum):
@@ -27,18 +89,25 @@ class Decision(str, Enum):
     DENIED   = "denied"
     TIMEOUT  = "timeout"
     NON_TTY  = "non_tty"
+    MODIFY   = "modify"
+    EXPLAIN  = "explain"
+    TRUST    = "trust"
 
     def to_outcome(self) -> Optional[Outcome]:
         return {
             Decision.DENIED:  Outcome.HITL_DENIED,
             Decision.TIMEOUT: Outcome.HITL_TIMEOUT,
             Decision.NON_TTY: Outcome.HITL_NON_TTY,
+            Decision.MODIFY:  Outcome.MODIFY_REQUESTED,
         }.get(self)  # APPROVED → None; caller sets downstream Outcome
+
+
+# ── Display data ──────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
 class HitlDisplayData:
-    """Immutable snapshot passed to any presenter — ANSI already stripped."""
+    """Immutable snapshot passed to any presenter — all fields sanitized."""
     action: str
     target: str
     tier: Tier
@@ -49,39 +118,113 @@ class HitlDisplayData:
     blocked_pattern: Optional[str]
     cow_summary: Optional[str]
 
+    def __post_init__(self) -> None:
+        for field_name in ("action", "target", "reason", "backend", "risk_level"):
+            val = getattr(self, field_name)
+            if val:
+                object.__setattr__(self, field_name, _sanitize_display(val))
+        if self.blocked_pattern:
+            object.__setattr__(self, "blocked_pattern",
+                               _sanitize_display(self.blocked_pattern))
+        if self.cow_summary:
+            object.__setattr__(self, "cow_summary",
+                               _sanitize_display(self.cow_summary, max_len=4096))
+
+
+# ── cbreak context manager ────────────────────────────────────────────────
+
+
+@contextmanager
+def _cbreak(stream):
+    """Set terminal to cbreak mode; restore on exit."""
+    try:
+        import termios
+        import tty
+    except ImportError:
+        yield
+        return
+
+    fd = stream.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        yield
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+# ── Presenter ABC ─────────────────────────────────────────────────────────
+
 
 class HitlPresenter(ABC):
     """Swap TerminalPresenter for a GUI presenter in Phase 5."""
 
-    def pre_check(self) -> Optional[Decision]:
-        """Return a Decision to short-circuit ask() before any I/O starts.
+    @property
+    def last_key_class(self) -> str:
+        return getattr(self, "_last_key_class", "")
 
-        TerminalPresenter uses this for the TTY guard. GUI presenters return None.
-        """
+    def pre_check(self) -> Optional[Decision]:
+        """Return a Decision to short-circuit ask() before any I/O starts."""
         return None
 
     @abstractmethod
     def show_prompt(self, data: HitlDisplayData) -> None: ...
 
     @abstractmethod
-    def lockout(self, seconds: int) -> None:
-        """Block for `seconds`; show visible progress (INV-6)."""
-        ...
+    def lockout(self, seconds: int) -> None: ...
 
     @abstractmethod
-    def read_decision(self, timeout_seconds: int) -> Decision:
-        """Return APPROVED, DENIED, TIMEOUT, or NON_TTY."""
-        ...
+    def read_decision(self, timeout_seconds: int) -> Decision: ...
+
+
+# ── ASCII / Unicode glyph sets ────────────────────────────────────────────
+
+_GLYPHS_UTF8 = {
+    "warn":     "⚠",   # ⚠
+    "critical": "⛔",   # ⛔
+    "ok":       "✓",   # ✓
+    "fail":     "✗",   # ✗
+    "arrow":    "⤴",   # ⤴
+    "hourglass": "⌛",  # ⌛
+    "line":     "─",   # ─
+    "dline":    "═",   # ═
+}
+
+_GLYPHS_ASCII = {
+    "warn":     "!",
+    "critical": "!!",
+    "ok":       "[OK]",
+    "fail":     "[X]",
+    "arrow":    "->",
+    "hourglass": "",
+    "line":     "-",
+    "dline":    "=",
+}
+
+
+def _g(name: str) -> str:
+    """Return the glyph for the current terminal capability."""
+    glyphs = _GLYPHS_ASCII if _ascii_safe() else _GLYPHS_UTF8
+    return glyphs.get(name, "")
+
+
+# ── Terminal presenter ────────────────────────────────────────────────────
 
 
 class TerminalPresenter(HitlPresenter):
-    """Apple-like terminal UI with live countdown and color coding."""
+    """Hardened terminal UI with single-keypress input, sanitization, and
+    configurable keymap."""
 
-    def __init__(self) -> None:
-        self._color = sys.stdout.isatty()
+    def __init__(self, *, keymap: Optional[Keymap] = None) -> None:
+        self._color = _colors_enabled()
+        self._keymap = keymap or Keymap()
+        self._last_key_class: str = ""
 
     def pre_check(self) -> Optional[Decision]:
-        return Decision.NON_TTY if not sys.stdin.isatty() else None
+        if not sys.stdin.isatty():
+            self._last_key_class = "non_tty"
+            return Decision.NON_TTY
+        return None
 
     def show_prompt(self, data: HitlDisplayData) -> None:
         print(self._render(data), flush=True)
@@ -90,46 +233,108 @@ class TerminalPresenter(HitlPresenter):
         for remaining in range(seconds, 0, -1):
             print(f"\r  Approve available in {remaining}s... ", end="", flush=True)
             time.sleep(1)
+        legend = self._keymap.legend(include_trust=True)
         c = self._color
-        avail = f"{_GREEN if c else ''}[A]pprove  [D]eny{_RESET if c else ''}"
-        print(f"\r  {avail}  — waiting...  ", flush=True)
+        if c:
+            avail = f"{_GREEN}{legend}{_RESET}"
+        else:
+            avail = legend
+        print(f"\r  {avail}  ", flush=True)
 
     def read_decision(self, timeout_seconds: int) -> Decision:
+        fd = sys.stdin.fileno()
+
+        # SF-2: flush any bytes buffered during lockout
+        try:
+            import termios
+            termios.tcflush(fd, termios.TCIFLUSH)
+        except (ImportError, OSError):
+            pass
+
+        with _cbreak(sys.stdin):
+            return self._read_loop(fd, timeout_seconds)
+
+    def _read_loop(self, fd: int, timeout_seconds: int) -> Decision:
         deadline = time.monotonic() + timeout_seconds
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                print("\n  ✗ Timed out — operation denied.", flush=True)
+                c = self._color
+                fail = f"{_RED}{_g('fail')}{_RESET}" if c else _g("fail")
+                print(f"\n  {fail} Timed out — operation denied.", flush=True)
+                self._last_key_class = "timeout"
                 return Decision.TIMEOUT
-            print(f"\r  [{int(remaining):2d}s]  [A]pprove  [D]eny  ", end="", flush=True)
+
+            legend_str = self._keymap.legend(include_trust=True)
+            print(f"\r  [{int(remaining):2d}s]  {legend_str}  ", end="", flush=True)
+
             try:
                 ready, _, _ = select.select([sys.stdin], [], [], min(remaining, 1.0))
             except (OSError, ValueError, BrokenPipeError):
+                self._last_key_class = "non_tty"
                 return Decision.NON_TTY
             if not ready:
                 continue
-            line = sys.stdin.readline()
-            if not line:
+
+            try:
+                raw = os.read(fd, 1)
+            except OSError:
+                self._last_key_class = "eof"
                 return Decision.DENIED
-            key = line.strip().upper()
-            if key == "A":
-                c = self._color
-                print(
-                    f"\r  {_GREEN if c else ''}✓ Approved{_RESET if c else ''}                   ",
-                    flush=True,
-                )
-                return Decision.APPROVED
-            elif key == "D":
-                print("\r  ✗ Denied                    ", flush=True)
+
+            if not raw:
+                self._last_key_class = "eof"
                 return Decision.DENIED
-            elif key in ("E", "M"):
-                label = "Explain more" if key == "E" else "Modify command"
-                print(f"\n  [{label}] — not implemented in V1 (Phase 5)", flush=True)
-            else:
-                print(f"\n  Unknown key '{line.strip()}'. Press [A] or [D].", flush=True)
+
+            key = raw.decode("utf-8", errors="replace")
+
+            if key == "\x1b":
+                print(f"\r  {_g('fail')} Denied (Esc)                    ", flush=True)
+                self._last_key_class = "esc"
+                return Decision.DENIED
+
+            action = self._keymap.lookup(key)
+            if action is None:
+                print(f"\r  Unknown key. Press ? for help.                ", flush=True)
+                continue
+
+            return self._resolve_action(action, key)
+
+    def _resolve_action(self, action: Action, key: str) -> Decision:
+        key_class = "numeric" if key.isdigit() else "mnemonic"
+        self._last_key_class = key_class
+        c = self._color
+
+        if action == Action.APPROVE:
+            ok = f"{_GREEN}{_g('ok')} Approved{_RESET}" if c else f"{_g('ok')} Approved"
+            print(f"\r  {ok}                       ", flush=True)
+            return Decision.APPROVED
+
+        if action == Action.DENY:
+            print(f"\r  {_g('fail')} Denied                         ", flush=True)
+            return Decision.DENIED
+
+        if action == Action.MODIFY:
+            return Decision.MODIFY
+
+        if action == Action.EXPLAIN:
+            return Decision.EXPLAIN
+
+        if action == Action.TRUST:
+            return Decision.TRUST
+
+        if action == Action.HELP:
+            self._last_key_class = "mnemonic"
+            legend = self._keymap.legend(include_trust=True)
+            print(f"\n  {legend}", flush=True)
+            print(f"  Esc = Deny (always)", flush=True)
+            return Decision.EXPLAIN  # re-prompt after showing help — handled by ask()
+
+        return Decision.DENIED  # unreachable fallback
 
     def _render(self, data: HitlDisplayData) -> str:
         c = self._color
+        ascii_mode = _ascii_safe()
 
         def bold(s: str) -> str:
             return f"{_BOLD}{s}{_RESET}" if c else s
@@ -144,33 +349,52 @@ class TerminalPresenter(HitlPresenter):
             Tier.READ_ONLY: f"{_DIM if c else ''}READ-ONLY{_RESET if c else ''}",
         }.get(data.tier, data.risk_level.upper())
 
+        line_char = _g("line")
+        sep = "  " + line_char * 58
+
+        if data.tier == Tier.HIGH:
+            dline = _g("dline")
+            sep_top = "  " + dline * 58
+            icon = _g("critical")
+            header = f"  {bold(icon + '  CRITICAL — destructive system change')}"
+        else:
+            sep_top = sep
+            icon = _g("warn")
+            header = f"  {bold(icon + '  System action requires your approval')}"
+
+        confusable = _confusable_warn(data.target)
+        target_display = bold(data.target) + (dim(confusable) if confusable else "")
+
         lines = [
             "",
-            "  " + "─" * 58,
-            f"  {bold(chr(0x26a0) + '  SYSTEM ACTION REQUIRES YOUR APPROVAL')}",
-            "  " + "─" * 58,
+            sep_top,
+            header,
+            sep,
             f"  {dim('Action')}     {bold(data.action)}",
-            f"  {dim('Target')}     {bold(data.target)}",
+            f"  {dim('Target')}     {target_display}",
             f"  {dim('Risk')}       {tier_label}",
-            f"  {dim('Reversible')}  {'No' if not data.reversible else 'Yes'}",
+            f"  {dim('Reversible')} {'No' if not data.reversible else 'Yes'}",
         ]
         if data.blocked_pattern:
             lines.append(f"  {dim('Pattern')}    {data.blocked_pattern}")
         if data.backend:
             lines.append(f"  {dim('Backend')}    {data.backend}")
         if data.reason:
-            lines.append(f"  {dim('Reason')}     {data.reason}")
+            lines.append(f"  {dim('Why')}        {data.reason}")
         if data.cow_summary:
             lines += ["", f"  {dim('Dry-run preview:')}"]
             for ln in data.cow_summary.splitlines()[:20]:
                 lines.append(f"    {ln}")
         lines += [
             "",
-            "  " + "─" * 58,
-            f"  {dim('[A]pprove   [D]eny      (approve available in 3 s)')}",
+            sep,
+            f"  {dim(self._keymap.legend(include_trust=True))}",
             "",
         ]
         return "\n".join(lines)
+
+
+# ── HitlPrompt coordinator ───────────────────────────────────────────────
 
 
 class HitlPrompt:
@@ -193,7 +417,6 @@ class HitlPrompt:
         self._intent = intent
         self._cls = classification
         self._backend = backend
-        # Strip ANSI escapes from mcpd output before any presenter sees it
         self._cow_summary = _ANSI_ESCAPE.sub("", cow_summary) if cow_summary else None
         self._lockout_seconds = (
             lockout_seconds if lockout_seconds is not None else self.LOCKOUT_SECONDS
@@ -203,23 +426,61 @@ class HitlPrompt:
         )
         self._presenter: HitlPresenter = presenter or TerminalPresenter()
 
+        self.decision_id: str = str(uuid.uuid4())
+        self.key_pressed_class: str = ""
+        self.decision_latency_ms: float = 0.0
+
     def ask(self) -> Decision:
         early = self._presenter.pre_check()
         if early is not None:
+            self.key_pressed_class = self._presenter.last_key_class or "non_tty"
+            self.decision_latency_ms = 0.0
             return early
+
         data = self._build_display_data()
         try:
             self._presenter.show_prompt(data)
             prompt_shown_at = time.monotonic()
             self._presenter.lockout(self._lockout_seconds)
-            # Enforce minimum wait regardless of presenter implementation
-            # (INV-6: approve must be unavailable for at least lockout_seconds).
             elapsed = time.monotonic() - prompt_shown_at
             if elapsed < self._lockout_seconds:
                 time.sleep(self._lockout_seconds - elapsed)
-            return self._presenter.read_decision(self._timeout_seconds)
+
+            old_handler = signal.getsignal(signal.SIGINT)
+            sigint_fired = [False]
+
+            def _sigint_deny(signum, frame):
+                sigint_fired[0] = True
+
+            try:
+                signal.signal(signal.SIGINT, _sigint_deny)
+                decision = self._presenter.read_decision(self._timeout_seconds)
+                if sigint_fired[0]:
+                    self.key_pressed_class = "sigint"
+                    self.decision_latency_ms = (time.monotonic() - prompt_shown_at) * 1000
+                    c = _colors_enabled()
+                    fail = f"{_RED}{_g('fail')}{_RESET}" if c else _g("fail")
+                    print(f"\n  {fail} Interrupted — operation denied.", flush=True)
+                    return Decision.DENIED
+            finally:
+                signal.signal(signal.SIGINT, old_handler)
+
+            self.key_pressed_class = self._presenter.last_key_class
+            self.decision_latency_ms = (time.monotonic() - prompt_shown_at) * 1000
+
+            # EXPLAIN loops: show help and re-read without exiting ask()
+            while decision == Decision.EXPLAIN:
+                decision = self._presenter.read_decision(self._timeout_seconds)
+                self.key_pressed_class = self._presenter.last_key_class
+                self.decision_latency_ms = (time.monotonic() - prompt_shown_at) * 1000
+
+            return decision
         except KeyboardInterrupt:
-            print("\n  ✗ Interrupted — operation denied.", flush=True)
+            self.key_pressed_class = "sigint"
+            self.decision_latency_ms = 0.0
+            c = _colors_enabled()
+            fail = f"{_RED}{_g('fail')}{_RESET}" if c else _g("fail")
+            print(f"\n  {fail} Interrupted — operation denied.", flush=True)
             return Decision.DENIED
 
     def _render(self) -> str:

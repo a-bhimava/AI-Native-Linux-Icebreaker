@@ -6,7 +6,9 @@ All tests complete in < 1 s (sleep and select are mocked out).
 
 from __future__ import annotations
 
+import os
 import sys
+from contextlib import contextmanager
 from io import StringIO
 
 import pytest
@@ -43,19 +45,40 @@ def _cls(**overrides) -> ClassificationResult:
 
 
 class FakeStdin:
-    """Fake stdin that yields pre-canned lines and reports isatty() = True."""
+    """Fake stdin with a real file descriptor for raw-input tests."""
 
-    def __init__(self, *lines: str) -> None:
-        self._lines = iter(lines)
+    def __init__(self) -> None:
+        self._r, self._w = os.pipe()
 
-    def readline(self) -> str:
-        return next(self._lines, "")
+    def fileno(self) -> int:
+        return self._r
 
     def isatty(self) -> bool:
         return True
 
-    def fileno(self) -> int:
-        return sys.stdin.fileno()
+    def close(self) -> None:
+        try:
+            os.close(self._r)
+        except OSError:
+            pass
+        try:
+            os.close(self._w)
+        except OSError:
+            pass
+
+
+@contextmanager
+def _noop_cbreak(stream):
+    yield
+
+
+def _patch_raw_input(monkeypatch, key_bytes, fake):
+    """Common monkeypatches for tests that go through TerminalPresenter's
+    raw-input path: mock _cbreak, termios.tcflush, and os.read."""
+    monkeypatch.setattr(hitl_module, "_cbreak", _noop_cbreak)
+    import termios
+    monkeypatch.setattr(termios, "tcflush", lambda fd, q: None)
+    monkeypatch.setattr("controller.hitl.os.read", lambda fd, n: key_bytes)
 
 
 # ── Test 1: non-TTY path ─────────────────────────────────────────────────────
@@ -82,14 +105,16 @@ def test_lockout_sleep_before_select(monkeypatch):
     monkeypatch.setattr(
         "controller.hitl.time.sleep", lambda s: call_order.append("sleep")
     )
+    fake = FakeStdin()
+    monkeypatch.setattr("sys.stdin", fake)
     monkeypatch.setattr(
         "controller.hitl.select.select",
-        lambda *a, **k: (call_order.append("select"), ([sys.stdin], [], []))[1],
+        lambda *a, **k: (call_order.append("select"), ([fake], [], []))[1],
     )
-    fake = FakeStdin("A\n")
-    monkeypatch.setattr("sys.stdin", fake)
+    _patch_raw_input(monkeypatch, b"a", fake)
 
     HitlPrompt(_intent(), _cls()).ask()
+    fake.close()
 
     assert "sleep" in call_order, "sleep must be called (lockout)"
     assert "select" in call_order, "select must be called (input loop)"
@@ -98,35 +123,39 @@ def test_lockout_sleep_before_select(monkeypatch):
     )
 
 
-# ── Test 3: [A] key → APPROVED ───────────────────────────────────────────────
+# ── Test 3: approve key → APPROVED ───────────────────────────────────────────
 
 
 def test_approve_key_returns_approved(monkeypatch):
     monkeypatch.setattr("controller.hitl.time.sleep", lambda s: None)
+    fake = FakeStdin()
+    monkeypatch.setattr("sys.stdin", fake)
     monkeypatch.setattr(
         "controller.hitl.select.select",
-        lambda *a, **k: ([sys.stdin], [], []),
+        lambda *a, **k: ([fake], [], []),
     )
-    fake = FakeStdin("A\n")
-    monkeypatch.setattr("sys.stdin", fake)
+    _patch_raw_input(monkeypatch, b"a", fake)
 
     result = HitlPrompt(_intent(), _cls()).ask()
+    fake.close()
     assert result == Decision.APPROVED
 
 
-# ── Test 4: [D] key → DENIED ─────────────────────────────────────────────────
+# ── Test 4: deny key → DENIED ─────────────────────────────────────────────────
 
 
 def test_deny_key_returns_denied(monkeypatch):
     monkeypatch.setattr("controller.hitl.time.sleep", lambda s: None)
+    fake = FakeStdin()
+    monkeypatch.setattr("sys.stdin", fake)
     monkeypatch.setattr(
         "controller.hitl.select.select",
-        lambda *a, **k: ([sys.stdin], [], []),
+        lambda *a, **k: ([fake], [], []),
     )
-    fake = FakeStdin("D\n")
-    monkeypatch.setattr("sys.stdin", fake)
+    _patch_raw_input(monkeypatch, b"d", fake)
 
     result = HitlPrompt(_intent(), _cls()).ask()
+    fake.close()
     assert result == Decision.DENIED
 
 
@@ -142,32 +171,35 @@ def test_timeout_returns_timeout(monkeypatch):
     )
     fake = FakeStdin()
     monkeypatch.setattr("sys.stdin", fake)
+    _patch_raw_input(monkeypatch, b"", fake)
 
     result = HitlPrompt(_intent(), _cls()).ask()
+    fake.close()
     assert result == Decision.TIMEOUT
 
 
-# ── Test 6: [E]/[M] stubs re-prompt, then [D] → DENIED ──────────────────────
+# ── Test 6: EXPLAIN re-prompts, then DENY → DENIED ──────────────────────────
 
 
-def test_stub_keys_reprompt_then_deny(monkeypatch, capsys):
+def test_explain_reprompts_then_deny(monkeypatch):
     monkeypatch.setattr("controller.hitl.time.sleep", lambda s: None)
-    call_count = 0
-
-    def _fake_select(*a, **k):
-        return ([sys.stdin], [], [])
-
-    monkeypatch.setattr("controller.hitl.select.select", _fake_select)
-    fake = FakeStdin("E\n", "M\n", "D\n")
+    fake = FakeStdin()
     monkeypatch.setattr("sys.stdin", fake)
+    monkeypatch.setattr(
+        "controller.hitl.select.select",
+        lambda *a, **k: ([fake], [], []),
+    )
+    monkeypatch.setattr(hitl_module, "_cbreak", _noop_cbreak)
+    import termios
+    monkeypatch.setattr(termios, "tcflush", lambda fd, q: None)
+
+    reads = iter([b"e", b"d"])
+    monkeypatch.setattr("controller.hitl.os.read", lambda fd, n: next(reads))
 
     result = HitlPrompt(_intent(), _cls()).ask()
+    fake.close()
 
     assert result == Decision.DENIED
-    captured = capsys.readouterr()
-    assert "Explain more" in captured.out
-    assert "Modify command" in captured.out
-    assert "Phase 5" in captured.out
 
 
 # ── Test 7: _render contains key fields ──────────────────────────────────────
@@ -203,7 +235,6 @@ def test_lockout_seconds_override(monkeypatch):
     monkeypatch.setattr(
         "controller.hitl.time.sleep", lambda s: sleep_calls.append(s)
     )
-    # Simulate 5 s elapsed so the ask()-level enforcement sleep is skipped.
     _t0 = [None]
     _real_monotonic = __import__("time").monotonic
     def _fake_monotonic():
@@ -212,14 +243,16 @@ def test_lockout_seconds_override(monkeypatch):
             return _t0[0]
         return _t0[0] + 5.1   # pretend 5.1 s passed after show_prompt
     monkeypatch.setattr("controller.hitl.time.monotonic", _fake_monotonic)
+    fake = FakeStdin()
+    monkeypatch.setattr("sys.stdin", fake)
     monkeypatch.setattr(
         "controller.hitl.select.select",
-        lambda *a, **k: ([sys.stdin], [], []),
+        lambda *a, **k: ([fake], [], []),
     )
-    fake = FakeStdin("D\n")
-    monkeypatch.setattr("sys.stdin", fake)
+    _patch_raw_input(monkeypatch, b"d", fake)
 
     HitlPrompt(_intent(), _cls(), lockout_seconds=5).ask()
+    fake.close()
 
     # Presenter sleeps 5 × 1s; enforcement skipped (5.1 s already elapsed).
     assert sum(sleep_calls) >= 5, (
@@ -237,6 +270,7 @@ def test_custom_presenter_invoked(monkeypatch):
     class SpyPresenter(HitlPresenter):
         def __init__(self):
             self.calls: list[str] = []
+            self._last_key_class = "numeric"
 
         def show_prompt(self, data: HitlDisplayData) -> None:
             self.calls.append("show")

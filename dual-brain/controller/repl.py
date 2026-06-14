@@ -59,7 +59,7 @@ class Repl:
         repl.run()         # blocks until /exit or Ctrl+D
     """
 
-    SLASH_COMMANDS = {"/help", "/exit", "/quit", "/reset", "/status"}
+    SLASH_COMMANDS = {"/help", "/exit", "/quit", "/reset", "/status", "/trust"}
 
     def __init__(self, controller: Any, cfg: Any) -> None:
         if not _HAS_PROMPT_TOOLKIT:
@@ -188,6 +188,8 @@ class Repl:
             self._print("  Session memory cleared. New session started.\n")
         elif verb == "/status":
             self._print_status()
+        elif verb == "/trust":
+            self._handle_trust(arg)
         elif verb == "/backend":
             if not arg:
                 self._print("  Usage: /backend <local|anthropic|gemini>\n")
@@ -217,6 +219,9 @@ class Repl:
             "    /status           — show session info",
             "    /reset            — clear session memory, start fresh",
             "    /backend <name>   — switch backend (local|anthropic|gemini)",
+            "    /trust list       — show active trust grants",
+            "    /trust revoke <id>— revoke a trust grant",
+            "    /trust off        — revoke all trust grants",
             "    /exit  /quit      — exit the REPL",
             "",
             "  Tips:",
@@ -241,6 +246,42 @@ class Repl:
             "",
         ]
         print("\n".join(lines))
+
+    def _handle_trust(self, arg: str) -> None:
+        trust_store = getattr(self._ctrl, "_trust_store", None)
+        if trust_store is None:
+            self._print("  Trust is disabled (trust_ttl_seconds = 0).\n")
+            return
+        sub = arg.strip().split(None, 1)
+        verb = sub[0].lower() if sub else ""
+        if verb == "list":
+            grants = trust_store.list_grants(session_id=self._session.session_id)
+            if not grants:
+                self._print("  No active trust grants.\n")
+                return
+            import time as _time
+            self._print("\n")
+            for g in grants:
+                remaining = max(0, int(g.expires_at - _time.monotonic()))
+                self._print(
+                    f"  {g.grant_id}  {g.action} → {g.target_prefix}  "
+                    f"(expires in {remaining}s)\n"
+                )
+            self._print("\n")
+        elif verb == "revoke":
+            grant_id = sub[1].strip() if len(sub) > 1 else ""
+            if not grant_id:
+                self._print("  Usage: /trust revoke <grant_id>\n")
+                return
+            if trust_store.revoke(grant_id):
+                self._print(f"  Revoked grant {grant_id}.\n")
+            else:
+                self._print(f"  No grant with ID {grant_id}.\n")
+        elif verb == "off":
+            trust_store.clear()
+            self._print("  All trust grants revoked.\n")
+        else:
+            self._print("  Usage: /trust list | /trust revoke <id> | /trust off\n")
 
     def _print(self, message: str) -> None:
         print(message, end="")

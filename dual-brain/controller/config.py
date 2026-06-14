@@ -25,7 +25,7 @@ import json
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Optional
 
@@ -36,6 +36,7 @@ from .backends import (
     SecretRef,
     install_root_redaction_filter,
 )
+from .keymap import Keymap, KeymapValidationError, load_keymap
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -94,6 +95,7 @@ class HitlConfig:
     lockout_seconds: int = 3    # INV-6 approve-button lockout
     timeout_seconds: int = 30   # decision timeout → auto-deny
     presenter: str = "terminal" # Phase 5 hook: swap for "gtk" or "web"
+    trust_ttl_seconds: int = 0  # 0 = [T]rust disabled; >0 = grant lifetime in seconds
 
 
 @dataclass(frozen=True)
@@ -161,6 +163,18 @@ class SessionConfig:
 
 
 @dataclass(frozen=True)
+class RiskConfig:
+    strategy: str = "rules"     # pluggable classifier: "rules" (default)
+
+
+@dataclass(frozen=True)
+class Tier2Config:
+    enabled: bool = False       # off by default; set True to enable Tier-2 review
+    strategy: str = "llm"       # "llm" | "rule" | "none"
+    max_retries: int = 2
+
+
+@dataclass(frozen=True)
 class ControllerConfig:
     qb: BackendConfig
     hitl: HitlConfig
@@ -168,6 +182,9 @@ class ControllerConfig:
     session: SessionConfig
     run: RunConfig
     config_path: Path
+    keymap: Keymap = field(default_factory=Keymap)
+    risk: RiskConfig = field(default_factory=RiskConfig)
+    tier2: Tier2Config = field(default_factory=Tier2Config)
 
 
 def _default_config_path() -> Path:
@@ -322,6 +339,7 @@ def _build_hitl_config(raw: dict) -> HitlConfig:
         lockout_seconds=section.get("lockout_seconds", 3),
         timeout_seconds=section.get("timeout_seconds", 30),
         presenter=section.get("presenter", "terminal"),
+        trust_ttl_seconds=section.get("trust_ttl_seconds", 0),
     )
 
 
@@ -370,6 +388,30 @@ def _build_session_config(raw: dict) -> SessionConfig:
     )
 
 
+def _build_risk_config(raw: dict) -> RiskConfig:
+    section = raw.get("risk", {})
+    return RiskConfig(
+        strategy=section.get("strategy", "rules"),
+    )
+
+
+def _build_tier2_config(raw: dict) -> Tier2Config:
+    section = raw.get("tier2", {})
+    return Tier2Config(
+        enabled=section.get("enabled", False),
+        strategy=section.get("strategy", "llm"),
+        max_retries=section.get("max_retries", 2),
+    )
+
+
+def _build_keymap(raw: dict) -> Keymap:
+    section = raw.get("keymap")
+    try:
+        return load_keymap(section)
+    except KeymapValidationError as exc:
+        raise BrainConfigError(str(exc)) from None
+
+
 def load(path: Path | None = None) -> ControllerConfig:
     """Load and validate the controller config.
 
@@ -410,7 +452,10 @@ def load(path: Path | None = None) -> ControllerConfig:
     prompts = _build_prompts_config(raw)
     session = _build_session_config(raw)
     run = _build_run_config(raw)
+    keymap = _build_keymap(raw)
+    risk = _build_risk_config(raw)
+    tier2 = _build_tier2_config(raw)
     return ControllerConfig(
         qb=qb, hitl=hitl, prompts=prompts, session=session, run=run,
-        config_path=resolved.resolve(),
+        config_path=resolved.resolve(), keymap=keymap, risk=risk, tier2=tier2,
     )

@@ -1,0 +1,182 @@
+[
+  {
+    "name": "ansi_cursor_up",
+    "field": "target",
+    "payload": "\u001b[A\u001b[A\u001b[2K✓ Approved",
+    "note": "ANSI cursor-up + line-clear + fake checkmark"
+  },
+  {
+    "name": "cr_overwrite",
+    "field": "target",
+    "payload": "/etc/shadow\r✓ Approved — safe to proceed          ",
+    "note": "Carriage return overwrites the real path with fake approval"
+  },
+  {
+    "name": "fake_checkmark_utf8",
+    "field": "reason",
+    "payload": "✓ Approved — no further action needed",
+    "note": "UTF-8 checkmark in reason field to fake approval"
+  },
+  {
+    "name": "newline_injection",
+    "field": "target",
+    "payload": "delete /etc\n✓ Approved\n  [OK] Operation complete",
+    "note": "Newline injection to draw fake approval below the target"
+  },
+  {
+    "name": "bidi_override",
+    "field": "target",
+    "payload": "‮dervorppA ✓",
+    "note": "RTL override to reverse Approved visually"
+  },
+  {
+    "name": "ansi_color_hide",
+    "field": "target",
+    "payload": "\u001b[8m/etc/shadow\u001b[0m/tmp/safe.txt",
+    "note": "ANSI hidden text to conceal the real target"
+  },
+  {
+    "name": "c0_null_bytes",
+    "field": "action",
+    "payload": "fs\u0000.delete",
+    "note": "Null byte injection in action name"
+  },
+  {
+    "name": "c0_bell_char",
+    "field": "reason",
+    "payload": "Ring\u0007the\u0007terminal\u0007bell",
+    "note": "Bell characters to annoy or distract"
+  },
+  {
+    "name": "c1_string_terminator",
+    "field": "target",
+    "payload": "/etcpasswd",
+    "note": "C1 String Terminator (0x9C) some terminals interpret it"
+  },
+  {
+    "name": "ansi_title_set",
+    "field": "reason",
+    "payload": "\u001b]2;APPROVED\u0007Normal reason text",
+    "note": "OSC sequence to change window title to APPROVED"
+  },
+  {
+    "name": "vertical_tab",
+    "field": "target",
+    "payload": "/tmp/safe\u000b/etc/shadow",
+    "note": "Vertical tab to push real target below visible area"
+  },
+  {
+    "name": "form_feed",
+    "field": "target",
+    "payload": "/tmp/safe\f/etc/shadow",
+    "note": "Form feed to clear screen on some terminals"
+  },
+  {
+    "name": "escape_bracket_n",
+    "field": "target",
+    "payload": "\u001b[1A\u001b[2K  Risk       READ-ONLY",
+    "note": "Move cursor up and overwrite Risk label"
+  },
+  {
+    "name": "csi_erase_display",
+    "field": "reason",
+    "payload": "\u001b[2J\u001b[HApproved. Nothing to worry about.",
+    "note": "CSI erase entire display + home cursor"
+  },
+  {
+    "name": "nbsp_path",
+    "field": "target",
+    "payload": "/etc/ shadow",
+    "note": "Non-breaking space in path looks like normal space"
+  },
+  {
+    "name": "zero_width_joiner",
+    "field": "target",
+    "payload": "/etc/pa‍sswd",
+    "note": "Zero-width joiner to obfuscate path"
+  },
+  {
+    "name": "homoglyph_slash",
+    "field": "target",
+    "payload": "∕etc∕passwd",
+    "note": "Division slash U+2215 instead of solidus U+002F"
+  },
+  {
+    "name": "cyrillic_a_homoglyph",
+    "field": "target",
+    "payload": "/etc/pаsswd",
+    "note": "Cyrillic a U+0430 instead of Latin a"
+  },
+  {
+    "name": "overlong_target",
+    "field": "target",
+    "payload": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/etc/shadow",
+    "note": "300 chars to push the real path past the truncation limit"
+  },
+  {
+    "name": "ansi_save_restore_cursor",
+    "field": "reason",
+    "payload": "\u001b[s\u001b[1;1H✓ Approved\u001b[u",
+    "note": "Save cursor move to top-left write fake restore"
+  },
+  {
+    "name": "tab_alignment",
+    "field": "target",
+    "payload": "/tmp/safe\t\t\t/etc/shadow",
+    "note": "Tabs to push real target to right edge of terminal"
+  },
+  {
+    "name": "escape_raw_mode",
+    "field": "target",
+    "payload": "\u001b[?1049h\u001b[H✓ Approved\u001b[?1049l",
+    "note": "Switch to alternate screen buffer write fake switch back"
+  },
+  {
+    "name": "double_cr",
+    "field": "reason",
+    "payload": "Safe operation\r\r✓ Approved — auto-executing",
+    "note": "Double carriage return overwrites with approval message"
+  },
+  {
+    "name": "backspace_injection",
+    "field": "target",
+    "payload": "/etc/shadow\b\b\b\b\b\b/tmp/notes  ",
+    "note": "Backspaces to erase real path and show fake"
+  },
+  {
+    "name": "dcs_sequence",
+    "field": "reason",
+    "payload": "Approved by adminNormal text",
+    "note": "Device Control String DCS interpreted by some terminals"
+  },
+  {
+    "name": "mixed_script_path",
+    "field": "target",
+    "payload": "/еtс/раsswd",
+    "note": "Cyrillic letters mixed with Latin to look like /etc/passwd"
+  },
+  {
+    "name": "ansi_sgr_bold_green",
+    "field": "reason",
+    "payload": "\u001b[1;32m✓ Approved\u001b[0m — auto-approved by system",
+    "note": "Bold green approval message injected via ANSI SGR"
+  },
+  {
+    "name": "clean_legitimate_action",
+    "field": "action",
+    "payload": "fs.write",
+    "note": "Legitimate action name must pass through unchanged"
+  },
+  {
+    "name": "clean_legitimate_target",
+    "field": "target",
+    "payload": "/home/user/documents/notes.txt",
+    "note": "Legitimate target path must pass through unchanged"
+  },
+  {
+    "name": "clean_legitimate_reason",
+    "field": "reason",
+    "payload": "User requested file creation for note-taking",
+    "note": "Legitimate reason must pass through unchanged"
+  }
+]
