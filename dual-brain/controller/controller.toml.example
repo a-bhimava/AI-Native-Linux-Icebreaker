@@ -68,6 +68,16 @@ max_tokens = 1024
 timeout_seconds = 30
 
 
+[qb.openai]
+# GPT-4.1 mini — fast, affordable model with native Structured Outputs
+# (response_format type=json_schema, strict=True). Supports oneOf
+# natively. ~$0.40 / 1M input, ~$1.60 / 1M output (confirm rates).
+model = "gpt-4.1-mini"
+api_key_env = "OPENAI_API_KEY"
+max_tokens = 1024
+timeout_seconds = 30
+
+
 # HITL gate — tunable safety parameters (all optional; defaults shown).
 # Increase lockout_seconds if users are rubber-stamping too fast.
 # Decrease timeout_seconds if unattended terminals are a concern.
@@ -151,6 +161,17 @@ timeout_seconds = 30
 # max_history = 10
 
 
+# QB-verifier voting — controls how many independent QB calls verify each
+# intent→tool_call mapping. Default votes=1 preserves current single-call
+# behavior. Set votes>1 to enable majority voting (trades latency for safety).
+#
+# [verifier]
+# votes           = 1       # 1 = single call (default, current behavior)
+# require         = 0       # 0 = majority (ceil(votes/2)); >0 = exact threshold
+# parallel        = true    # parallel calls via ThreadPoolExecutor
+# timeout_seconds = 30      # per-vote timeout
+
+
 # System prompts — all optional. Defaults to the in-package controller/prompts/ directory.
 # Override prompts_dir to point at a custom directory (e.g. for A/B prompt testing).
 # Per-backend paths take priority over prompts_dir.
@@ -161,6 +182,7 @@ timeout_seconds = 30
 # qb_local     = ""   # empty = use prompts_dir/qb_local.txt
 # qb_anthropic = ""
 # qb_gemini    = ""
+# qb_openai    = ""
 # pb           = ""
 # qb_verifier  = ""
 

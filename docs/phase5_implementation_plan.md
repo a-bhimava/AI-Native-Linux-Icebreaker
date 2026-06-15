@@ -13,11 +13,11 @@
 | M5.3 Audit chain + redaction | ✅ Complete | PR #9 (P0) | Hash-chain (seq + prev_hash), `verify_chain()` CLI, Shannon entropy redaction, per-tool field allowlist, `AuditSink` ABC |
 | M5.P1-sec | ✅ Complete | PR #10 (P1-A) | env scrub (`_scrubbed_env`), ephemeral REPL history, cost/limits governance, TOCTOU realpath fix. 981 tests. |
 | M5.P1-viewer | ✅ Complete | PR #11 (P1-B) | Interactive TUI audit viewer: lazy-indexed, j/k nav, filter/search/verify/stats, `/audit` REPL command, CLI `--json` mode. 1060 tests. |
-| M5.P1-stream | ⬜ | — | token streaming, cancel |
-| M5.P1-undo | ⬜ | — | mcpd COW rollback path (blocked — mcpd has no rollback RPC) |
-| M5.P2-backends | ⬜ | — | OpenAI/OAuth, QB-verifier voting |
-| M5.P2-daemon | ⬜ | — | systemd user unit |
-| M5.P2-access | ⬜ | — | screen-reader, GUI presenter |
+| M5.P1-stream | ✅ Complete | PR #11 (P1-BCD) | TurnEvent protocol, pipeline progress, QB token streaming, Ctrl+C cancel. 1182 tests. |
+| M5.P1-undo | ✅ Complete | PR #11 (P1-BCD) | UndoHistory ring buffer, /undo scaffold, UndoConfig. Awaits mcpd rollback RPC. 1182 tests. |
+| M5.P2-backends | ⬜ In progress | — | OpenAI backend + QB-verifier majority voting |
+| M5.P2-daemon | ⬜ Queued | — | systemd user service, AF_UNIX socket, client/server split |
+| M5.P2-access | ⬜ Queued | — | Screen-reader presenter, GTK presenter scaffold, presenter registry |
 
 ## §1 — Invariants we must not break
 
@@ -139,6 +139,79 @@ file-by-file diff index.)
 - NEW `dual-brain/controller/tests/test_audit_chain.py`,
   `dual-brain/controller/tests/test_audit_redaction.py`.
 
+### PR-F — OpenAI backend + verifier voting (M5.P2-backends)
+
+- NEW `dual-brain/controller/backends/openai_backend.py` — `@register_backend("openai")`
+  extending `_ApiBackend`, native Structured Outputs mode (`response_format` with
+  `type: "json_schema"`, `strict: True`). `_call_provider()` and `_stream_provider()`
+  following the same pattern as `anthropic_backend.py`.
+- NEW `dual-brain/controller/verifier.py` — `VerifierStrategy` ABC, `SingleVerifier`
+  (backward-compat default), `MajorityVoter` (ThreadPoolExecutor, configurable N-of-M
+  threshold). `VerifierResult` dataclass.
+- MOD `dual-brain/controller/__main__.py` — add `openai_backend` to self-registration
+  import list (line 30).
+- MOD `dual-brain/controller/schemas/controller_config.json` — add `"openai"` to
+  `qb.backend` enum; add `"openai": {"$ref": "#/definitions/api_section"}`; add
+  `[verifier]` section schema.
+- MOD `dual-brain/controller/config.py` — add `VerifierConfig` dataclass + builder;
+  add `qb_openai` to `PromptsConfig`.
+- MOD `dual-brain/controller/main.py` — replace inline `_qb_verify()` with
+  `self._verifier.verify()`.
+- MOD `dual-brain/controller/controller.toml.example` — add commented `[qb.openai]`
+  and `[verifier]` blocks.
+- NEW `dual-brain/controller/prompts/qb_openai.txt` — system prompt for OpenAI backend.
+- NEW `dual-brain/controller/tests/test_openai_backend.py` (~20 tests).
+- NEW `dual-brain/controller/tests/test_verifier.py` (~25 tests).
+
+### PR-G — Presenter registry + screen-reader + GTK scaffold (M5.P2-access)
+
+- NEW `dual-brain/controller/presenters/__init__.py` — package init.
+- NEW `dual-brain/controller/presenters/registry.py` — `@register_presenter(name)`
+  decorator, `_PRESENTER_REGISTRY` dict, `make_presenter(config, keymap)` factory.
+- NEW `dual-brain/controller/presenters/terminal.py` — `TerminalPresenter` moved here
+  + `@register_presenter("terminal")`.
+- NEW `dual-brain/controller/presenters/screen_reader.py` —
+  `@register_presenter("screen_reader")`. No ANSI, no box-drawing, no countdown
+  overwrites. Structured labeled output optimized for NVDA/JAWS/VoiceOver/Orca.
+- NEW `dual-brain/controller/presenters/gtk.py` — `@register_presenter("gtk")` scaffold.
+  GTK4 dialog, lazy PyGObject import, lockout via `GLib.timeout_add_seconds`, blocks
+  caller via `threading.Event`.
+- NEW `dual-brain/controller/presenters/forwarding.py` —
+  `@register_presenter("forwarding")`. Serializes `HitlDisplayData` over socket for
+  daemon mode (PR-H).
+- MOD `dual-brain/controller/hitl.py` — keep ABC + `HitlDisplayData` + coordinator;
+  re-export `TerminalPresenter` for backward compatibility.
+- MOD `dual-brain/controller/main.py` — `_build_presenter()` uses
+  `make_presenter(cfg.hitl, cfg.keymap)`.
+- MOD `dual-brain/controller/schemas/controller_config.json` — extend `presenter` enum:
+  `["terminal", "screen_reader", "gtk"]`.
+- MOD `dual-brain/controller/controller.toml.example` — document presenter options.
+- NEW `dual-brain/controller/tests/test_presenter_registry.py` (~15 tests).
+- NEW `dual-brain/controller/tests/test_screen_reader_presenter.py` (~20 tests).
+- NEW `dual-brain/controller/tests/test_gtk_presenter.py` (~10 tests, mock GTK).
+
+### PR-H — Daemon + client/server split + systemd (M5.P2-daemon)
+
+- NEW `dual-brain/controller/daemon.py` — AF_UNIX server, 0600 socket perms,
+  SO_PEERCRED UID authentication, session management, SIGTERM handler.
+- NEW `dual-brain/controller/client.py` — thin client: connects to AF_UNIX socket,
+  sends JSON-RPC requests, receives TurnEvent streams + HITL forwarding.
+- NEW `dual-brain/controller/protocol.py` — shared JSON-RPC 2.0 message types for
+  bidirectional client↔daemon communication. Request types: `turn.run`, `session.new`,
+  `session.reset`, `hitl.respond`, `daemon.status`, `daemon.shutdown`. Notification
+  types: `turn.progress`, `turn.token`, `turn.result`, `hitl.prompt`.
+- MOD `dual-brain/controller/__main__.py` — `--daemon` mode, `--connect <socket>` mode.
+- MOD `dual-brain/controller/repl.py` — client-mode REPL that delegates to `client.py`.
+- MOD `dual-brain/controller/config.py` — `DaemonConfig` dataclass (socket_path,
+  pid_file, max_clients) + builder.
+- MOD `dual-brain/controller/schemas/controller_config.json` — `[daemon]` section.
+- MOD `dual-brain/controller/controller.toml.example` — commented `[daemon]` block.
+- NEW `dual-brain/controller/systemd/icebreaker-controller.service` — systemd user unit.
+- NEW `dual-brain/controller/systemd/icebreaker-controller.socket` — socket activation.
+- NEW `dual-brain/controller/tests/test_daemon.py` (~20 tests).
+- NEW `dual-brain/controller/tests/test_client.py` (~15 tests).
+- NEW `dual-brain/controller/tests/test_protocol.py` (~15 tests).
+
 ## §4 — `ci.sh` updates (Phase-5 gates)
 
 After the existing G1–G11 block in `dual-brain/controller/ci.sh`:
@@ -169,6 +242,40 @@ python -m controller.audit --verify /tmp/audit-smoke.log
 exercises a PTY-driven real prompt, not a mock) is the final guardrail — mocked gates
 miss real bugs (lesson #4 from `HANDOFF.md`).
 
+P1 gates (added with PRs #10 and #11):
+
+```bash
+# G5.P1a — Credential & resource hygiene
+python -m pytest tests/test_env_scrub.py tests/test_cost_limits.py \
+                 tests/test_ephemeral_history.py tests/test_toctou.py -x -q
+
+# G5.P1b — Audit viewer (TUI + REPL integration)
+python -m pytest tests/test_audit_viewer.py -x -q
+
+# G5.P1b-cli — Audit viewer CLI JSON mode
+python -m controller.audit_viewer --json /tmp/audit-smoke.log | head -1 | python -c "import sys,json; json.load(sys.stdin)"
+
+# G5.P1c — Streaming + pipeline progress
+python -m pytest tests/test_streaming.py tests/test_turn_events.py -x -q
+
+# G5.P1d — Undo scaffold
+python -m pytest tests/test_undo.py -x -q
+```
+
+P2 gates (added with PRs #12, #13, #14):
+
+```bash
+# G5.P2a — OpenAI backend + verifier voting
+python -m pytest tests/test_openai_backend.py tests/test_verifier.py -x -q
+
+# G5.P2b — Daemon + client + protocol
+python -m pytest tests/test_daemon.py tests/test_client.py tests/test_protocol.py -x -q
+
+# G5.P2c — Presenter registry + screen-reader + GTK scaffold
+python -m pytest tests/test_presenter_registry.py tests/test_screen_reader_presenter.py \
+                 tests/test_gtk_presenter.py -x -q
+```
+
 ## §5 — Rollout
 
 1. Each PR is a feature branch off `main`. No commits directly on `main`.
@@ -183,14 +290,14 @@ miss real bugs (lesson #4 from `HANDOFF.md`).
 
 ## §6 — Out-of-scope (explicit)
 
-- mcpd changes — none in P0. Phase 5 is Controller-side only.
+- mcpd changes — none in Phase 5. Phase 5 is Controller-side only.
 - Model retrain — explicitly not in scope. run7 stands; do not casually retrain.
-- ISO build — Phase 6, after P0.
-- Persistent trust grants across REPL restarts — deferred to P1 (`M5.P1-sec`).
-- GUI/web presenter — deferred to P2 (`M5.P2-access`).
-- `/undo` (mcpd COW rollback) — deferred to P1 (`M5.P1-undo`).
-- OpenAI backend / QB-verifier voting — deferred to P2 (`M5.P2-backends`).
-- Daemon-mode systemd unit — deferred to P2 (`M5.P2-daemon`).
+- ISO build — Phase 6, after Phase 5.
+- ~~Persistent trust grants across REPL restarts~~ — shipped in P1-A (PR #10).
+- ~~GUI/web presenter~~ — now in scope: P2 PR #14 (`M5.P2-access`).
+- ~~`/undo` (mcpd COW rollback)~~ — scaffold shipped in P1-D (PR #11); mcpd rollback RPC remains Phase 6.
+- ~~OpenAI backend / QB-verifier voting~~ — now in scope: P2 PR #12 (`M5.P2-backends`).
+- ~~Daemon-mode systemd unit~~ — now in scope: P2 PR #13 (`M5.P2-daemon`).
 
 ## §7 — Acceptance for "P0 complete"
 
@@ -232,6 +339,12 @@ carries forward without being re-derived per PR.
 | R-5.3 | Sanitization removes legitimate diff characters from `cow_summary` | `cow_summary` already sanitized today; the new module-level `_sanitize_display` keeps the same behavior for that field; spoof corpus tests both spoof rejection AND legitimate-diff retention |
 | R-5.4 | Audit hash-chain breaks on log rotation or concurrent write | `_lock` is held around seq/prev_hash update + `os.write` + `os.fsync` (atomic from the file's perspective); rotation is out of scope for M5.3 (P1 viewer ships rotation-aware reader) |
 | R-5.5 | A keymap that disables DENY produces an un-exitable prompt | Loader requires DENY to retain ≥1 binding; `Esc` is hard-reserved DENY; `Ctrl+C` signal handler is DENY — three independent paths to deny |
+| R-P2.1 | OpenAI Structured Outputs silently drops schema constraints the local validator enforces | Local `jsonschema.Draft7Validator` remains the safety floor (INV-2-pluggable). OpenAI's grammar is an optimization, not a gate. |
+| R-P2.2 | Majority voting majority-fails on a correct tool call due to QB stochastic variance | Default `votes=1` (no voting). When enabled, operator sets threshold knowingly. Sampling decay still applies per-vote. |
+| R-P2.3 | AF_UNIX socket leaks to another user via symlink race | Create socket in a 0700 directory + 0600 socket + SO_PEERCRED UID check. Three independent barriers. |
+| R-P2.4 | Daemon HITL forwarding introduces a TOCTOU gap (client sends approval, daemon acts on stale intent) | Daemon thread holds the intent lock from `hitl.prompt` send through `hitl.respond` receive. No re-evaluation between. |
+| R-P2.5 | GTK presenter on Wayland crashes due to display server access from a non-main thread | GTK dialog runs on GLib main loop; caller thread blocks on a `threading.Event`. Standard GTK thread-safety pattern. |
+| R-P2.6 | Screen-reader presenter's `time.sleep(lockout)` blocks without progress indication | Deliberate: screen readers handle silence better than rapid-fire timer updates. One message before, one after. |
 
 ## §10 — Update protocol for this file
 
@@ -269,3 +382,68 @@ Merged 2026-06-14. Enterprise-grade terminal TUI for audit log inspection.
 - **Deferred:** Log rotation awareness, `n/N` search navigation, `r` refresh, export,
   mouse support, configurable viewer keymap — all future enhancements.
 - **Next:** PR-P1-C (streaming) or PR-P1-D (undo scaffold).
+
+### PR #11 — M5.P1-BCD (Streaming + Undo + Audit Viewer bundled)
+
+Built 2026-06-14. Bundled P1-B viewer + P1-C streaming + P1-D undo scaffold.
+
+- **Shipped:** TurnEvent protocol (`ProgressEvent`/`TokenEvent`/`ResultEvent`/`ErrorEvent`),
+  `run_turn_streaming()` generator in `main.py`, `_stream_provider()` + `stream_complete()`
+  in `base.py`, SSE/Anthropic/Gemini streaming overrides, pipeline progress rendering,
+  Ctrl+C cancel with `Outcome.CANCELLED` audit, `UndoHistory` ring buffer, `/undo` REPL
+  command, `UndoConfig`. 122 new tests. CI gates G5.P1c + G5.P1d green. 1182 total tests.
+- **Deferred:** mcpd rollback RPC (undo always returns "unavailable"), streaming error
+  recovery, per-step timing in audit.
+- **Next:** P2 — OpenAI backend, verifier voting, daemon, presenters.
+
+## §12 — P2 acceptance criteria
+
+### PR #12 — M5.P2-backends (OpenAI Backend + Verifier Voting)
+
+All of:
+
+- G5.P2a green in `ci.sh`.
+- `qb.backend = "openai"` runs a turn with mocked OpenAI SDK (unit tests — no live API
+  key required in CI).
+- Verifier voting with `votes=3` produces majority verdict; audit `extra` records
+  `verifier_votes` and `verified_count`.
+- Backward compat: `votes=1` (default) produces identical behavior to current single-call
+  `_qb_verify()`.
+- `transform_schema_for_provider()` handles OpenAI-specific quirks (e.g.
+  `additionalProperties: false` injection).
+- Older configs without `[qb.openai]` or `[verifier]` sections load without error.
+
+### PR #13 — M5.P2-daemon (systemd User Service)
+
+All of:
+
+- G5.P2b green in `ci.sh`.
+- Daemon starts on `--daemon`, creates AF_UNIX socket with 0600 permissions.
+- SO_PEERCRED (Linux) / LOCAL_PEERCRED (macOS) rejects cross-UID connections.
+- Client connects via `--connect`, sends turn, receives TurnEvent stream.
+- HITL forwarding round-trip: daemon sends `hitl.prompt`, client responds `hitl.respond`,
+  daemon proceeds with the human decision (BP-4 preserved).
+- `--repl` without `--connect` still works (monolithic mode unchanged, BP-2).
+- systemd unit files present and syntactically valid (`systemd-analyze verify`).
+
+### PR #14 — M5.P2-access (Presenter Registry + Screen-Reader + GTK)
+
+All of:
+
+- G5.P2c green in `ci.sh`.
+- `make_presenter("terminal", ...)` returns `TerminalPresenter` (backward compat).
+- `make_presenter("screen_reader", ...)` returns a presenter that emits zero ANSI escapes,
+  zero box-drawing characters, plain-text labeled fields.
+- `make_presenter("gtk", ...)` raises a clear error if PyGObject is missing; renders a
+  dialog with lockout + approve/deny when PyGObject is present.
+- `TerminalPresenter` import from `hitl.py` still works (re-export backward compat).
+- Registry rejects duplicate registrations and unknown presenter names.
+
+### "P2 complete" aggregate
+
+All three PR acceptance sections above, plus:
+
+- `docs/phase5_implementation_plan.md` §0 updated to reflect all P2 milestones as ✅.
+- All P2 CI gates (G5.P2a, G5.P2b, G5.P2c) added to `ci.sh` and passing.
+- Total test count ≥ 1300.
+- One human reviewer + module owner LGTM per PR (WF-6).

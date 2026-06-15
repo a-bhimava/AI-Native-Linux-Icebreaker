@@ -12,11 +12,12 @@
       "properties": {
         "backend": {
           "type": "string",
-          "enum": ["local", "anthropic", "gemini"]
+          "enum": ["local", "anthropic", "gemini", "openai"]
         },
         "local": {"$ref": "#/definitions/local_section"},
         "anthropic": {"$ref": "#/definitions/api_section"},
-        "gemini": {"$ref": "#/definitions/api_section"}
+        "gemini": {"$ref": "#/definitions/api_section"},
+        "openai": {"$ref": "#/definitions/api_section"}
       }
     },
     "hitl": {
@@ -158,6 +159,29 @@
         }
       }
     },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "QB-verifier voting. Default votes=1 preserves current single-call behavior (BP-2).",
+      "properties": {
+        "votes": {
+          "type": "integer", "minimum": 1, "maximum": 9,
+          "description": "Number of independent QB verification calls. 1 = current behavior."
+        },
+        "require": {
+          "type": "integer", "minimum": 0, "maximum": 9,
+          "description": "Exact threshold of 'verified: true' votes required. 0 = majority (ceil(votes/2))."
+        },
+        "parallel": {
+          "type": "boolean",
+          "description": "Run votes in parallel via ThreadPoolExecutor. Default true."
+        },
+        "timeout_seconds": {
+          "type": "integer", "minimum": 1, "maximum": 300,
+          "description": "Per-vote timeout in seconds."
+        }
+      }
+    },
     "prompts": {
       "type": "object",
       "additionalProperties": false,
@@ -170,6 +194,7 @@
         "qb_local":       {"type": "string", "description": "Override path for qb_local.txt. Empty = use prompts_dir."},
         "qb_anthropic":   {"type": "string", "description": "Override path for qb_anthropic.txt. Empty = use prompts_dir."},
         "qb_gemini":      {"type": "string", "description": "Override path for qb_gemini.txt. Empty = use prompts_dir."},
+        "qb_openai":      {"type": "string", "description": "Override path for qb_openai.txt. Empty = use prompts_dir."},
         "pb":             {"type": "string", "description": "Override path for pb.txt. Empty = use prompts_dir."},
         "qb_verifier":    {"type": "string", "description": "Override path for qb_verifier.txt. Empty = use prompts_dir."}
       }

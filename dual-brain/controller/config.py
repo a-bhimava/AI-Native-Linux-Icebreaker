@@ -104,6 +104,7 @@ class PromptsConfig:
     qb_local: str = ""          # per-backend override path; empty = use prompts_dir
     qb_anthropic: str = ""
     qb_gemini: str = ""
+    qb_openai: str = ""
     pb: str = ""
     qb_verifier: str = ""
 
@@ -196,6 +197,14 @@ class UndoConfig:
 
 
 @dataclass(frozen=True)
+class VerifierConfig:
+    votes: int = 1                      # 1 = current single-call behavior (BP-2)
+    require: int = 0                    # 0 = majority; >0 = exact threshold
+    parallel: bool = True               # parallel calls via ThreadPoolExecutor
+    timeout_seconds: int = 30
+
+
+@dataclass(frozen=True)
 class ControllerConfig:
     qb: BackendConfig
     hitl: HitlConfig
@@ -209,6 +218,7 @@ class ControllerConfig:
     cost: CostConfig = field(default_factory=CostConfig)
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     undo: UndoConfig = field(default_factory=UndoConfig)
+    verifier: VerifierConfig = field(default_factory=VerifierConfig)
 
 
 def _default_config_path() -> Path:
@@ -379,6 +389,7 @@ def _build_prompts_config(raw: dict) -> PromptsConfig:
         qb_local=section.get("qb_local", ""),
         qb_anthropic=section.get("qb_anthropic", ""),
         qb_gemini=section.get("qb_gemini", ""),
+        qb_openai=section.get("qb_openai", ""),
         pb=section.get("pb", ""),
         qb_verifier=section.get("qb_verifier", ""),
     )
@@ -455,6 +466,16 @@ def _build_undo_config(raw: dict) -> UndoConfig:
     )
 
 
+def _build_verifier_config(raw: dict) -> VerifierConfig:
+    section = raw.get("verifier", {})
+    return VerifierConfig(
+        votes=section.get("votes", 1),
+        require=section.get("require", 0),
+        parallel=section.get("parallel", True),
+        timeout_seconds=section.get("timeout_seconds", 30),
+    )
+
+
 def _build_keymap(raw: dict) -> Keymap:
     section = raw.get("keymap")
     try:
@@ -509,8 +530,9 @@ def load(path: Path | None = None) -> ControllerConfig:
     cost = _build_cost_config(raw)
     limits = _build_limits_config(raw)
     undo = _build_undo_config(raw)
+    verifier = _build_verifier_config(raw)
     return ControllerConfig(
         qb=qb, hitl=hitl, prompts=prompts, session=session, run=run,
         config_path=resolved.resolve(), keymap=keymap, risk=risk, tier2=tier2,
-        cost=cost, limits=limits, undo=undo,
+        cost=cost, limits=limits, undo=undo, verifier=verifier,
     )
