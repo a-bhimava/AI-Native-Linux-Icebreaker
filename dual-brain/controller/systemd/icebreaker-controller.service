@@ -1,0 +1,14 @@
+[Unit]
+Description=Icebreaker Controller Daemon
+After=network.target
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/python3 -m controller --daemon
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=on-failure
+RestartSec=5
+StateDirectory=icebreaker
+
+[Install]
+WantedBy=default.target
