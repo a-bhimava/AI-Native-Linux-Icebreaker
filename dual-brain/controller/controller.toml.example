@@ -75,7 +75,7 @@ timeout_seconds = 30
 # [hitl]
 # lockout_seconds = 3     # seconds the Approve button is disabled (INV-6 minimum: 1)
 # timeout_seconds = 30    # seconds before auto-deny
-# presenter = "terminal"  # Phase 5: swap for "gtk" or "web"
+# presenter = "terminal"  # "terminal" | "screen_reader" | "gtk" (requires PyGObject)
 # trust_ttl_seconds = 0   # 0 = [T]rust disabled (default); set > 0 to enable trust grants
 
 
