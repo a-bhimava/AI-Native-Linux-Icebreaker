@@ -143,14 +143,11 @@ def test_load_bad_toml_syntax_raises_with_line_number(tmp_path):
 def test_load_rejects_unknown_backend(tmp_path):
     bad = _write_toml(
         tmp_path,
-        '[qb]\nbackend = "openai"\n\n'
-        '[qb.openai]\nmodel = "gpt"\n'
-        'api_key_env = "OPENAI_API_KEY"\n'
-        'max_tokens = 1\ntimeout_seconds = 1\n',
+        '[qb]\nbackend = "cohere"\n',
     )
     with pytest.raises(BrainConfigError) as exc_info:
         load(bad)
-    assert "openai" in str(exc_info.value) or "enum" in str(exc_info.value).lower()
+    assert "cohere" in str(exc_info.value) or "enum" in str(exc_info.value).lower()
 
 
 # ── 44: selected-backend-only section enforcement (D12) ──────────────────────

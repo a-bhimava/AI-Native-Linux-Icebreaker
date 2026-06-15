@@ -27,7 +27,7 @@ from .session import SessionState
 
 def _build_qb(cfg: ControllerConfig) -> Any:
     # Import concrete backends so they self-register.
-    from .backends import anthropic_backend, gemini_backend, llama_local_backend  # noqa: F401
+    from .backends import anthropic_backend, gemini_backend, llama_local_backend, openai_backend  # noqa: F401
     return make_backend(cfg)
 
 

@@ -21,21 +21,12 @@ from .mcpd_client import JsonRpcError, McpdClient, McpdProcessError, McpdTimeout
 from .risk_classifier import ClassificationResult, Tier, classify
 from .tier2_review import Tier2Reviewer, get_reviewer
 from .trust_store import TrustStore
+from .verifier import VerifierConfig, VerifierStrategy, make_verifier
 
 _SUMMARISE_SCHEMA = {
     "type": "object",
     "properties": {"summary": {"type": "string"}},
     "required": ["summary"],
-    "additionalProperties": False,
-}
-
-_VERIFY_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "verified": {"type": "boolean"},
-        "reason":   {"type": "string"},
-    },
-    "required": ["verified", "reason"],
     "additionalProperties": False,
 }
 
@@ -117,11 +108,11 @@ class Controller:
                 max_retries=cfg.tier2.max_retries,
             )
         self._schemas_dir = self._resolve_schemas_dir()
-        # Load intent schema once at init — QB complete() needs it for
-        # API backends (Anthropic/Gemini use native JSON-schema output mode).
         self._intent_schema: dict = json.loads(
             (Path(__file__).parent / "schemas" / "intent.json").read_text(encoding="utf-8")
         )
+        vcfg = getattr(cfg, "verifier", None) or VerifierConfig()
+        self._verifier: VerifierStrategy = make_verifier(vcfg)
 
     def backend_name(self) -> str:
         return self._cfg.qb.name
@@ -378,9 +369,14 @@ class Controller:
 
             # Step 8: QB verifier
             yield _progress("qb_verify")
-            verification = self._qb_verify(intent, tool_call)
-            if not verification.get("verified", False):
+            verifier_system = self._prompts.get("qb_verifier")
+            vresult = self._verifier.verify(intent, tool_call, self._qb, verifier_system)
+            if not vresult.verified:
                 duration = (time.monotonic() - t0) * 1000
+                extra = {}
+                if vresult.votes_cast > 1:
+                    extra["verifier_votes"] = vresult.votes_cast
+                    extra["verified_count"] = vresult.verified_count
                 self._audit.write_fields(AuditFields(
                     session_id=session.session_id, turn_index=session.turn_index,
                     intent_id=intent_id, action=intent["action"],
@@ -390,10 +386,11 @@ class Controller:
                     backend=session.backend, model=self._cfg.qb.model,
                     tokens_in=total_tokens_in, tokens_out=total_tokens_out,
                     cost_estimate_usd=total_cost,
+                    extra=extra if extra else None,
                 ))
                 yield ResultEvent(result=TurnResult(
                     success=False,
-                    output=f"Verifier rejected: {verification.get('reason', 'mismatch')}",
+                    output=f"Verifier rejected: {vresult.reason}",
                     outcome=Outcome.QB_VERIFIER_REJECTED, tier=int(cls_result.tier),
                     backend=session.backend, duration_ms=duration,
                     cost_usd=total_cost if total_cost > 0 else None,
@@ -778,9 +775,14 @@ class Controller:
             )
 
         # ── Step 8: QB verifier round-trip ────────────────────────────────────
-        verification = self._qb_verify(intent, tool_call)
-        if not verification.get("verified", False):
+        verifier_system = self._prompts.get("qb_verifier")
+        vresult = self._verifier.verify(intent, tool_call, self._qb, verifier_system)
+        if not vresult.verified:
             duration = (time.monotonic() - t0) * 1000
+            extra = {}
+            if vresult.votes_cast > 1:
+                extra["verifier_votes"] = vresult.votes_cast
+                extra["verified_count"] = vresult.verified_count
             self._audit.write_fields(AuditFields(
                 session_id=session.session_id, turn_index=session.turn_index,
                 intent_id=intent_id, action=intent["action"],
@@ -790,10 +792,11 @@ class Controller:
                 backend=session.backend, model=self._cfg.qb.model,
                 tokens_in=total_tokens_in, tokens_out=total_tokens_out,
                 cost_estimate_usd=total_cost,
+                extra=extra if extra else None,
             ))
             return TurnResult(
                 success=False,
-                output=f"Verifier rejected: {verification.get('reason', 'mismatch')}",
+                output=f"Verifier rejected: {vresult.reason}",
                 outcome=Outcome.QB_VERIFIER_REJECTED, tier=int(cls_result.tier),
                 backend=session.backend, duration_ms=duration,
                 cost_usd=total_cost if total_cost > 0 else None,
@@ -904,23 +907,6 @@ class Controller:
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
-
-    def _qb_verify(self, intent: dict, tool_call: dict) -> dict:
-        verifier_system = self._prompts.get("qb_verifier")
-        user_msg = json.dumps(
-            {"intent": intent, "tool_call": tool_call},
-            separators=(",", ":"),
-        )
-        try:
-            resp = self._qb.complete(
-                system=verifier_system,
-                user=user_msg,
-                schema=_VERIFY_SCHEMA,
-                max_retries=1,
-            )
-            return resp.content_json
-        except Exception:
-            return {"verified": False, "reason": "verifier call failed"}
 
     def _qb_summarise(self, raw_output: str, intent: dict) -> str:
         summarise_system = (
