@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, Generator
 
 import jsonschema
 
@@ -138,12 +138,13 @@ class BrainBackend(ABC):
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        if "complete" in cls.__dict__:
-            raise TypeError(
-                f"{cls.__name__} cannot override BrainBackend.complete(); "
-                "schema validation and retry are non-overridable "
-                "(INV-2-pluggable safety floor)."
-            )
+        for method_name in ("complete", "stream_complete"):
+            if method_name in cls.__dict__:
+                raise TypeError(
+                    f"{cls.__name__} cannot override BrainBackend.{method_name}(); "
+                    "schema validation and retry are non-overridable "
+                    "(INV-2-pluggable safety floor)."
+                )
         # D20: every subclass MUST declare __slots__ — otherwise the
         # subclass instance gets a __dict__ and the base's slot lockdown
         # is bypassed. Subclasses without SDK state can declare
@@ -207,6 +208,90 @@ class BrainBackend(ABC):
         published rate table.
         """
         return None
+
+    def _stream_provider(
+        self, envelope: RequestEnvelope
+    ) -> Generator[tuple[str, int, int], None, None]:
+        """Yield ``(chunk_text, tokens_in_delta, tokens_out_delta)``.
+
+        Default: call ``_call_provider()`` and yield the full result as
+        one chunk. Override in subclasses for true streaming.
+        """
+        text, tok_in, tok_out = self._call_provider(envelope)
+        yield (text, tok_in, tok_out)
+
+    def stream_complete(
+        self,
+        system: str,
+        user: str,
+        schema: dict | None,
+        max_retries: int = 3,
+    ) -> Generator[tuple[str, str, bool], None, None]:
+        """Non-overridable streaming generator.
+
+        Yields ``(chunk, accumulated, is_final)`` tuples. Schema
+        validation runs on the final accumulated text. If validation
+        fails, retries fall back to non-streaming ``complete()``.
+        """
+        if max_retries < 1:
+            raise BrainConfigError(
+                f"max_retries={max_retries} must be >= 1"
+            )
+        if max_retries > MAX_RETRY_HARD_CAP:
+            raise BrainConfigError(
+                f"max_retries={max_retries} exceeds hard cap "
+                f"{MAX_RETRY_HARD_CAP}"
+            )
+
+        validator = (
+            jsonschema.Draft7Validator(
+                schema,
+                format_checker=jsonschema.FormatChecker(formats=["uuid"]),
+            )
+            if schema is not None
+            else None
+        )
+
+        sampling = _SAMPLING_DECAY[0]
+        envelope = RequestEnvelope(
+            system=system,
+            user=user,
+            schema=schema,
+            sampling=sampling,
+            tools_disabled=True,
+        )
+
+        probe_before = self._auditor.call_count
+        accumulated = ""
+        tokens_in_total = 0
+        tokens_out_total = 0
+        for chunk, tok_in, tok_out in self._stream_provider(envelope):
+            if self._auditor.call_count == probe_before:
+                raise BrainSecurityError(
+                    f"{type(self).__name__}._stream_provider did not call "
+                    "self._auditor.intercept(); G3 stage-2 contract "
+                    "violated."
+                )
+            accumulated += chunk
+            tokens_in_total += tok_in
+            tokens_out_total += tok_out
+            yield (chunk, accumulated, False)
+
+        try:
+            payload = self._extract_json_strict(accumulated)
+            if validator is not None:
+                validator.validate(payload)
+            yield ("", accumulated, True)
+            return
+        except (json.JSONDecodeError, jsonschema.ValidationError):
+            pass
+
+        resp = self.complete(
+            system=system, user=user, schema=schema,
+            max_retries=max_retries,
+        )
+        full_text = json.dumps(resp.content_json)
+        yield (full_text, full_text, True)
 
     @staticmethod
     def _extract_json_strict(raw: str) -> dict:

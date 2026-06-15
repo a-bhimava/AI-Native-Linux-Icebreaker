@@ -90,6 +90,14 @@
           "type": "boolean",
           "description": "Show live braille spinner while QB/PB/mcpd process."
         },
+        "show_progress": {
+          "type": "boolean",
+          "description": "Show step-by-step pipeline progress instead of generic spinner."
+        },
+        "stream_output": {
+          "type": "boolean",
+          "description": "Stream QB summarisation tokens as they arrive."
+        },
         "color": {
           "type": "string", "enum": ["auto", "always", "never"],
           "description": "ANSI colour output. 'auto' enables when stdout is a TTY."
@@ -132,6 +140,21 @@
         "help": {
           "type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1}, "minItems": 1,
           "description": "Keys that trigger HELP. Default: [\"?\"]. '?' must always be included."
+        }
+      }
+    },
+    "undo": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Undo scaffold — BP-2 off by default. Awaits mcpd rollback RPC.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable undo history tracking and /undo REPL command."
+        },
+        "max_history": {
+          "type": "integer", "minimum": 1, "maximum": 100,
+          "description": "Ring buffer depth for undo history per session."
         }
       }
     },

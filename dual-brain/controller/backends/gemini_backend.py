@@ -17,7 +17,7 @@ Pinned SDK: ``google-generativeai>=0.8`` (``dual-brain/requirements.txt``).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Generator
 
 from .base import BrainProviderError, RequestEnvelope
 from ._api_common import _ApiBackend, transform_schema_for_provider
@@ -43,6 +43,65 @@ class GeminiBackend(_ApiBackend):
 
         genai.configure(api_key=self._api_key_ref.reveal())
         self._genai = genai
+
+    def _stream_provider(
+        self, envelope: RequestEnvelope
+    ) -> Generator[tuple[str, int, int], None, None]:
+        """Stream via Gemini ``generate_content(stream=True)``."""
+        if envelope.schema is None:
+            raise BrainProviderError(
+                "gemini backend requires a schema in the envelope"
+            )
+
+        wire_schema = transform_schema_for_provider(
+            envelope.schema,
+            convert_oneof_to_anyof=True,
+            strip_format=True,
+        )
+
+        model = self._genai.GenerativeModel(
+            self._config.model,
+            system_instruction=envelope.system,
+        )
+
+        generation_config = {
+            "temperature": envelope.sampling["temperature"],
+            "top_p": envelope.sampling["top_p"],
+            "max_output_tokens": self._config.max_tokens,
+            "response_mime_type": "application/json",
+            "response_schema": wire_schema,
+        }
+
+        audit_payload: dict[str, Any] = {
+            "model": self._config.model,
+            "system_instruction": envelope.system,
+            "contents": [
+                {"role": "user", "parts": [{"text": envelope.user}]}
+            ],
+            "generation_config": generation_config,
+        }
+        self._auditor.intercept(audit_payload)
+
+        try:
+            response = model.generate_content(
+                envelope.user,
+                generation_config=generation_config,
+                request_options={"timeout": self._config.timeout_seconds},
+                stream=True,
+            )
+            for chunk in response:
+                text = getattr(chunk, "text", "") or ""
+                if text:
+                    yield (text, 0, 0)
+            usage = response.usage_metadata
+            yield (
+                "",
+                usage.prompt_token_count,
+                usage.candidates_token_count,
+            )
+        except Exception as exc:
+            from .sanitize import sanitize_exception
+            raise BrainProviderError(sanitize_exception(exc)) from None
 
     def _call_provider(
         self, envelope: RequestEnvelope

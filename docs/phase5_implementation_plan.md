@@ -8,13 +8,13 @@
 
 | Milestone | Status | PR | Notes |
 |---|---|---|---|
-| M5.1 Hardened HITL | ✅ Complete | PR-A (keymap), PR-B (HITL hardening), PR-C (trust store) | `keymap.py`, `hitl.py` hardening, `trust_store.py`, REPL `/trust` commands |
-| M5.2 Tier-2 escalate-only | ✅ Complete | PR-D | `tier2_review.py`, classifier registry in `risk_classifier.py`, escalate-only insert in `main.py` |
-| M5.3 Audit chain + redaction | ✅ Complete | PR-E | Hash-chain (seq + prev_hash), `verify_chain()` CLI, Shannon entropy redaction, per-tool field allowlist, `AuditSink` ABC |
-| M5.P1-sec | ⬜ | — | env scrub, history, governance, TOCTOU |
-| M5.P1-undo | ⬜ | — | mcpd COW rollback path |
+| M5.1 Hardened HITL | ✅ Complete | PR #9 (P0) | `keymap.py`, `hitl.py` hardening, `trust_store.py`, REPL `/trust` commands |
+| M5.2 Tier-2 escalate-only | ✅ Complete | PR #9 (P0) | `tier2_review.py`, classifier registry in `risk_classifier.py`, escalate-only insert in `main.py` |
+| M5.3 Audit chain + redaction | ✅ Complete | PR #9 (P0) | Hash-chain (seq + prev_hash), `verify_chain()` CLI, Shannon entropy redaction, per-tool field allowlist, `AuditSink` ABC |
+| M5.P1-sec | ✅ Complete | PR #10 (P1-A) | env scrub (`_scrubbed_env`), ephemeral REPL history, cost/limits governance, TOCTOU realpath fix. 981 tests. |
+| M5.P1-viewer | ✅ Complete | PR #11 (P1-B) | Interactive TUI audit viewer: lazy-indexed, j/k nav, filter/search/verify/stats, `/audit` REPL command, CLI `--json` mode. 1060 tests. |
 | M5.P1-stream | ⬜ | — | token streaming, cancel |
-| M5.P1-viewer | ⬜ | — | audit viewer |
+| M5.P1-undo | ⬜ | — | mcpd COW rollback path (blocked — mcpd has no rollback RPC) |
 | M5.P2-backends | ⬜ | — | OpenAI/OAuth, QB-verifier voting |
 | M5.P2-daemon | ⬜ | — | systemd user unit |
 | M5.P2-access | ⬜ | — | screen-reader, GUI presenter |
@@ -242,3 +242,30 @@ carries forward without being re-derived per PR.
   one-line guidance for the next collaborator.
 - Do NOT edit `docs/phase5_roadmap.md` to reflect status — that's the design doc.
   Status lives here.
+
+## §11 — P1 closeout notes (update as P1 PRs land)
+
+### PR #10 — M5.P1-sec (Credential & Resource Hygiene)
+
+Merged 2026-06-14. Closes SF-7 (env leak), SF-8 (history leak), SF-9 (cost/DoS), SF-10 (TOCTOU).
+
+- **Shipped:** `_scrubbed_env()` whitelist in `mcpd_client.py`, ephemeral REPL history (default on),
+  `CostConfig` + `LimitsConfig` in `config.py`, rate limiting + input size cap + cost ceiling
+  in `repl.py`, `os.path.realpath()` TOCTOU fix in `main.py`, new `Outcome.LIMIT_EXCEEDED` +
+  `Outcome.COST_EXCEEDED`. 32 new tests. CI gate G5.P1a green.
+- **Deferred:** None — all four security findings closed.
+- **Next:** PR-P1-B (audit viewer) or PR-P1-C (streaming).
+
+### PR #11 — M5.P1-viewer (Interactive Audit Log Viewer)
+
+Merged 2026-06-14. Enterprise-grade terminal TUI for audit log inspection.
+
+- **Shipped:** `audit_viewer.py` (~650 lines) with `LogIndex` (lazy byte-offset index for
+  100K+ entry performance), `FilterSpec` (session/tier/outcome/action/backend/time/regex),
+  `ChainStatus` (per-entry hash-chain verification), 5 view modes (summary/detail/help/stats/filter).
+  Keyboard navigation (j/k/g/G, Enter, Esc, /, f, v, s, ?). `$NO_COLOR` + ASCII fallback.
+  Non-TTY JSONL dump mode (`--json`). REPL `/audit` command. CLI `python -m controller.audit_viewer`.
+  79 viewer tests + 2 REPL integration tests. CI gates G5.P1b + G5.P1b-cli green. 1060 total tests.
+- **Deferred:** Log rotation awareness, `n/N` search navigation, `r` refresh, export,
+  mouse support, configurable viewer keymap — all future enhancements.
+- **Next:** PR-P1-C (streaming) or PR-P1-D (undo scaffold).

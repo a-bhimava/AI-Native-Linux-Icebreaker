@@ -10,23 +10,35 @@ Phase 1 (mcpd) stayed under `src/mcpd/` because it was built and tested locally 
 
 ```
 dual-brain/
-├── controller/                # The Python package — runtime code
+├── controller/                  # The Python package — runtime code
 │   ├── __init__.py
-│   ├── schemas/intent.json    # Intent Object JSON Schema (whitepaper §3)
-│   ├── intent_store.py        # Thread-safe UUID → Intent store, TTL=300 s
-│   ├── risk_classifier.py     # Tier 0–3 classification (needs M2.0 sync vs mcpd)
-│   └── (M2.0+ new files land here — backends/, session/, audit.py, etc.)
-├── scripts/                   # Operator scripts that will land on VM at ~/dual-brain/scripts/
-│   ├── (M2.0) export_mcpd_catalogue.py
-│   ├── (M2.5) start_pb.sh
-│   └── (M2.5) start_qb_local.sh
-├── docs/phase2/               # Mirror of project docs/phase2/ for ship-along reference
-│   ├── phase2_roadmap.md
-│   ├── 2026-06-05_plan_summary.md
-│   └── findings.md
-├── requirements.txt           # (M2.0) Python deps: jsonschema, hypothesis, anthropic, google-generativeai, prompt-toolkit, ...
-├── .gitignore                 # Python bytecode + venv + .DS_Store
-└── README.md                  # This file
+│   ├── __main__.py              # python -m controller entry point
+│   ├── main.py                  # Controller orchestrator (14-step pipeline)
+│   ├── config.py                # TOML config loader + dataclasses
+│   ├── schemas/intent.json      # Intent Object JSON Schema (whitepaper §3)
+│   ├── intent_store.py          # Thread-safe UUID → Intent store, TTL=300 s
+│   ├── risk_classifier.py       # Tier 0–3 classification + pluggable registry
+│   ├── backends/                # QB/PB brain backends (local, anthropic, gemini)
+│   ├── session.py               # Multi-turn session state + cost tracking
+│   ├── audit.py                 # Append-only JSONL audit log (INV-8, hash-chain)
+│   ├── audit_viewer.py          # Interactive TUI audit log viewer
+│   ├── hitl.py                  # Hardened HITL approval gate (SF-1/SF-2/SF-3)
+│   ├── keymap.py                # Configurable keybindings
+│   ├── trust_store.py           # Session-scoped trust grants
+│   ├── tier2_review.py          # Tier-2 escalate-only review
+│   ├── repl.py                  # Interactive multi-turn REPL
+│   ├── mcpd_client.py           # JSON-RPC 2.0 client for mcpd (env-scrubbed)
+│   ├── prompts/                 # System prompts for QB/PB/verifier/reviewer
+│   ├── ci.sh                    # Exit-gate verification (G1–G11, G5.1–G5.P1b)
+│   └── tests/                   # 1060+ tests (pytest + hypothesis)
+├── scripts/                     # Operator scripts for VM deployment
+│   ├── export_mcpd_catalogue.py
+│   ├── start_pb.sh
+│   └── start_qb_local.sh
+├── docs/phase2/                 # Phase 2 planning docs
+├── requirements.txt             # Python deps
+├── .gitignore
+└── README.md                    # This file
 ```
 
 ## Deploy workflow (for any milestone)

@@ -248,6 +248,8 @@ def test_all_outcome_enum_values_present():
         "backend_swapped",
         "trust_applied", "trust_granted", "modify_requested",
         "limit_exceeded", "cost_exceeded",
+        "cancelled",
+        "undo_requested", "undo_unavailable", "undone",
     }
     actual = {o.value for o in Outcome}
     assert actual == expected, f"Outcome enum drifted: {actual.symmetric_difference(expected)}"

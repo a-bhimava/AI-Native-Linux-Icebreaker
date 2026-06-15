@@ -12,7 +12,9 @@ import json
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
+
+from .undo import UndoEntry, UndoHistory
 
 
 @dataclass
@@ -25,9 +27,17 @@ class SessionState:
     _qb_messages: list = field(init=False, default_factory=list, repr=False)
     _accumulated_cost_usd: float = field(init=False, default=0.0, repr=False)
     _turn_timestamps: list = field(init=False, default_factory=list, repr=False)
+    _undo_history: UndoHistory = field(init=False, default_factory=UndoHistory, repr=False)
 
     def __post_init__(self) -> None:
         self._last_activity = time.monotonic()
+        try:
+            undo_cfg = getattr(self.cfg, "undo", None) if self.cfg else None
+            max_h = int(getattr(undo_cfg, "max_history", 0)) if undo_cfg else 0
+            if max_h > 0:
+                self._undo_history = UndoHistory(max_depth=max_h)
+        except (TypeError, ValueError):
+            pass
 
     def is_expired(self) -> bool:
         ttl = self.cfg.session_ttl_seconds
@@ -82,8 +92,16 @@ class SessionState:
         self._turn_timestamps.append(now)
         return True
 
+    @property
+    def undo_history(self) -> UndoHistory:
+        return self._undo_history
+
+    def record_undo_entry(self, entry: UndoEntry) -> None:
+        self._undo_history.record(entry)
+
     def reset_memory(self) -> None:
         self._qb_messages.clear()
+        self._undo_history.clear()
 
     @classmethod
     def new(cls, backend: str, cfg: Any) -> SessionState:

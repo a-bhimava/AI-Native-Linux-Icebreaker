@@ -59,7 +59,7 @@ class Repl:
         repl.run()         # blocks until /exit or Ctrl+D
     """
 
-    SLASH_COMMANDS = {"/help", "/exit", "/quit", "/reset", "/status", "/trust"}
+    SLASH_COMMANDS = {"/help", "/exit", "/quit", "/reset", "/status", "/trust", "/audit", "/undo"}
 
     def __init__(self, controller: Any, cfg: Any) -> None:
         if not _HAS_PROMPT_TOOLKIT:
@@ -111,7 +111,10 @@ class Repl:
                 if self._handle_slash(text):
                     return
                 continue
-            self._run_turn(text)
+            if self._cfg.session.show_progress:
+                self._run_turn_streaming(text)
+            else:
+                self._run_turn(text)
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -142,6 +145,101 @@ class Repl:
                 f"{_BOLD}{prefix} >{_RESET} "
             )
         return f"({turn}) [{backend}] {prefix} > "
+
+    def _run_turn_streaming(self, user_input: str) -> None:
+        """Pipeline with step-by-step progress + token streaming."""
+        from .turn_events import ErrorEvent, ProgressEvent, ResultEvent, TokenEvent
+
+        gen = self._ctrl.run_turn_streaming(user_input, self._session)
+        in_tokens = False
+        try:
+            for event in gen:
+                if isinstance(event, ProgressEvent):
+                    if in_tokens:
+                        in_tokens = False
+                    self._update_progress(event)
+                elif isinstance(event, TokenEvent):
+                    if not in_tokens:
+                        self._clear_progress()
+                        print()
+                        in_tokens = True
+                    if not event.final and event.token:
+                        sys.stdout.write(event.token)
+                        sys.stdout.flush()
+                elif isinstance(event, ResultEvent):
+                    self._clear_progress()
+                    if in_tokens:
+                        print()
+                        in_tokens = False
+                    result = event.result
+                    turn_cost = getattr(result, "cost_usd", None) or 0.0
+                    self._session.add_cost(turn_cost)
+                    self._check_cost_warnings()
+                    if not in_tokens:
+                        self._display_result(result)
+                    else:
+                        self._display_status_line(result)
+                elif isinstance(event, ErrorEvent):
+                    self._clear_progress()
+                    self._print(f"\n  Error: {event.message}\n")
+        except KeyboardInterrupt:
+            gen.close()
+            self._clear_progress()
+            if in_tokens:
+                print()
+            self._print("\n  Cancelled.\n")
+
+    def _update_progress(self, event) -> None:
+        if not self._use_color:
+            return
+        frame = _SPINNER_FRAMES[
+            int(event.elapsed_ms / 80) % len(_SPINNER_FRAMES)
+        ]
+        elapsed_s = event.elapsed_ms / 1000
+        label = f"{frame} {event.step_label} ({elapsed_s:.1f}s)"
+        print(f"\r  {label}  ", end="", flush=True)
+
+    def _clear_progress(self) -> None:
+        if self._use_color:
+            print(f"\r{' ' * 60}\r", end="", flush=True)
+
+    def _display_status_line(self, result: Any) -> None:
+        c = self._use_color
+        tier_val = getattr(result, "tier", 0)
+        tier_labels = {
+            0: f"{_DIM}Tier 0{_RESET}" if c else "Tier 0",
+            1: "Tier 1",
+            2: f"{_YELLOW}Tier 2{_RESET}" if c else "Tier 2",
+            3: f"{_RED}Tier 3{_RESET}" if c else "Tier 3",
+        }
+        tier_str = tier_labels.get(tier_val, f"Tier {tier_val}")
+        backend = getattr(result, "backend", self._session.backend)
+        dur = getattr(result, "duration_ms", 0.0)
+        cost = getattr(result, "cost_usd", None)
+        cost_str = f"${cost:.4f}" if cost else "$0.00"
+        success = getattr(result, "success", False)
+        icon = f"{_GREEN}✓{_RESET}" if (c and success) else ("✓" if success else "✗")
+        print(f"\n  {icon} [{tier_str} · {backend} · {dur:.0f}ms · {cost_str}]\n")
+
+    def _check_cost_warnings(self) -> None:
+        cost_cfg = getattr(self._cfg, "cost", None)
+        if not cost_cfg or cost_cfg.session_ceiling_usd <= 0:
+            return
+        fraction = self._session.accumulated_cost_usd / cost_cfg.session_ceiling_usd
+        if fraction >= 1.0:
+            self._print(
+                f"  ⚠ Cost ceiling reached "
+                f"(${self._session.accumulated_cost_usd:.4f} / "
+                f"${cost_cfg.session_ceiling_usd:.2f}). "
+                "Next turn will be denied.\n"
+            )
+        elif fraction >= cost_cfg.warn_fraction:
+            pct = int(fraction * 100)
+            self._print(
+                f"  ⚠ Cost at {pct}% of session ceiling "
+                f"(${self._session.accumulated_cost_usd:.4f} / "
+                f"${cost_cfg.session_ceiling_usd:.2f})\n"
+            )
 
     def _run_turn(self, user_input: str) -> None:
         limits = getattr(self._cfg, "limits", None)
@@ -244,6 +342,10 @@ class Repl:
             self._print_status()
         elif verb == "/trust":
             self._handle_trust(arg)
+        elif verb == "/audit":
+            self._handle_audit(arg)
+        elif verb == "/undo":
+            self._handle_undo(arg)
         elif verb == "/backend":
             if not arg:
                 self._print("  Usage: /backend <local|anthropic|gemini>\n")
@@ -273,9 +375,15 @@ class Repl:
             "    /status           — show session info",
             "    /reset            — clear session memory, start fresh",
             "    /backend <name>   — switch backend (local|anthropic|gemini)",
+            "    /audit            — view audit log (current session)",
+            "    /audit all        — view full audit log",
+            "    /audit verify     — verify hash-chain then view",
             "    /trust list       — show active trust grants",
             "    /trust revoke <id>— revoke a trust grant",
             "    /trust off        — revoke all trust grants",
+            "    /undo             — show last undoable operation",
+            "    /undo list        — show undo history",
+            "    /undo <N>         — look up undo entry for turn N",
             "    /exit  /quit      — exit the REPL",
             "",
             "  Tips:",
@@ -345,6 +453,86 @@ class Repl:
             self._print("  All trust grants revoked.\n")
         else:
             self._print("  Usage: /trust list | /trust revoke <id> | /trust off\n")
+
+    def _handle_audit(self, arg: str) -> None:
+        from .audit import AuditLog
+        from .audit_viewer import AuditViewer, FilterSpec
+
+        run_cfg = getattr(self._cfg, "run", None)
+        audit_path = Path(
+            run_cfg.audit_log if run_cfg and hasattr(run_cfg, "audit_log")
+            else "~/.local/state/icebreaker/controller-audit.log"
+        ).expanduser()
+
+        if not audit_path.exists():
+            self._print(f"  No audit log found at {audit_path}\n")
+            return
+
+        sub = arg.strip().lower()
+        if sub == "all":
+            viewer = AuditViewer(audit_path)
+        elif sub == "verify":
+            viewer = AuditViewer(audit_path, verify=True)
+        else:
+            viewer = AuditViewer(
+                audit_path,
+                filter_spec=FilterSpec(session_id=self._session.session_id),
+            )
+        viewer.run()
+
+    def _handle_undo(self, arg: str) -> None:
+        undo_cfg = getattr(self._cfg, "undo", None)
+        if not undo_cfg or not undo_cfg.enabled:
+            self._print("  Undo is disabled. Set `[undo] enabled = true` in config.\n")
+            return
+
+        history = self._session.undo_history
+        sub = arg.strip().lower()
+
+        if sub == "list":
+            entries = history.list_entries()
+            if not entries:
+                self._print("  No undo history.\n")
+                return
+            self._print("\n  ── Undo History ──────────────────────────────────────────────\n\n")
+            self._print("  Turn  Action         Target            Tier  Status\n")
+            self._print("  ────  ──────         ──────            ────  ──────\n")
+            for e in reversed(entries):
+                target_disp = e.target[:18] if e.target else "(read-only)"
+                status = e.undo_status.value
+                if not e.undoable:
+                    status = "not undoable"
+                self._print(
+                    f"  {e.turn_index:<6}{e.action:<15}{target_disp:<18}"
+                    f"T{e.tier}    {status}\n"
+                )
+            self._print("\n")
+            return
+
+        if sub and sub.isdigit():
+            turn_n = int(sub)
+            entry = history.get_by_turn(turn_n)
+            if not entry:
+                self._print(f"  No operation found at turn {turn_n}.\n")
+                return
+            self._print(f"\n  Turn {entry.turn_index}: {entry.action} → {entry.target or '(none)'}\n")
+            self._print(f"  Tier {entry.tier}, status: {entry.undo_status.value}\n\n")
+            return
+
+        entry = history.last_undoable()
+        if not entry:
+            self._print("  No operations to undo.\n")
+            return
+
+        self._print("\n  ── Undo ──────────────────────────────────────────────────────\n\n")
+        self._print(
+            f"  Last operation: {entry.action} → {entry.target or '(none)'} "
+            f"(turn #{entry.turn_index}, Tier {entry.tier})\n\n"
+        )
+        self._print(
+            "  Undo is not yet available — mcpd does not support rollback.\n"
+            "  This capability will be added in a future update.\n\n"
+        )
 
     def _print(self, message: str) -> None:
         print(message, end="")
