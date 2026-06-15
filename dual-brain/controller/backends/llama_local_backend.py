@@ -28,6 +28,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from typing import Generator
+
 from .base import (
     BrainBackend,
     BrainConfigError,
@@ -115,6 +117,62 @@ class LlamaCppLocalBackend(BrainBackend):
         # Local inference: no monetary cost. Hardware/electricity is out
         # of scope for the audit row.
         return None
+
+    def _stream_provider(
+        self, envelope: RequestEnvelope
+    ) -> Generator[tuple[str, int, int], None, None]:
+        """SSE streaming via llama-server ``"stream": true``."""
+        payload: dict[str, Any] = {
+            "messages": [
+                {"role": "system", "content": envelope.system},
+                {"role": "user", "content": envelope.user},
+            ],
+            "temperature": envelope.sampling["temperature"],
+            "top_p": envelope.sampling["top_p"],
+            "max_tokens": self._config.max_tokens,
+            "cache_prompt": True,
+            "stream": True,
+        }
+        if self._grammar is not None:
+            payload["grammar"] = self._grammar
+
+        self._auditor.intercept(payload)
+
+        try:
+            response = self._session.post(
+                f"{self._endpoint}/v1/chat/completions",
+                json=payload,
+                timeout=self._timeout,
+                stream=True,
+            )
+            response.raise_for_status()
+        except Exception as exc:
+            raise BrainProviderError(sanitize_exception(exc)) from None
+
+        import json as _json
+
+        for raw_line in response.iter_lines(decode_unicode=True):
+            if not raw_line or not raw_line.startswith("data: "):
+                continue
+            data_str = raw_line[6:]
+            if data_str.strip() == "[DONE]":
+                break
+            try:
+                chunk_obj = _json.loads(data_str)
+            except _json.JSONDecodeError:
+                continue
+            choices = chunk_obj.get("choices", [])
+            if not choices:
+                continue
+            delta = choices[0].get("delta", {})
+            content = delta.get("content", "")
+            if content:
+                usage = chunk_obj.get("usage", {})
+                yield (
+                    content,
+                    int(usage.get("prompt_tokens", 0)),
+                    int(usage.get("completion_tokens", 0)),
+                )
 
     def _call_provider(
         self, envelope: RequestEnvelope

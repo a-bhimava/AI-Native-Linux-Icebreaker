@@ -158,6 +158,8 @@ class SessionConfig:
     history_path: str = "~/.local/state/icebreaker/repl_history"
     ephemeral_history: bool = True      # True = in-memory only (SF-8 safe default)
     show_spinner: bool = True
+    show_progress: bool = True            # step-by-step pipeline progress
+    stream_output: bool = True            # token streaming for QB summarisation
     color: str = "auto"                   # "auto" | "always" | "never"
     prompt_prefix: str = "icebreaker"     # shown as `(N) [backend] prefix > `
     max_tool_output_lines: int = 40       # QB summarisation truncation
@@ -188,6 +190,12 @@ class LimitsConfig:
 
 
 @dataclass(frozen=True)
+class UndoConfig:
+    enabled: bool = False               # BP-2: off by default
+    max_history: int = 10
+
+
+@dataclass(frozen=True)
 class ControllerConfig:
     qb: BackendConfig
     hitl: HitlConfig
@@ -200,6 +208,7 @@ class ControllerConfig:
     tier2: Tier2Config = field(default_factory=Tier2Config)
     cost: CostConfig = field(default_factory=CostConfig)
     limits: LimitsConfig = field(default_factory=LimitsConfig)
+    undo: UndoConfig = field(default_factory=UndoConfig)
 
 
 def _default_config_path() -> Path:
@@ -398,6 +407,8 @@ def _build_session_config(raw: dict) -> SessionConfig:
         history_path=section.get("history_path", "~/.local/state/icebreaker/repl_history"),
         ephemeral_history=section.get("ephemeral_history", True),
         show_spinner=section.get("show_spinner", True),
+        show_progress=section.get("show_progress", True),
+        stream_output=section.get("stream_output", True),
         color=section.get("color", "auto"),
         prompt_prefix=section.get("prompt_prefix", "icebreaker"),
         max_tool_output_lines=section.get("max_tool_output_lines", 40),
@@ -433,6 +444,14 @@ def _build_limits_config(raw: dict) -> LimitsConfig:
     return LimitsConfig(
         max_input_chars=section.get("max_input_chars", 4000),
         max_turns_per_min=section.get("max_turns_per_min", 30),
+    )
+
+
+def _build_undo_config(raw: dict) -> UndoConfig:
+    section = raw.get("undo", {})
+    return UndoConfig(
+        enabled=section.get("enabled", False),
+        max_history=section.get("max_history", 10),
     )
 
 
@@ -489,8 +508,9 @@ def load(path: Path | None = None) -> ControllerConfig:
     tier2 = _build_tier2_config(raw)
     cost = _build_cost_config(raw)
     limits = _build_limits_config(raw)
+    undo = _build_undo_config(raw)
     return ControllerConfig(
         qb=qb, hitl=hitl, prompts=prompts, session=session, run=run,
         config_path=resolved.resolve(), keymap=keymap, risk=risk, tier2=tier2,
-        cost=cost, limits=limits,
+        cost=cost, limits=limits, undo=undo,
     )

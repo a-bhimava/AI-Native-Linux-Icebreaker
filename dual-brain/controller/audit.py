@@ -104,6 +104,14 @@ class Outcome(str, Enum):
     LIMIT_EXCEEDED          = "limit_exceeded"           # input too large or rate limit hit
     COST_EXCEEDED           = "cost_exceeded"            # session cost ceiling breached
 
+    # Streaming / cancel (M5.P1-stream)
+    CANCELLED               = "cancelled"                # Ctrl+C during pipeline
+
+    # Undo scaffold (M5.P1-undo)
+    UNDO_REQUESTED          = "undo_requested"           # user invoked /undo
+    UNDO_UNAVAILABLE        = "undo_unavailable"         # mcpd lacks rollback RPC
+    UNDONE                  = "undone"                   # future: successfully rolled back
+
 
 # ── Required entry fields ──────────────────────────────────────────────────
 

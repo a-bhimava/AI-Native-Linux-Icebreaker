@@ -54,7 +54,7 @@ Read both before making any architectural change.
 | Phase 2 | Complete | Dual-Brain Controller (M2.0–M2.14; gates G1–G11 green; merged to `main`) |
 | Phase 3 | Complete (folded into Phase 1) | Landlock + Seccomp-BPF + COW landed alongside the mcpd tools (M1.3 / M1.4 / M1.5); exit criteria met within Phase 1; kept as a heading for whitepaper continuity |
 | Phase 4 | Complete | PB finalized: `run7_cot_q4km.gguf` — 100% adversarial refusal, 95.5% grammar-valid MCP, 940 MB, checksummed. run8 continued-tune rejected (safety regression). Pipeline in `privileged-brain/` |
-| Phase 5 | Not started (planned) | UX + Graduated Determinism — roadmap in [`docs/phase5_roadmap.md`](./docs/phase5_roadmap.md) |
+| Phase 5 | **In progress** (P0 merged PR #9, P1 in progress — PR #10 + #11 landed) | UX + Graduated Determinism. P0: hardened HITL, keymap, trust store, tier-2 review, audit hash-chain. P1-A: env scrub, cost/limits, TOCTOU. P1-B: audit viewer TUI. 1060 tests, G1–G11 + G5.1–G5.P1b green. |
 | Phase 6 | Not started | ISO distribution |
 | Phase 7 | Not started | Hardening + release |
 

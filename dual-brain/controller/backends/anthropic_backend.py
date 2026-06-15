@@ -17,7 +17,7 @@ type=json_schema). Requires Claude Haiku 4.5 / Sonnet 4.5+ / Opus 4.5+.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Generator
 
 from .base import BrainProviderError, RequestEnvelope
 from ._api_common import _ApiBackend, transform_schema_for_provider
@@ -46,6 +46,52 @@ class AnthropicBackend(_ApiBackend):
             api_key=self._api_key_ref.reveal(),
             timeout=float(config.timeout_seconds),
         )
+
+    def _stream_provider(
+        self, envelope: RequestEnvelope
+    ) -> Generator[tuple[str, int, int], None, None]:
+        """Stream via Anthropic ``messages.stream()`` context manager."""
+        if envelope.schema is None:
+            raise BrainProviderError(
+                "anthropic backend requires a schema in the envelope"
+            )
+
+        wire_schema = transform_schema_for_provider(
+            envelope.schema,
+            convert_oneof_to_anyof=True,
+            strip_format=False,
+        )
+
+        kwargs: dict[str, Any] = {
+            "model": self._config.model,
+            "max_tokens": self._config.max_tokens,
+            "system": envelope.system,
+            "messages": [{"role": "user", "content": envelope.user}],
+            "temperature": envelope.sampling["temperature"],
+            "top_p": envelope.sampling["top_p"],
+            "output_config": {
+                "format": {
+                    "type": "json_schema",
+                    "schema": wire_schema,
+                }
+            },
+        }
+
+        self._auditor.intercept(kwargs)
+
+        try:
+            with self._client.messages.stream(**kwargs) as stream:
+                for text in stream.text_stream:
+                    yield (text, 0, 0)
+                final = stream.get_final_message()
+                yield (
+                    "",
+                    final.usage.input_tokens,
+                    final.usage.output_tokens,
+                )
+        except Exception as exc:
+            from .sanitize import sanitize_exception
+            raise BrainProviderError(sanitize_exception(exc)) from None
 
     def _call_provider(
         self, envelope: RequestEnvelope

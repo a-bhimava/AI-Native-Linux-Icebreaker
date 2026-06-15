@@ -120,6 +120,8 @@ timeout_seconds = 30
 # history_path          = "~/.local/state/icebreaker/repl_history"
 # ephemeral_history     = true    # true = in-memory only (SF-8); false = file-based
 # show_spinner          = true
+# show_progress         = true    # step-by-step pipeline labels instead of generic spinner
+# stream_output         = true    # stream QB summarisation tokens as they arrive
 # color                 = "auto"  # "auto" | "always" | "never"
 # prompt_prefix         = "icebreaker"
 # max_tool_output_lines = 40      # lines of tool output forwarded to QB for summary
@@ -139,6 +141,14 @@ timeout_seconds = 30
 # [limits]
 # max_input_chars   = 4000       # reject inputs larger than this (0 = no limit)
 # max_turns_per_min = 30         # rate limit (0 = unlimited)
+
+
+# Undo scaffold — off by default (BP-2). Tracks undo history per session.
+# Actual rollback awaits mcpd rollback RPC; /undo currently shows status only.
+#
+# [undo]
+# enabled     = false
+# max_history = 10
 
 
 # System prompts — all optional. Defaults to the in-package controller/prompts/ directory.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ci.sh — Icebreaker Phase 2 + Phase 5 exit-gate verification (G1–G11, G5.1–G5.6).
+# ci.sh — Icebreaker Phase 2 + Phase 5 exit-gate verification (G1–G11, G5.1–G5.P1d).
 #
 # Run from the dual-brain/ directory:
 #   bash controller/ci.sh
@@ -337,11 +337,74 @@ else
   fail 5.P1a "credential / resource hygiene test failed"
 fi
 
+# ── G5.P1b: Audit viewer ──────────────────────────────────────────────
+echo "G5.P1b: Audit viewer..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_audit_viewer.py \
+    controller/tests/test_audit_viewer_repl.py -x -q 2>&1; then
+  pass 5.P1b "audit viewer OK"
+else
+  fail 5.P1b "audit viewer test failed"
+fi
+
+echo ""
+
+# ── G5.P1b-cli: Audit viewer CLI smoke ───────────────────────────────
+echo "G5.P1b-cli: Audit viewer CLI smoke..."
+_VIEWER_LOG=$(mktemp /tmp/audit-viewer-smoke-XXXXXX.log)
+if PYTHONPATH=. python3 -c "
+from controller.audit import AuditLog, AuditFields, Outcome
+log = AuditLog(path='${_VIEWER_LOG}', fsync_each_write=False)
+try:
+    for i in range(5):
+        log.write_fields(AuditFields(
+            session_id='viewer-smoke', turn_index=i, intent_id=f'intent-{i}',
+            action='system.status', target='', tier=0, reason='ci',
+            risk_level='read_only', outcome=Outcome.EXECUTED,
+            duration_ms=1.0, backend='local', model='test',
+            tokens_in=10, tokens_out=5, cost_estimate_usd=0.0,
+        ))
+finally:
+    log.close()
+" 2>&1 && PYTHONPATH=. python3 -m controller.audit_viewer --json "$_VIEWER_LOG" 2>&1 | python3 -c "
+import json, sys
+lines = sys.stdin.read().strip().split('\n')
+assert len(lines) == 5, f'expected 5 lines, got {len(lines)}'
+for line in lines:
+    entry = json.loads(line)
+    assert 'session_id' in entry
+print(f'  OK ({len(lines)} entries)')
+"; then
+  pass 5.P1b-cli "CLI smoke OK"
+else
+  fail 5.P1b-cli "CLI smoke failed"
+fi
+rm -f "$_VIEWER_LOG"
+
+# ── G5.P1c: Streaming + progress + cancel ────────────────────────────
+echo "G5.P1c: Streaming + progress + cancel..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_turn_events.py \
+    controller/tests/test_streaming.py \
+    controller/tests/test_stream_backends.py \
+    controller/tests/test_progress_repl.py -x -q 2>&1; then
+  pass 5.P1c "streaming + progress + cancel OK"
+else
+  fail 5.P1c "streaming / progress / cancel test failed"
+fi
+
+# ── G5.P1d: Undo scaffold ────────────────────────────────────────────
+echo "G5.P1d: Undo scaffold..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_undo.py \
+    controller/tests/test_undo_repl.py -x -q 2>&1; then
+  pass 5.P1d "undo scaffold OK"
+else
+  fail 5.P1d "undo scaffold test failed"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════════════"
 
 if [ ${#FAILED_GATES[@]} -eq 0 ]; then
-  echo "  All gates passed. Phase 2 + Phase 5 P0 ready for PR review."
+  echo "  All gates passed. Phase 2 + Phase 5 P0 + P1 (A/B/C/D) ready for PR review."
   echo "═══════════════════════════════════════════════════════════"
   echo ""
   exit 0
