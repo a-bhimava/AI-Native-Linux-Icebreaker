@@ -172,6 +172,16 @@ timeout_seconds = 30
 # timeout_seconds = 30      # per-vote timeout
 
 
+# Daemon mode — persistent background service (BP-2: opt-in).
+# Start: python3 -m controller --daemon
+# Connect: python3 -m controller --connect
+#
+# [daemon]
+# socket_path     = "~/.local/state/icebreaker/controller.sock"
+# pid_file        = "~/.local/state/icebreaker/controller.pid"
+# max_connections = 1
+
+
 # System prompts — all optional. Defaults to the in-package controller/prompts/ directory.
 # Override prompts_dir to point at a custom directory (e.g. for A/B prompt testing).
 # Per-backend paths take priority over prompts_dir.

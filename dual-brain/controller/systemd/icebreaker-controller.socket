@@ -1,0 +1,10 @@
+[Unit]
+Description=Icebreaker Controller Socket
+
+[Socket]
+ListenStream=%t/icebreaker/controller.sock
+SocketMode=0600
+DirectoryMode=0700
+
+[Install]
+WantedBy=sockets.target

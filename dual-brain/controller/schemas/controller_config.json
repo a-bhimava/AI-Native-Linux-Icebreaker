@@ -186,6 +186,25 @@
         }
       }
     },
+    "daemon": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Daemon mode — opt-in persistent background service. BP-2: absent = monolithic mode.",
+      "properties": {
+        "socket_path": {
+          "type": "string",
+          "description": "AF_UNIX socket path. Supports ~/ expansion."
+        },
+        "pid_file": {
+          "type": "string",
+          "description": "PID file path. Supports ~/ expansion."
+        },
+        "max_connections": {
+          "type": "integer", "minimum": 1, "maximum": 16,
+          "description": "Maximum concurrent client connections. Architecture supports N; default 1."
+        }
+      }
+    },
     "prompts": {
       "type": "object",
       "additionalProperties": false,

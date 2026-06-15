@@ -90,6 +90,7 @@ class Controller:
         store: IntentStore,
         prompt_loader: Any,
         trust_store: TrustStore | None = None,
+        presenter_factory: Any = None,
     ) -> None:
         self._cfg = cfg
         self._qb = qb_backend
@@ -98,6 +99,7 @@ class Controller:
         self._audit = audit_log
         self._store = store
         self._prompts = prompt_loader
+        self._presenter_factory = presenter_factory
         self._trust_store = trust_store or (
             TrustStore() if cfg.hitl.trust_ttl_seconds > 0 else None
         )
@@ -147,6 +149,7 @@ class Controller:
         """
         from .turn_events import (
             ErrorEvent,
+            InfoEvent,
             ProgressEvent,
             ResultEvent,
             TokenEvent,
@@ -276,25 +279,25 @@ class Controller:
                     }
                     if decision == Decision.EXPLAIN:
                         explanation = self._qb_explain(intent, cls_result)
-                        print(f"\n  {explanation}\n", flush=True)
+                        yield InfoEvent(message=f"\n  {explanation}\n")
                         continue
                     if decision == Decision.MODIFY:
                         modify_count += 1
                         if modify_count >= _MAX_MODIFY_CYCLES:
-                            print("\n  Modify limit reached — operation denied.", flush=True)
+                            yield InfoEvent(message="\n  Modify limit reached — operation denied.")
                             yield ResultEvent(result=self._denied(
                                 session, intent, cls_result, Decision.DENIED,
                                 qb_response, t0, extra=hitl_extra,
                             ))
                             return
-                        print("\n  [Modify] — not yet wired to intent revision (M5.1d)", flush=True)
+                        yield InfoEvent(message="\n  [Modify] — not yet wired to intent revision (M5.1d)")
                         continue
                     if decision == Decision.TRUST:
                         if trust_ttl <= 0:
-                            print("\n  Trust is disabled in config (trust_ttl_seconds = 0).\n", flush=True)
+                            yield InfoEvent(message="\n  Trust is disabled in config (trust_ttl_seconds = 0).\n")
                             continue
                         if cls_result.tier >= Tier.HIGH:
-                            print("\n  Cannot trust Tier 3+ operations.\n", flush=True)
+                            yield InfoEvent(message="\n  Cannot trust Tier 3+ operations.\n")
                             continue
                         grant = self._trust_store.grant(
                             action=intent["action"],
@@ -986,6 +989,8 @@ class Controller:
         return ""
 
     def _build_presenter(self) -> HitlPresenter:
+        if self._presenter_factory is not None:
+            return self._presenter_factory()
         keymap = getattr(self._cfg, "keymap", None)
         presenter_name = getattr(self._cfg.hitl, "presenter", "terminal")
         try:

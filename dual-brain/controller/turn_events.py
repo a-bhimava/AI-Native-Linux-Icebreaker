@@ -49,4 +49,11 @@ class ErrorEvent:
     cancelled_at_step: str = ""
 
 
-TurnEvent = Union[ProgressEvent, TokenEvent, ResultEvent, ErrorEvent]
+@dataclass(frozen=True)
+class InfoEvent:
+    """Emitted for informational messages (explain, modify, trust feedback)."""
+
+    message: str
+
+
+TurnEvent = Union[ProgressEvent, TokenEvent, ResultEvent, ErrorEvent, InfoEvent]

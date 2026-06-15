@@ -148,7 +148,7 @@ class Repl:
 
     def _run_turn_streaming(self, user_input: str) -> None:
         """Pipeline with step-by-step progress + token streaming."""
-        from .turn_events import ErrorEvent, ProgressEvent, ResultEvent, TokenEvent
+        from .turn_events import ErrorEvent, InfoEvent, ProgressEvent, ResultEvent, TokenEvent
 
         gen = self._ctrl.run_turn_streaming(user_input, self._session)
         in_tokens = False
@@ -179,6 +179,10 @@ class Repl:
                         self._display_result(result)
                     else:
                         self._display_status_line(result)
+                elif isinstance(event, InfoEvent):
+                    self._clear_progress()
+                    sys.stdout.write(event.message)
+                    sys.stdout.flush()
                 elif isinstance(event, ErrorEvent):
                     self._clear_progress()
                     self._print(f"\n  Error: {event.message}\n")

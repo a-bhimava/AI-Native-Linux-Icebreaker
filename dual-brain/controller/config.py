@@ -205,6 +205,13 @@ class VerifierConfig:
 
 
 @dataclass(frozen=True)
+class DaemonConfig:
+    socket_path: str = "~/.local/state/icebreaker/controller.sock"
+    pid_file: str = "~/.local/state/icebreaker/controller.pid"
+    max_connections: int = 1
+
+
+@dataclass(frozen=True)
 class ControllerConfig:
     qb: BackendConfig
     hitl: HitlConfig
@@ -219,6 +226,7 @@ class ControllerConfig:
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     undo: UndoConfig = field(default_factory=UndoConfig)
     verifier: VerifierConfig = field(default_factory=VerifierConfig)
+    daemon: DaemonConfig = field(default_factory=DaemonConfig)
 
 
 def _default_config_path() -> Path:
@@ -476,6 +484,15 @@ def _build_verifier_config(raw: dict) -> VerifierConfig:
     )
 
 
+def _build_daemon_config(raw: dict) -> DaemonConfig:
+    section = raw.get("daemon", {})
+    return DaemonConfig(
+        socket_path=section.get("socket_path", "~/.local/state/icebreaker/controller.sock"),
+        pid_file=section.get("pid_file", "~/.local/state/icebreaker/controller.pid"),
+        max_connections=section.get("max_connections", 1),
+    )
+
+
 def _build_keymap(raw: dict) -> Keymap:
     section = raw.get("keymap")
     try:
@@ -531,8 +548,9 @@ def load(path: Path | None = None) -> ControllerConfig:
     limits = _build_limits_config(raw)
     undo = _build_undo_config(raw)
     verifier = _build_verifier_config(raw)
+    daemon = _build_daemon_config(raw)
     return ControllerConfig(
         qb=qb, hitl=hitl, prompts=prompts, session=session, run=run,
         config_path=resolved.resolve(), keymap=keymap, risk=risk, tier2=tier2,
-        cost=cost, limits=limits, undo=undo, verifier=verifier,
+        cost=cost, limits=limits, undo=undo, verifier=verifier, daemon=daemon,
     )

@@ -162,6 +162,65 @@ def _run_repl(cfg: ControllerConfig, controller: Controller) -> int:
     return 0
 
 
+def _run_daemon(config_path: Path | None) -> int:
+    from .daemon import Daemon
+
+    try:
+        cfg = load(config_path)
+        audit = AuditLog(Path(cfg.run.audit_log).expanduser())
+        mcpd: McpdClient | None = None
+        try:
+            qb = _build_qb(cfg)
+            pb = _build_pb(cfg)
+            mcpd = McpdClient.spawn(
+                Path(cfg.run.mcpd_binary).expanduser(),
+                default_timeout=cfg.run.mcpd_timeout_seconds,
+            )
+            store = IntentStore()
+            prompts = PromptLoader(cfg.prompts)
+
+            controller = Controller(
+                cfg,
+                qb_backend=qb,
+                pb_backend=pb,
+                mcpd_client=mcpd,
+                audit_log=audit,
+                store=store,
+                prompt_loader=prompts,
+            )
+            daemon = Daemon(cfg.daemon, controller, cfg, audit)
+            daemon.start()
+        finally:
+            if mcpd is not None:
+                mcpd.close()
+            audit.close()
+    except Exception as exc:
+        print(f"Fatal: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_connect(socket_path: str, config_path: Path | None) -> int:
+    from .client import ClientRepl
+
+    try:
+        if not socket_path:
+            cfg = load(config_path)
+            socket_path = str(Path(cfg.daemon.socket_path).expanduser())
+        keymap = None
+        try:
+            cfg = load(config_path)
+            keymap = getattr(cfg, "keymap", None)
+        except Exception:
+            pass
+        client = ClientRepl(socket_path, keymap=keymap)
+        client.run()
+    except Exception as exc:
+        print(f"Fatal: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m controller",
@@ -189,10 +248,43 @@ def main(argv: list[str] | None = None) -> int:
         dest="check_isolation",
         help="Verify G3/G4 QB/PB isolation and exit 0 (pass) or 1 (fail).",
     )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Start as persistent background daemon (BP-2: opt-in).",
+    )
+    parser.add_argument(
+        "--connect",
+        metavar="SOCKET",
+        nargs="?",
+        const="",
+        help="Connect to a running daemon (default socket from config).",
+    )
     args = parser.parse_args(argv)
 
     if args.check_isolation:
         return 0 if _check_isolation() else 1
+
+    # Mutual exclusion: --daemon, --connect, --repl, COMMAND
+    modes = sum([
+        bool(args.daemon),
+        args.connect is not None,
+        bool(args.repl),
+        bool(args.command),
+    ])
+    if modes > 1:
+        print(
+            "Error: --daemon, --connect, --repl, and COMMAND are mutually exclusive.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.daemon:
+        return _run_daemon(Path(args.config).expanduser() if args.config else None)
+
+    if args.connect is not None:
+        config_path = Path(args.config).expanduser() if args.config else None
+        return _run_connect(args.connect, config_path)
 
     if not args.command and not args.repl:
         parser.print_help(sys.stderr)
