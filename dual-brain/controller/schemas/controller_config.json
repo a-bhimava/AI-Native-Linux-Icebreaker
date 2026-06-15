@@ -33,8 +33,12 @@
           "description": "Decision timeout in seconds — auto-deny on expiry."
         },
         "presenter": {
-          "type": "string", "enum": ["terminal"],
-          "description": "Phase 5 hook: swap 'terminal' for 'gtk' or 'web'."
+          "type": "string", "enum": ["terminal", "screen_reader", "gtk"],
+          "description": "HITL approval presenter. 'terminal' (default), 'screen_reader' (a11y), 'gtk' (GUI, requires PyGObject)."
+        },
+        "trust_ttl_seconds": {
+          "type": "integer", "minimum": 0, "maximum": 3600,
+          "description": "Trust grant lifetime in seconds. 0 = disabled (default)."
         }
       }
     },

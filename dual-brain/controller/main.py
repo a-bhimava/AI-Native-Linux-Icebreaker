@@ -15,6 +15,7 @@ from typing import Any, Generator, Optional
 
 from .audit import AuditFields, AuditLog, Outcome, make_entry
 from .hitl import Decision, HitlPresenter, HitlPrompt, TerminalPresenter
+from .presenters import make_presenter
 from .intent_schema import IntentValidationError, validate
 from .intent_store import IntentStore
 from .mcpd_client import JsonRpcError, McpdClient, McpdProcessError, McpdTimeoutError
@@ -986,7 +987,11 @@ class Controller:
 
     def _build_presenter(self) -> HitlPresenter:
         keymap = getattr(self._cfg, "keymap", None)
-        return TerminalPresenter(keymap=keymap)
+        presenter_name = getattr(self._cfg.hitl, "presenter", "terminal")
+        try:
+            return make_presenter(presenter_name, keymap=keymap)
+        except ValueError:
+            return TerminalPresenter(keymap=keymap)
 
     def _denied(
         self, session: Any, intent: dict, cls_result: Any, decision: Decision,
