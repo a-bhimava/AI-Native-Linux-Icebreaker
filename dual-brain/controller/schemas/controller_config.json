@@ -92,6 +92,10 @@
           "type": "string",
           "description": "Path to readline history file. Supports ~/ expansion."
         },
+        "ephemeral_history": {
+          "type": "boolean",
+          "description": "True = in-memory only (SF-8 safe default); false = file-based readline history."
+        },
         "show_spinner": {
           "type": "boolean",
           "description": "Show live braille spinner while QB/PB/mcpd process."
@@ -221,6 +225,66 @@
         "qb_openai":      {"type": "string", "description": "Override path for qb_openai.txt. Empty = use prompts_dir."},
         "pb":             {"type": "string", "description": "Override path for pb.txt. Empty = use prompts_dir."},
         "qb_verifier":    {"type": "string", "description": "Override path for qb_verifier.txt. Empty = use prompts_dir."}
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-session cost governance (SF-9, BP-10). 0 ceiling = unlimited.",
+      "properties": {
+        "session_ceiling_usd": {
+          "type": "number", "minimum": 0,
+          "description": "Deny turns once session cost reaches this USD amount. 0 = no limit."
+        },
+        "warn_fraction": {
+          "type": "number", "minimum": 0, "maximum": 1,
+          "description": "Alert user at this fraction of the session ceiling."
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Resource limits — input cap + rate limiting (SF-9, BP-10).",
+      "properties": {
+        "max_input_chars": {
+          "type": "integer", "minimum": 0,
+          "description": "Reject inputs larger than this char count. 0 = no limit."
+        },
+        "max_turns_per_min": {
+          "type": "integer", "minimum": 0,
+          "description": "Rate limit turns per minute. 0 = unlimited."
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Risk classifier strategy (BP-5). Default: rules-based.",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "description": "Classifier strategy name. Default 'rules'."
+        }
+      }
+    },
+    "tier2": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Tier-2 independent review. Off by default (BP-2).",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Tier-2 review for high-risk operations."
+        },
+        "strategy": {
+          "type": "string", "enum": ["llm", "rule", "none"],
+          "description": "Review strategy. 'llm' uses QB as reviewer."
+        },
+        "max_retries": {
+          "type": "integer", "minimum": 0, "maximum": 5,
+          "description": "Max retry attempts on Tier-2 review failure."
+        }
       }
     }
   },

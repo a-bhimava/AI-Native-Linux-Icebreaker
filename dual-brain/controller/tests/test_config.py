@@ -29,7 +29,11 @@ from controller.config import (
     BackendConfig,
     ControllerConfig,
     _default_config_path,
+    _load_raw_toml,
+    _merge_section_level,
+    _SYSTEM_CONFIG_PATH,
     load,
+    load_layered,
 )
 
 
@@ -378,3 +382,226 @@ def test_pb_transport_invalid_rejected_by_schema(tmp_path):
     toml = _LOCAL_TOML + '\n[run]\npb_transport = "grpc"\n'
     with pytest.raises(BrainConfigError, match="schema violation"):
         load(_write_toml(tmp_path, toml))
+
+
+# ── 51: Config layering (load_layered) ─────────────────────────────────────
+
+
+def test_load_layered_system_only(monkeypatch, tmp_path):
+    """System config loads when no user config exists."""
+    sys_path = tmp_path / "system.toml"
+    sys_path.write_text(_LOCAL_TOML)
+    monkeypatch.setattr("controller.config._SYSTEM_CONFIG_PATH", sys_path)
+    monkeypatch.setattr(
+        "controller.config._default_config_path",
+        lambda: tmp_path / "nonexistent.toml",
+    )
+    cfg = load_layered()
+    assert cfg.qb.name == "local"
+
+
+def test_load_layered_user_only(monkeypatch, tmp_path):
+    """User config loads when no system config exists."""
+    user_dir = tmp_path / "icebreaker"
+    user_dir.mkdir()
+    user_path = user_dir / "controller.toml"
+    user_path.write_text(_LOCAL_TOML)
+    monkeypatch.setattr(
+        "controller.config._SYSTEM_CONFIG_PATH",
+        tmp_path / "nonexistent.toml",
+    )
+    monkeypatch.setattr(
+        "controller.config._default_config_path",
+        lambda: user_path,
+    )
+    cfg = load_layered()
+    assert cfg.qb.name == "local"
+
+
+def test_load_layered_both_exist_user_overrides(monkeypatch, tmp_path):
+    """User [session] replaces system [session] entirely."""
+    sys_path = tmp_path / "system.toml"
+    sys_path.write_text(_LOCAL_TOML + "\n[session]\nmax_turns = 100\n")
+    user_path = tmp_path / "user.toml"
+    user_path.write_text(_LOCAL_TOML + "\n[session]\nmax_turns = 25\n")
+    monkeypatch.setattr("controller.config._SYSTEM_CONFIG_PATH", sys_path)
+    monkeypatch.setattr(
+        "controller.config._default_config_path",
+        lambda: user_path,
+    )
+    cfg = load_layered()
+    assert cfg.session.max_turns == 25
+
+
+def test_load_layered_section_replacement_not_deep_merge(monkeypatch, tmp_path):
+    """User [session] replaces entire system [session]; keys not in user
+    fall back to dataclass defaults, NOT to the system value."""
+    sys_path = tmp_path / "system.toml"
+    sys_path.write_text(
+        _LOCAL_TOML + '\n[session]\nmax_turns = 50\ncolor = "always"\n'
+    )
+    user_path = tmp_path / "user.toml"
+    user_path.write_text(_LOCAL_TOML + "\n[session]\nmax_turns = 25\n")
+    monkeypatch.setattr("controller.config._SYSTEM_CONFIG_PATH", sys_path)
+    monkeypatch.setattr(
+        "controller.config._default_config_path",
+        lambda: user_path,
+    )
+    cfg = load_layered()
+    assert cfg.session.max_turns == 25
+    assert cfg.session.color == "auto"  # dataclass default, NOT "always"
+
+
+def test_load_layered_neither_exists_raises(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "controller.config._SYSTEM_CONFIG_PATH",
+        tmp_path / "sys.toml",
+    )
+    monkeypatch.setattr(
+        "controller.config._default_config_path",
+        lambda: tmp_path / "user.toml",
+    )
+    with pytest.raises(BrainConfigError, match="no config found"):
+        load_layered()
+
+
+def test_load_layered_user_adds_new_section(monkeypatch, tmp_path):
+    """System has only [qb]; user adds [hitl]."""
+    sys_path = tmp_path / "system.toml"
+    sys_path.write_text(_LOCAL_TOML)
+    user_path = tmp_path / "user.toml"
+    user_path.write_text(_LOCAL_TOML + "\n[hitl]\nlockout_seconds = 5\n")
+    monkeypatch.setattr("controller.config._SYSTEM_CONFIG_PATH", sys_path)
+    monkeypatch.setattr(
+        "controller.config._default_config_path",
+        lambda: user_path,
+    )
+    cfg = load_layered()
+    assert cfg.hitl.lockout_seconds == 5
+
+
+def test_load_layered_forbidden_key_in_user_raises(monkeypatch, tmp_path):
+    """D11 forbidden key in user config is caught."""
+    sys_path = tmp_path / "system.toml"
+    sys_path.write_text(_LOCAL_TOML)
+    user_path = tmp_path / "user.toml"
+    user_path.write_text(
+        _LOCAL_TOML + '\n[qb.local]\napi_key = "sk-leaked"\n'
+    )
+    monkeypatch.setattr("controller.config._SYSTEM_CONFIG_PATH", sys_path)
+    monkeypatch.setattr(
+        "controller.config._default_config_path",
+        lambda: user_path,
+    )
+    with pytest.raises(BrainConfigError, match="forbidden"):
+        load_layered()
+
+
+def test_load_layered_schema_violation_in_merged_raises(monkeypatch, tmp_path):
+    """Merged result that fails schema is caught."""
+    sys_path = tmp_path / "system.toml"
+    sys_path.write_text(_LOCAL_TOML)
+    user_path = tmp_path / "user.toml"
+    user_path.write_text(
+        _LOCAL_TOML + '\n[run]\npb_transport = "grpc"\n'
+    )
+    monkeypatch.setattr("controller.config._SYSTEM_CONFIG_PATH", sys_path)
+    monkeypatch.setattr(
+        "controller.config._default_config_path",
+        lambda: user_path,
+    )
+    with pytest.raises(BrainConfigError):
+        load_layered()
+
+
+# ── 52: Distro path auto-detection ─────────────────────────────────────────
+
+
+def test_run_config_detects_distro_mcpd(monkeypatch, tmp_path):
+    """When /usr/libexec/icebreaker/mcpd exists, it becomes mcpd_binary."""
+    _orig_exists = Path.exists
+
+    def _patched_exists(self):
+        if str(self) == "/usr/libexec/icebreaker/mcpd":
+            return True
+        return _orig_exists(self)
+
+    monkeypatch.setattr(Path, "exists", _patched_exists)
+    cfg = load(_write_toml(tmp_path, _LOCAL_TOML))
+    assert cfg.run.mcpd_binary == "/usr/libexec/icebreaker/mcpd"
+
+
+def test_run_config_falls_back_to_dev_path(tmp_path):
+    """No distro binary → default dev path (regression)."""
+    cfg = load(_write_toml(tmp_path, _LOCAL_TOML))
+    assert cfg.run.mcpd_binary == "src/mcpd/target/release/mcpd"
+
+
+# ── 53: Schema gap fixes ──────────────────────────────────────────────────
+
+
+def test_cost_section_validates(tmp_path):
+    toml = _LOCAL_TOML + "\n[cost]\nsession_ceiling_usd = 1.0\n"
+    cfg = load(_write_toml(tmp_path, toml))
+    assert cfg.cost.session_ceiling_usd == 1.0
+
+
+def test_limits_section_validates(tmp_path):
+    toml = _LOCAL_TOML + "\n[limits]\nmax_input_chars = 2000\n"
+    cfg = load(_write_toml(tmp_path, toml))
+    assert cfg.limits.max_input_chars == 2000
+
+
+def test_risk_section_validates(tmp_path):
+    toml = _LOCAL_TOML + '\n[risk]\nstrategy = "rules"\n'
+    cfg = load(_write_toml(tmp_path, toml))
+    assert cfg.risk.strategy == "rules"
+
+
+def test_tier2_section_validates(tmp_path):
+    toml = _LOCAL_TOML + '\n[tier2]\nenabled = true\nstrategy = "llm"\n'
+    cfg = load(_write_toml(tmp_path, toml))
+    assert cfg.tier2.enabled is True
+    assert cfg.tier2.strategy == "llm"
+
+
+def test_ephemeral_history_validates(tmp_path):
+    toml = _LOCAL_TOML + "\n[session]\nephemeral_history = false\n"
+    cfg = load(_write_toml(tmp_path, toml))
+    assert cfg.session.ephemeral_history is False
+
+
+def test_tier2_invalid_strategy_rejected(tmp_path):
+    toml = _LOCAL_TOML + '\n[tier2]\nstrategy = "magic"\n'
+    with pytest.raises(BrainConfigError, match="schema violation"):
+        load(_write_toml(tmp_path, toml))
+
+
+# ── 54: load() refactor regression ────────────────────────────────────────
+
+
+def test_load_explicit_path_unchanged(tmp_path):
+    """load(path) still works exactly as before."""
+    cfg = load(_write_toml(tmp_path, _LOCAL_TOML))
+    assert isinstance(cfg, ControllerConfig)
+    assert cfg.qb.name == "local"
+
+
+def test_load_default_path_unchanged(monkeypatch, tmp_path):
+    """load() with no args still reads XDG path."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    d = tmp_path / "icebreaker"
+    d.mkdir()
+    (d / "controller.toml").write_text(_LOCAL_TOML)
+    cfg = load()
+    assert cfg.qb.name == "local"
+
+
+def test_load_raw_toml_rejects_forbidden_keys(tmp_path):
+    """_load_raw_toml() independently catches D11 violations."""
+    p = _write_toml(
+        tmp_path,
+        _LOCAL_TOML + '\napi_key = "sk-leaked"\n',
+    )
+    with pytest.raises(BrainConfigError, match="forbidden"):
+        _load_raw_toml(p)
