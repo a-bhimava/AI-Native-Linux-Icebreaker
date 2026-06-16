@@ -59,6 +59,8 @@ _FORBIDDEN_TOML_KEY_REGEX: Final = re.compile(
 
 _TOML_KEY_ALLOWLIST: Final = frozenset({"api_key_env"})
 
+_SYSTEM_CONFIG_PATH: Final[Path] = Path("/etc/icebreaker/controller.toml")
+
 
 @dataclass(frozen=True)
 class BackendConfig:
@@ -280,6 +282,20 @@ def _validate_structure(raw: dict) -> None:
         )
 
 
+def _load_raw_toml(path: Path) -> dict:
+    """Read, validate forbidden keys, and schema-check a TOML file."""
+    try:
+        with path.open("rb") as handle:
+            raw = tomllib.load(handle)
+    except tomllib.TOMLDecodeError as exc:
+        raise BrainConfigError(
+            f"TOML parse failure in {path}: {exc}"
+        ) from None
+    _check_forbidden_keys(raw)
+    _validate_structure(raw)
+    return raw
+
+
 def _build_backend_config(raw: dict) -> BackendConfig:
     qb = raw["qb"]
     name = qb["backend"]
@@ -406,8 +422,15 @@ def _build_prompts_config(raw: dict) -> PromptsConfig:
 
 def _build_run_config(raw: dict) -> RunConfig:
     section = raw.get("run", {})
+    mcpd_binary = section.get("mcpd_binary", "")
+    if not mcpd_binary:
+        distro_binary = Path("/usr/libexec/icebreaker/mcpd")
+        if distro_binary.exists():
+            mcpd_binary = str(distro_binary)
+        else:
+            mcpd_binary = "src/mcpd/target/release/mcpd"
     return RunConfig(
-        mcpd_binary=section.get("mcpd_binary", "src/mcpd/target/release/mcpd"),
+        mcpd_binary=mcpd_binary,
         audit_log=section.get("audit_log", "~/.local/state/icebreaker/controller-audit.log"),
         pb_endpoint=section.get("pb_endpoint", "http://127.0.0.1:8080"),
         pb_model_id=section.get("pb_model_id", "run7_cot"),
@@ -503,6 +526,37 @@ def _build_keymap(raw: dict) -> Keymap:
         raise BrainConfigError(str(exc)) from None
 
 
+def _build_config(raw: dict, config_path: Path) -> ControllerConfig:
+    """Build ControllerConfig from validated raw TOML dict."""
+    return ControllerConfig(
+        qb=_build_backend_config(raw),
+        hitl=_build_hitl_config(raw),
+        prompts=_build_prompts_config(raw),
+        session=_build_session_config(raw),
+        run=_build_run_config(raw),
+        config_path=config_path.resolve(),
+        keymap=_build_keymap(raw),
+        risk=_build_risk_config(raw),
+        tier2=_build_tier2_config(raw),
+        cost=_build_cost_config(raw),
+        limits=_build_limits_config(raw),
+        undo=_build_undo_config(raw),
+        verifier=_build_verifier_config(raw),
+        daemon=_build_daemon_config(raw),
+    )
+
+
+def _merge_section_level(system: dict, user: dict) -> dict:
+    """Merge user config over system config at section level.
+
+    Each top-level key in user REPLACES the corresponding system key entirely.
+    This is intentionally shallow — no deep-merging within sections (ADR-8).
+    """
+    merged = dict(system)
+    merged.update(user)
+    return merged
+
+
 def load(path: Path | None = None) -> ControllerConfig:
     """Load and validate the controller config.
 
@@ -527,32 +581,46 @@ def load(path: Path | None = None) -> ControllerConfig:
             "controller.toml.example "
             "~/.config/icebreaker/controller.toml"
         )
+    raw = _load_raw_toml(resolved)
+    return _build_config(raw, resolved)
 
-    try:
-        with resolved.open("rb") as handle:
-            raw = tomllib.load(handle)
-    except tomllib.TOMLDecodeError as exc:
+
+def load_layered() -> ControllerConfig:
+    """Load config with 2-tier layering: system then user.
+
+    1. If system config exists (/etc/icebreaker/controller.toml), load it.
+    2. If user config exists (~/.config/icebreaker/controller.toml), load it.
+    3. If both exist, merge (user sections replace system sections).
+    4. If neither exists, raise BrainConfigError.
+    """
+    install_root_redaction_filter()
+
+    system_path = _SYSTEM_CONFIG_PATH
+    user_path = _default_config_path()
+
+    system_exists = system_path.exists()
+    user_exists = user_path.exists()
+
+    if not system_exists and not user_exists:
         raise BrainConfigError(
-            f"TOML parse failure in {resolved}: {exc}"
-        ) from None
+            f"no config found at {system_path} or {user_path}. "
+            "Bootstrap with: cp dual-brain/controller/"
+            "controller.toml.example "
+            "~/.config/icebreaker/controller.toml"
+        )
 
-    _check_forbidden_keys(raw)
-    _validate_structure(raw)
-    qb = _build_backend_config(raw)
-    hitl = _build_hitl_config(raw)
-    prompts = _build_prompts_config(raw)
-    session = _build_session_config(raw)
-    run = _build_run_config(raw)
-    keymap = _build_keymap(raw)
-    risk = _build_risk_config(raw)
-    tier2 = _build_tier2_config(raw)
-    cost = _build_cost_config(raw)
-    limits = _build_limits_config(raw)
-    undo = _build_undo_config(raw)
-    verifier = _build_verifier_config(raw)
-    daemon = _build_daemon_config(raw)
-    return ControllerConfig(
-        qb=qb, hitl=hitl, prompts=prompts, session=session, run=run,
-        config_path=resolved.resolve(), keymap=keymap, risk=risk, tier2=tier2,
-        cost=cost, limits=limits, undo=undo, verifier=verifier, daemon=daemon,
-    )
+    if system_exists and user_exists:
+        system_raw = _load_raw_toml(system_path)
+        user_raw = _load_raw_toml(user_path)
+        raw = _merge_section_level(system_raw, user_raw)
+        _check_forbidden_keys(raw)
+        _validate_structure(raw)
+        config_path = user_path
+    elif system_exists:
+        raw = _load_raw_toml(system_path)
+        config_path = system_path
+    else:
+        raw = _load_raw_toml(user_path)
+        config_path = user_path
+
+    return _build_config(raw, config_path)

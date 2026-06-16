@@ -986,6 +986,9 @@ class Controller:
         candidate = binary.parent.parent.parent / "schemas"
         if candidate.exists():
             return str(candidate)
+        distro_candidate = Path("/usr/share/icebreaker/schemas")
+        if distro_candidate.exists():
+            return str(distro_candidate)
         return ""
 
     def _build_presenter(self) -> HitlPresenter:

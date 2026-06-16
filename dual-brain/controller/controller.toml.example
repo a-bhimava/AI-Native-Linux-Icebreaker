@@ -154,6 +154,22 @@ timeout_seconds = 30
 # max_turns_per_min = 30         # rate limit (0 = unlimited)
 
 
+# Risk classifier — pluggable strategy (BP-5).
+# Default "rules" uses the built-in rule-based classifier.
+#
+# [risk]
+# strategy = "rules"
+
+
+# Tier-2 independent review — off by default (BP-2).
+# When enabled, high-risk operations get a second independent QB review.
+#
+# [tier2]
+# enabled     = false
+# strategy    = "llm"     # "llm" | "rule" | "none"
+# max_retries = 2
+
+
 # Undo scaffold — off by default (BP-2). Tracks undo history per session.
 # Actual rollback awaits mcpd rollback RPC; /undo currently shows status only.
 #
