@@ -1,17 +1,21 @@
 [Unit]
-Description=Icebreaker Controller Daemon
+Description=Icebreaker Quarantined Brain llama-server
 Documentation=man:icebreaker(1)
-After=network.target icebreaker-pbd.service icebreaker-qbd.service
-Wants=icebreaker-pbd.service icebreaker-qbd.service
+# No After= on icebreaker-pbd.service — ADR-7: parallel startup.
 
 [Service]
 Type=exec
-ExecStart=/opt/icebreaker/venv/bin/python3 -m controller --daemon --config /etc/icebreaker/controller.toml
-ExecStop=/bin/kill -TERM $MAINPID
+User=_icebreaker_qb
+Group=icebreaker-users
+ExecStart=/usr/libexec/icebreaker/start-qbd
+EnvironmentFile=/etc/icebreaker/locations.env
+
 Restart=on-failure
 RestartSec=5
 
-StateDirectory=icebreaker
+RuntimeDirectory=icebreaker
+RuntimeDirectoryPreserve=yes
+UMask=0117
 
 # Hardening (BP-9).
 NoNewPrivileges=yes
@@ -23,10 +27,12 @@ ProtectKernelModules=yes
 ProtectControlGroups=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
-ReadOnlyPaths=/opt/icebreaker/venv
+ReadOnlyPaths=/var/lib/icebreaker/models
+ReadOnlyPaths=/usr/libexec/icebreaker
 ReadOnlyPaths=/usr/share/icebreaker
 ReadWritePaths=/run/icebreaker
 ReadWritePaths=/var/log/icebreaker
+MemoryMax=4G
 
 [Install]
 WantedBy=multi-user.target

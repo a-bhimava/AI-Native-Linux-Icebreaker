@@ -2,7 +2,7 @@
 Description=Icebreaker Controller Socket
 
 [Socket]
-ListenStream=%t/icebreaker/controller.sock
+ListenStream=/run/user/%U/icebreaker/controller.sock
 SocketMode=0600
 DirectoryMode=0700
 

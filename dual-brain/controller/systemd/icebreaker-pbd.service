@@ -1,0 +1,48 @@
+[Unit]
+Description=Icebreaker Privileged Brain llama-server
+Documentation=man:icebreaker(1)
+# No After= on icebreaker-qbd.service — ADR-7: parallel startup.
+
+[Service]
+Type=exec
+User=_icebreaker_pb
+Group=icebreaker-users
+ExecStart=/usr/libexec/icebreaker/start-pbd
+EnvironmentFile=/etc/icebreaker/locations.env
+
+Restart=on-failure
+RestartSec=5
+
+# /run/icebreaker/ owned by root:icebreaker-users, mode 2775.
+# tmpfiles.d creates the directory; RuntimeDirectory ensures it persists
+# for this unit's lifetime.
+RuntimeDirectory=icebreaker
+RuntimeDirectoryPreserve=yes
+# Socket created by llama-server inherits the process umask.
+# 0117 → files get 0660 (rw-rw----), directories get 0660.
+# This ensures /run/icebreaker/pbd.sock is group-accessible only.
+UMask=0117
+
+# Hardening (BP-9: defense in depth).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+# Read-only bind mounts for model and binary paths.
+ReadOnlyPaths=/var/lib/icebreaker/models
+ReadOnlyPaths=/usr/libexec/icebreaker
+ReadOnlyPaths=/usr/share/icebreaker
+# Socket lives in /run/icebreaker/ — needs write.
+ReadWritePaths=/run/icebreaker
+# Logging.
+ReadWritePaths=/var/log/icebreaker
+# Memory cap — prevents runaway inference from OOM-killing the system.
+MemoryMax=4G
+
+[Install]
+WantedBy=multi-user.target

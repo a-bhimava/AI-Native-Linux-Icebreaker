@@ -10,9 +10,9 @@
 
 | Milestone | Status | PR | Notes |
 |---|---|---|---|
-| M6.1 mcpd sd_notify | ⬜ Not started | PR #15 | `sd-notify` crate, `READY=1` datagram |
-| M6.2 UNIX transport + PB config | ⬜ Not started | PR #16 | `_unix_http.py`, `pb_transport` config fix |
-| M6.3 systemd units | ⬜ Not started | PR #17 | Service users, socket perms, parallel startup |
+| M6.1 mcpd sd_notify | ✅ Merged | PR #15 | `sd-notify` crate, `READY=1` datagram |
+| M6.2 UNIX transport + PB config | ✅ Merged | PR #16 | `_unix_http.py`, `pb_transport` config fix |
+| M6.3 systemd units | 🔄 In PR | PR #17 | Service users, socket perms, parallel startup, 43 tests |
 | M6.4 Python packaging + config layering | ⬜ Not started | PR #18 | `pyproject.toml`, 2-tier config merge |
 | M6.5 cx-distro scaffold + build.sh | ⬜ Not started | PR #19 | Live ISO pipeline, INV-7 verification |
 | M6.6 First-boot + safe mode | ⬜ Not started | PR #20 | Sentinel, health poll, recovery |

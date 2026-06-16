@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# start-qbd — Distro wrapper for the Quarantined Brain llama-server.
+#
+# Launched by icebreaker-qbd.service. Sources /etc/icebreaker/locations.env,
+# resolves model + draft + grammar via the registry, verifies checksums
+# (INV-7), and binds llama-server to /run/icebreaker/qbd.sock.
+#
+# This is the DISTRO counterpart of scripts/start_qb_local.sh (which uses
+# TCP loopback for dev). Both share the same model_registry resolve flow.
+set -euo pipefail
+
+# ── Environment ──────────────────────────────────────────────────────────
+LOCATIONS="${ICEBREAKER_LOCATIONS_ENV:-/etc/icebreaker/locations.env}"
+if [ -f "${LOCATIONS}" ]; then
+    # shellcheck source=/dev/null
+    source "${LOCATIONS}"
+fi
+
+: "${ICEBREAKER_VENV_PYTHON:=/opt/icebreaker/venv/bin/python3}"
+: "${ICEBREAKER_CONFIG:=/etc/icebreaker/controller.toml}"
+: "${ICEBREAKER_MODELS_DIR:=/var/lib/icebreaker/models}"
+: "${ICEBREAKER_SOCKET_DIR:=/run/icebreaker}"
+: "${ICEBREAKER_LLAMA_SERVER:=/usr/libexec/icebreaker/llama-server}"
+
+SOCKET_PATH="${ICEBREAKER_SOCKET_DIR}/qbd.sock"
+
+# ── Model + grammar resolution ──────────────────────────────────────────
+# Read model_id, draft_model_id, grammar_path from [qb.local] config.
+read -r MODEL_ID DRAFT_ID GRAMMAR_PATH <<EOF
+$("${ICEBREAKER_VENV_PYTHON}" -c "
+import sys, pathlib
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+cfg = tomllib.loads(pathlib.Path('${ICEBREAKER_CONFIG}').read_text())
+qb = cfg['qb']['local']
+print(qb['model_id'], qb.get('draft_model_id', ''), qb.get('grammar_path', ''))
+")
+EOF
+
+echo "[start-qbd] model_id=${MODEL_ID}"
+echo "[start-qbd] draft_model_id=${DRAFT_ID:-<none>}"
+echo "[start-qbd] grammar=${GRAMMAR_PATH:-<none>}"
+
+MODEL_FILE=$("${ICEBREAKER_VENV_PYTHON}" -m controller.model_registry \
+    resolve --id "${MODEL_ID}")
+echo "[start-qbd] resolved model: ${MODEL_FILE}"
+
+DRAFT_ARGS=()
+if [ -n "${DRAFT_ID}" ]; then
+    DRAFT_FILE=$("${ICEBREAKER_VENV_PYTHON}" -m controller.model_registry \
+        resolve --id "${DRAFT_ID}")
+    DRAFT_ARGS=(--draft-model "${DRAFT_FILE}" --draft 8)
+    echo "[start-qbd] speculative-decoding draft: ${DRAFT_FILE}"
+fi
+
+# ── Checksum verification (INV-7) ───────────────────────────────────────
+CHECKSUMS="${ICEBREAKER_MODELS_DIR}/checksums.sha256"
+if [ ! -f "${CHECKSUMS}" ]; then
+    echo "[start-qbd] FATAL: checksums file missing: ${CHECKSUMS}" >&2
+    exit 1
+fi
+
+verify_checksum() {
+    local file="$1"
+    local basename
+    basename=$(basename "${file}")
+    if ! grep -qF "${basename}" "${CHECKSUMS}"; then
+        echo "[start-qbd] FATAL: model not in checksums file: ${basename}" >&2
+        exit 1
+    fi
+    local expected actual
+    expected=$(grep -F "${basename}" "${CHECKSUMS}" | head -1 | awk '{print $1}')
+    actual=$(sha256sum "${file}" | awk '{print $1}')
+    if [ "${expected}" != "${actual}" ]; then
+        echo "[start-qbd] FATAL: checksum mismatch for ${file}" >&2
+        echo "[start-qbd]   expected: ${expected}" >&2
+        echo "[start-qbd]   actual:   ${actual}" >&2
+        exit 1
+    fi
+    echo "[start-qbd] checksum verified: ${file}"
+}
+
+verify_checksum "${MODEL_FILE}"
+if [ ${#DRAFT_ARGS[@]} -gt 0 ]; then
+    verify_checksum "${DRAFT_FILE}"
+fi
+
+# ── Grammar file ────────────────────────────────────────────────────────
+GRAMMAR_ARGS=()
+if [ -n "${GRAMMAR_PATH}" ]; then
+    # Grammar paths in distro config are absolute (e.g. /usr/share/icebreaker/grammars/...).
+    if [ ! -f "${GRAMMAR_PATH}" ]; then
+        echo "[start-qbd] WARNING: grammar file not found: ${GRAMMAR_PATH}; launching without grammar" >&2
+    else
+        GRAMMAR_ARGS=(--grammar-file "${GRAMMAR_PATH}")
+    fi
+fi
+
+# ── Clean up stale socket ───────────────────────────────────────────────
+if [ -e "${SOCKET_PATH}" ]; then
+    rm -f "${SOCKET_PATH}"
+fi
+
+# ── Launch llama-server on UNIX socket ──────────────────────────────────
+echo "[start-qbd] binding to ${SOCKET_PATH}"
+exec "${ICEBREAKER_LLAMA_SERVER}" \
+    --model "${MODEL_FILE}" \
+    "${DRAFT_ARGS[@]}" \
+    "${GRAMMAR_ARGS[@]}" \
+    -ngl 99 \
+    --host "${SOCKET_PATH}" \
+    --no-warmup
