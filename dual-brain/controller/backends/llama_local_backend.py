@@ -18,9 +18,9 @@ The model selection happens upstream:
 That separation is what makes the model plug-and-play (change model_id,
 restart llama-server, no Controller change).
 
-Transport is configurable. Today: HTTP loopback. ``transport="unix"``
-is reserved for Phase 6 distro packaging and raises
-``BrainConfigError`` with a clear message.
+Transport is configurable: ``transport="http"`` for TCP loopback,
+``transport="unix"`` routes HTTP through an AF_UNIX socket (Phase 6
+distro packaging).
 """
 
 from __future__ import annotations
@@ -55,16 +55,10 @@ class LlamaCppLocalBackend(BrainBackend):
     def __init__(self, config: Any) -> None:
         super().__init__(config)
 
-        if config.transport == "unix":
-            raise BrainConfigError(
-                "transport='unix' for local backend is reserved for Phase 6 "
-                "distro packaging. Use transport='http' against a loopback "
-                "llama-server (default) for now."
-            )
-        if config.transport != "http":
+        if config.transport not in ("http", "unix"):
             raise BrainConfigError(
                 f"unknown transport {config.transport!r}; "
-                "supported: 'http' (today), 'unix' (Phase 6)"
+                "supported: 'http', 'unix'"
             )
 
         if config.endpoint is None:
@@ -85,19 +79,27 @@ class LlamaCppLocalBackend(BrainBackend):
         else:
             self._grammar = None
 
-        self._endpoint = str(config.endpoint).rstrip("/")
         self._timeout = config.timeout_seconds
 
-        # Lazy import — requests is in requirements.txt for M2.5.
         import requests
 
-        self._session = requests.Session()
+        if config.transport == "unix":
+            from ._unix_http import UnixHTTPAdapter, parse_unix_endpoint
+
+            try:
+                socket_path, http_base = parse_unix_endpoint(
+                    str(config.endpoint)
+                )
+            except ValueError as exc:
+                raise BrainConfigError(str(exc)) from None
+            self._endpoint = http_base
+            self._session = requests.Session()
+            self._session.mount("http+unix://", UnixHTTPAdapter(socket_path))
+        else:
+            self._endpoint = str(config.endpoint).rstrip("/")
+            self._session = requests.Session()
 
         # Health probe at construction: fail fast if llama-server isn't up.
-        # Wrapped in BrainConfigError, not BrainProviderError — the local
-        # backend has no API key to leak, but more importantly this is a
-        # setup-time problem and should be addressed by re-running
-        # start_qb_local.sh, not by retrying.
         try:
             response = self._session.get(
                 f"{self._endpoint}/health",

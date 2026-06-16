@@ -150,6 +150,7 @@ class RunConfig:
     mcpd_timeout_seconds: float = 10.0
     qb_max_retries: int = 3
     mcpd_schemas_dir: str = ""  # empty = auto-detect from mcpd_binary path
+    pb_transport: str = "http"  # "http" or "unix"; used by _build_pb()
 
 
 @dataclass(frozen=True)
@@ -415,6 +416,7 @@ def _build_run_config(raw: dict) -> RunConfig:
         mcpd_timeout_seconds=section.get("mcpd_timeout_seconds", 10.0),
         qb_max_retries=section.get("qb_max_retries", 3),
         mcpd_schemas_dir=section.get("mcpd_schemas_dir", ""),
+        pb_transport=section.get("pb_transport", "http"),
     )
 
 
