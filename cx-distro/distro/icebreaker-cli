@@ -1,0 +1,4 @@
+#!/bin/sh
+# /usr/bin/icebreaker — CLI entry point for the Icebreaker AI-Native OS controller.
+# Delegates to the vendored venv. Supports all controller CLI flags.
+exec /opt/icebreaker/venv/bin/python3 -m controller "$@"

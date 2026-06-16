@@ -1,0 +1,47 @@
+# /etc/icebreaker/controller.toml — system defaults.
+# User overrides: ~/.config/icebreaker/controller.toml (load_layered, ADR-8).
+
+[qb]
+backend = "local"
+
+[qb.local]
+model_id        = "qwen-2.5-1.5b-instruct-q4_k_m"
+draft_model_id  = "qwen-2.5-coder-0.5b-instruct-q4_k_m"
+endpoint        = "unix:///run/icebreaker/qbd.sock"
+transport       = "unix"
+grammar_path    = "/usr/share/icebreaker/grammars/qb_intent.gbnf"
+max_tokens      = 512
+timeout_seconds = 30
+
+[run]
+mcpd_binary        = "/usr/libexec/icebreaker/mcpd"
+mcpd_schemas_dir   = "/usr/share/icebreaker/schemas"
+audit_log          = "/var/log/icebreaker/controller-audit.log"
+pb_endpoint        = "unix:///run/icebreaker/pbd.sock"
+pb_transport       = "unix"
+pb_model_id        = "qwen-2.5-coder-1.5b-instruct-q4_k_m"
+pb_max_tokens      = 256
+pb_timeout_seconds = 10
+
+[paths]
+catalogue_path    = "/usr/share/icebreaker/catalogue.toml"
+model_search_dirs = ["/var/lib/icebreaker/models", "~/.local/share/icebreaker/models"]
+
+[prompts]
+prompts_dir = "/usr/share/icebreaker/prompts"
+
+[session]
+ephemeral_history = true
+show_spinner      = true
+show_progress     = true
+stream_output     = true
+color             = "auto"
+
+[hitl]
+lockout_seconds = 3
+timeout_seconds = 30
+
+[daemon]
+socket_path     = "/run/icebreaker/controller.sock"
+pid_file        = "/run/icebreaker/controller.pid"
+max_connections = 1
