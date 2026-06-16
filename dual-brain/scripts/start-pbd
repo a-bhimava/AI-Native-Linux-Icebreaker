@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# start-pbd — Distro wrapper for the Privileged Brain llama-server.
+#
+# Launched by icebreaker-pbd.service. Sources /etc/icebreaker/locations.env,
+# resolves the model via the registry, verifies the checksum (INV-7), and
+# binds llama-server to a UNIX socket at /run/icebreaker/pbd.sock.
+#
+# This is the DISTRO counterpart of scripts/start_pb.sh (which uses TCP
+# loopback for dev). Both share the same model_registry resolve flow.
+set -euo pipefail
+
+# ── Environment ──────────────────────────────────────────────────────────
+# EnvironmentFile= in the systemd unit pre-loads these, but source
+# explicitly for manual runs and to fail fast if the file is missing.
+LOCATIONS="${ICEBREAKER_LOCATIONS_ENV:-/etc/icebreaker/locations.env}"
+if [ -f "${LOCATIONS}" ]; then
+    # shellcheck source=/dev/null
+    source "${LOCATIONS}"
+fi
+
+: "${ICEBREAKER_VENV_PYTHON:=/opt/icebreaker/venv/bin/python3}"
+: "${ICEBREAKER_CONFIG:=/etc/icebreaker/controller.toml}"
+: "${ICEBREAKER_MODELS_DIR:=/var/lib/icebreaker/models}"
+: "${ICEBREAKER_SOCKET_DIR:=/run/icebreaker}"
+: "${ICEBREAKER_LLAMA_SERVER:=/usr/libexec/icebreaker/llama-server}"
+
+SOCKET_PATH="${ICEBREAKER_SOCKET_DIR}/pbd.sock"
+
+# ── Model resolution ────────────────────────────────────────────────────
+# Read pb_model_id from [run] section of the config.
+PB_MODEL_ID=$("${ICEBREAKER_VENV_PYTHON}" -c "
+import sys, pathlib
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+cfg = tomllib.loads(pathlib.Path('${ICEBREAKER_CONFIG}').read_text())
+print(cfg.get('run', {}).get('pb_model_id', 'run7_cot'))
+")
+
+echo "[start-pbd] model_id=${PB_MODEL_ID}"
+
+MODEL_FILE=$("${ICEBREAKER_VENV_PYTHON}" -m controller.model_registry \
+    resolve --id "${PB_MODEL_ID}")
+echo "[start-pbd] resolved model: ${MODEL_FILE}"
+
+# ── Checksum verification (INV-7) ───────────────────────────────────────
+CHECKSUMS="${ICEBREAKER_MODELS_DIR}/checksums.sha256"
+if [ ! -f "${CHECKSUMS}" ]; then
+    echo "[start-pbd] FATAL: checksums file missing: ${CHECKSUMS}" >&2
+    exit 1
+fi
+
+if ! grep -qF "$(basename "${MODEL_FILE}")" "${CHECKSUMS}"; then
+    echo "[start-pbd] FATAL: model not in checksums file: $(basename "${MODEL_FILE}")" >&2
+    exit 1
+fi
+
+# Verify the specific model file.
+EXPECTED_HASH=$(grep -F "$(basename "${MODEL_FILE}")" "${CHECKSUMS}" | head -1 | awk '{print $1}')
+ACTUAL_HASH=$(sha256sum "${MODEL_FILE}" | awk '{print $1}')
+if [ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]; then
+    echo "[start-pbd] FATAL: checksum mismatch for ${MODEL_FILE}" >&2
+    echo "[start-pbd]   expected: ${EXPECTED_HASH}" >&2
+    echo "[start-pbd]   actual:   ${ACTUAL_HASH}" >&2
+    exit 1
+fi
+echo "[start-pbd] checksum verified: ${MODEL_FILE}"
+
+# ── Clean up stale socket ───────────────────────────────────────────────
+if [ -e "${SOCKET_PATH}" ]; then
+    rm -f "${SOCKET_PATH}"
+fi
+
+# ── Launch llama-server on UNIX socket ──────────────────────────────────
+# llama-server binds to a UNIX socket when --host ends with .sock.
+# PB uses no grammar — relies on post-hoc tool-call validation.
+echo "[start-pbd] binding to ${SOCKET_PATH}"
+exec "${ICEBREAKER_LLAMA_SERVER}" \
+    --model "${MODEL_FILE}" \
+    -ngl 99 \
+    --host "${SOCKET_PATH}" \
+    --no-warmup
