@@ -56,8 +56,8 @@ if [[ -z "$RESP" ]]; then
 fi
 TOOLS=$(echo "$RESP" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["result"]["tools"]))' 2>/dev/null || echo 0)
 SCHEMA=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["schema_version"])' 2>/dev/null || echo "?")
-if [[ "$TOOLS" -lt 20 ]]; then
-    echo -e "${RED}[G2] FAIL${RST} — catalogue advertises $TOOLS tools (expected ≥ 20)"
+if [[ "$TOOLS" -ne 22 ]]; then
+    echo -e "${RED}[G2] FAIL${RST} — catalogue advertises $TOOLS tools (expected exactly 22)"
     exit 1
 fi
 echo -e "${GRN}[G2] PASS${RST} — $TOOLS tools, schema $SCHEMA"
