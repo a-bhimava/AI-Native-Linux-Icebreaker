@@ -112,9 +112,11 @@ The Approve button must be disabled for at least 3 seconds after the report is s
 
 ### INV-7: Model Weight Integrity
 ```
-mcpd MUST verify the SHA-256 of each GGUF model file against models/checksums.sha256
-at daemon startup. If any checksum fails, mcpd MUST refuse to start.
-build.sh MUST verify all checksums before running mksquashfs.
+The model start scripts (start-pbd, start-qbd) MUST verify the SHA-256 of each
+GGUF model file against models/checksums.sha256 before launching llama-server.
+If any checksum fails, the script MUST refuse to start the inference server.
+build.sh MUST verify all checksums before producing the ISO image.
+first-boot MUST re-verify checksums as defense-in-depth.
 ```
 
 ### INV-8: Audit Log Integrity
@@ -370,7 +372,7 @@ bash 07_evaluate.sh
 
 **If training OOMs:**
 ```bash
-python3 scripts/sft_train.py --low-memory --lr 1e-4 --resume
+LOW_MEM=1 RESUME=1 bash 04_train.sh
 ```
 
 **If you need to resume from a checkpoint:**
@@ -426,8 +428,8 @@ If a change you make causes any of these to exceed budget, resolve the regressio
 
 ```bash
 # Verify both models load
-llama-server --model models/phi4-mini-q4.gguf --port 8080 &
-llama-server --model models/qwen2.5-coder-1.5b-q4.gguf --port 8081 &
+llama-server --model models/phi4-mini-q4.gguf --port 8080 &          # QB (Quarantined Brain)
+llama-server --model models/run7_cot_q4km.gguf --port 8081 &         # PB (Privileged Brain — Phase 4)
 
 # Test MCP handshake
 echo '{"jsonrpc":"2.0","method":"tools/list","id":1}' | ./mcpd

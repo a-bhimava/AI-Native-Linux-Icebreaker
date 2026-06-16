@@ -38,9 +38,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 landlock = "0.4"
 seccompiler = "0.4"
 zbus = { version = "4", default-features = false, features = ["tokio"] }
+sd-notify = "0.4"
 
 [dev-dependencies]
 tokio-test = "0.4"
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

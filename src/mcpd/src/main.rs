@@ -18,5 +18,11 @@ async fn main() -> Result<()> {
     // INV-5: kernel sandbox applied BEFORE accepting any request.
     sandbox::apply()?;
 
+    #[cfg(target_os = "linux")]
+    {
+        sd_notify::notify(false, &[sd_notify::NotifyState::Ready]).ok();
+        info!("sd_notify: READY=1 sent");
+    }
+
     server::run_stdio_server().await
 }

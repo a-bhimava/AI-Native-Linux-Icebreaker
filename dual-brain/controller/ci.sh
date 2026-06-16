@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ci.sh — Icebreaker Phase 2 + Phase 5 exit-gate verification (G1–G11, G5.1–G5.P1d).
+# ci.sh — Icebreaker Phase 2 + Phase 5 exit-gate verification (G1–G11, G5.1–G5.P2c).
 #
 # Run from the dual-brain/ directory:
 #   bash controller/ci.sh
@@ -400,11 +400,40 @@ else
   fail 5.P1d "undo scaffold test failed"
 fi
 
+# ── G5.P2a: OpenAI backend + verifier voting ──────────────────────
+echo "G5.P2a: OpenAI backend + verifier voting..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_openai_backend.py \
+    controller/tests/test_verifier.py -x -q 2>&1; then
+  pass 5.P2a "OpenAI backend + verifier OK"
+else
+  fail 5.P2a "OpenAI backend / verifier test failed"
+fi
+
+# ── G5.P2b: Daemon + client + protocol ────────────────────────────
+echo "G5.P2b: Daemon + client + protocol..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_daemon.py \
+    controller/tests/test_client.py \
+    controller/tests/test_protocol.py -x -q 2>&1; then
+  pass 5.P2b "daemon/client/protocol OK"
+else
+  fail 5.P2b "daemon/client/protocol test failed"
+fi
+
+# ── G5.P2c: Presenter registry + screen-reader + GTK ──────────────
+echo "G5.P2c: Presenter registry + screen-reader + GTK..."
+if PYTHONPATH=. python3 -m pytest controller/tests/test_presenter_registry.py \
+    controller/tests/test_screen_reader_presenter.py \
+    controller/tests/test_gtk_presenter.py -x -q 2>&1; then
+  pass 5.P2c "presenter registry OK"
+else
+  fail 5.P2c "presenter registry test failed"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════════════"
 
 if [ ${#FAILED_GATES[@]} -eq 0 ]; then
-  echo "  All gates passed. Phase 2 + Phase 5 P0 + P1 (A/B/C/D) ready for PR review."
+  echo "  All gates passed. Phase 2 + Phase 5 (P0/P1/P2) ready for PR review."
   echo "═══════════════════════════════════════════════════════════"
   echo ""
   exit 0
