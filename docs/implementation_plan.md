@@ -20,7 +20,7 @@ phase sections below describe the original plan. Mirrors the Phase Status table 
 | **Phase 2** — Dual-Brain Controller | ✅ **Complete (merged to `main`)** | M2.0–M2.14 on `feature/phase2-controller`; full gate suite `controller/ci.sh` **G1–G11 green** on the cloud VM `icebreaker-phase2-vm` (G9 N/A in the cloud-QB config). See close-out note below. |
 | **Phase 4** — Fine-tune Privileged Brain | ✅ **Complete** | `run7_cot_q4km.gguf` (Qwen2.5-Coder-1.5B SFT) **finalized as the PB**: 100% adversarial refusal, 95.5% grammar-valid MCP, 940 MB, checksum recorded. A run8 continued-tune was evaluated and **rejected** (regressed safety). See Phase 4 close-out. |
 | **Phase 5** — UX + Graduated Determinism | ✅ **Complete** | 6 PRs (#9–#14): hardened HITL + keymap + trust store + tier-2 review + audit hash-chain (P0), env scrub + cost/limits + TOCTOU (P1-A), audit viewer TUI + streaming + undo scaffold (P1-BCD), OpenAI backend + verifier voting (P2-backends), presenter registry + screen-reader + GTK (P2-access), daemon/client split + systemd (P2-daemon). 1347 tests, G1–G11 + G5 gates green. |
-| **Phase 6** — ISO distribution | ⬜ Not started | |
+| **Phase 6** — ISO distribution | 🔄 **In progress** | PRs #15–#19 merged; cx-distro scaffold + 6-stage build.sh landed; 1442 tests. See Phase 6 progress note below. |
 | **Phase 7** — Hardening + release | ⬜ Not started | |
 
 **Phase 2 close-out (June 2026).** Validated on a GCP VM (`icebreaker-phase2-vm`,
@@ -46,6 +46,18 @@ voting, pluggable presenter registry with screen-reader + GTK scaffold (BP-1/BP-
 and a persistent daemon/client architecture over AF_UNIX JSON-RPC 2.0 with systemd
 units. 1347 tests (up from 906 at Phase 2 close). Deferred to Phase 6/7: mcpd
 rollback RPC, socket activation, GTK live rendering tests, live OpenAI CI smoke test.
+
+**Phase 6 progress (June 2026).** Five of seven PRs merged (#15–#19). Foundation layer:
+mcpd `sd_notify(READY=1)` for systemd readiness (#15, `8bb8444`); HTTP-over-AF_UNIX
+transport adapter + `pb_transport` config (#16, `04fbb8a`); five systemd units with
+service users, socket permissions, parallel PB/QB startup (#17, `540c567`); PEP 621
+`pyproject.toml`, 2-tier config layering with section-level merge (#18, `7063e26`).
+Build scaffold: `cx-distro/` with Dockerized 6-stage `build.sh` (preflight → mcpd →
+llama-server → venv → chroot → ISO), `--skip-to=N`/`--no-models` for fast iteration,
+distro `controller.toml` (UNIX sockets, FHS paths, correct catalogue IDs), INV-7
+SHA-256 verification of all GGUF models before embedding (#19, `ed786c4`). 1442 tests
+(up from 1347 at Phase 5 close). Remaining: first-boot + safe mode (#20), CI gates +
+QEMU test (#21).
 
 ---
 
@@ -497,22 +509,23 @@ the Phase-2 dev VM `icebreaker-phase2-vm` (T4) holds it deployed.
 #### Tasks
 
 **live-build setup:**
-- [ ] Create `cx-distro/` directory structure (see whitepaper Section 9)
-- [ ] Write `build.sh` — **must verify SHA-256 of all GGUF files before mksquashfs; fail hard on mismatch**
-- [ ] Write `preseed.cfg` — unattended installation; zero manual steps
-- [ ] Write systemd unit files: `mcpd.service`, `privileged-brain.service`, `quarantined-brain.service`
-  - Define `After=` and `Requires=` dependencies: brains cannot start until mcpd is ready
-  - `mcpd.service`: `Type=notify`, `NotifyAccess=main` — systemd waits for daemon-ready signal
-- [ ] Write `config.toml` — system-wide AI configuration (model paths, risk tier thresholds, audit log path)
+- [x] Create `cx-distro/` directory structure — PR #19 (`ed786c4`)
+- [x] Write `build.sh` — **verifies SHA-256 of all GGUF files before embedding; fails hard on mismatch (INV-7)** — PR #19
+- [ ] Write `preseed.cfg` — first-boot wizard + safe mode (stub in PR #19; implementation in PR #20)
+- [x] Write systemd unit files: 5 units (`icebreaker-controller.service`, `icebreaker-pbd.service`, `icebreaker-qbd.service`, `icebreaker-mcpd@.service`, `icebreaker-controller.socket`) — PR #17 (`540c567`)
+  - PB and QB start in parallel (no ordering between them); Controller starts after both
+  - `mcpd@.service`: `Type=notify`, `NotifyAccess=main` — systemd waits for `sd_notify(READY=1)` (PR #15)
+- [x] Write `controller.toml` — production config with UNIX sockets, FHS paths, correct catalogue model IDs — PR #19
+- [x] Write `locations.env` — systemd EnvironmentFile (pure KEY=VALUE, no shell expansion) — PR #19
 
 **Build pipeline:**
-- [ ] Pin all apt package versions in `cx-core.list.chroot`
-- [ ] Pin `debootstrap` to specific suite snapshot
-- [ ] Containerize the build process (Docker container for the BUILD, not for production)
-- [ ] Publish build logs and checksums alongside every ISO
+- [x] Package list in `icebreaker.list.chroot` (version pinning via apt snapshot date, not per-package) — PR #19
+- [x] Pin `debootstrap` to specific suite (`noble` = Ubuntu 24.04 LTS) — PR #19
+- [x] Containerize the build process (`Dockerfile.build` → Docker container for the BUILD) — PR #19
+- [ ] Publish build logs and checksums alongside every ISO — PR #21
 
 **Testing:**
-- [ ] Boot ISO in QEMU: `qemu-system-x86_64 -m 8G -boot d -cdrom ainative.iso`
+- [ ] Boot ISO in QEMU: `qemu-system-x86_64 -m 8G -boot d -cdrom ainative.iso` — PR #21
 - [ ] Verify boot-to-AI-ready time < 60 seconds
 - [ ] Bare-metal boot test on three different hardware configurations
 - [ ] Fresh install test on each hardware configuration

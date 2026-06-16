@@ -10,11 +10,11 @@
 
 | Milestone | Status | PR | Notes |
 |---|---|---|---|
-| M6.1 mcpd sd_notify | ✅ Merged | PR #15 | `sd-notify` crate, `READY=1` datagram |
-| M6.2 UNIX transport + PB config | ✅ Merged | PR #16 | `_unix_http.py`, `pb_transport` config fix |
-| M6.3 systemd units | 🔄 In PR | PR #17 | Service users, socket perms, parallel startup, 43 tests |
-| M6.4 Python packaging + config layering | ⬜ Not started | PR #18 | `pyproject.toml`, 2-tier config merge |
-| M6.5 cx-distro scaffold + build.sh | ⬜ Not started | PR #19 | Live ISO pipeline, INV-7 verification |
+| M6.1 mcpd sd_notify | ✅ Merged | PR #15 (`8bb8444`) | `sd-notify` crate, `READY=1` datagram |
+| M6.2 UNIX transport + PB config | ✅ Merged | PR #16 (`04fbb8a`) | `_unix_http.py`, `pb_transport` config fix |
+| M6.3 systemd units | ✅ Merged | PR #17 (`540c567`) | Service users, socket perms, parallel startup, 43 tests |
+| M6.4 Python packaging + config layering | ✅ Merged | PR #18 (`7063e26`) | PEP 621 `pyproject.toml`, 2-tier config merge, schema gaps |
+| M6.5 cx-distro scaffold + build.sh | ✅ Merged | PR #19 (`ed786c4`) | 6-stage build.sh, Dockerfile, distro config, 19 static + 7 pytest |
 | M6.6 First-boot + safe mode | ⬜ Not started | PR #20 | Sentinel, health poll, recovery |
 | M6.7 CI gates + QEMU test | ⬜ Not started | PR #21 | G12–G15, path/config/venv validation |
 
@@ -476,4 +476,52 @@ All seven PR acceptance sections above, plus:
 
 ## §14 — Closeout notes (update as PRs land)
 
-*(Empty — to be filled as PRs merge.)*
+### PR #15 — mcpd sd_notify (`8bb8444`, June 2026)
+
+- **Shipped:** `sd-notify` crate dependency, `sd_notify::notify_ready()` call in mcpd's
+  `run_stdio_server()` after successful init. Compile-time gated (`#[cfg(target_os = "linux")]`).
+  Code review fixes from devils-advocate analysis also landed (doc reconciliation, CI gate wiring).
+- **Deferred:** Nothing.
+- **Next:** PR #16 (UNIX transport) was developed in parallel.
+
+### PR #16 — UNIX transport + PB config (`04fbb8a`, June 2026)
+
+- **Shipped:** `_unix_http.py` HTTP-over-AF_UNIX adapter, `pb_transport` field in `RunConfig`
+  schema + `config.py`, `_build_pb()` reads transport from config instead of hardcoding `"http"`.
+  Backward-compatible: missing `pb_transport` defaults to `"http"`.
+- **Deferred:** Nothing.
+- **Next:** PR #17 (systemd units) depends on both #15 and #16.
+
+### PR #17 — systemd units (`540c567`, June 2026)
+
+- **Shipped:** Five systemd units (`icebreaker-controller.service`, `icebreaker-pbd.service`,
+  `icebreaker-qbd.service`, `icebreaker-mcpd@.service`, `icebreaker-controller.socket`). Service
+  users (`_icebreaker_pb`, `_icebreaker_qb`) via `sysusers.d`, runtime dirs via `tmpfiles.d`.
+  Socket perms 0660, group `icebreaker-users`. PB/QB start in parallel (no `After=` between them).
+  `start-pbd` and `start-qbd` wrapper scripts with checksum verification (INV-7). 43 new tests.
+- **Deferred:** Socket activation (systemd `Accept=yes` for mcpd) — Phase 7.
+- **Next:** PR #18 (Python packaging) must land before cx-distro can `pip install .`.
+
+### PR #18 — Python packaging + config layering (`7063e26`, June 2026)
+
+- **Shipped:** PEP 621 `pyproject.toml` replacing `setup.py`. 2-tier config layering: system
+  `/etc/icebreaker/controller.toml` + user `~/.config/icebreaker/controller.toml` with
+  section-level merge (`load_layered()`). Schema gap fixes: added `pb_transport`, `daemon`,
+  `hitl`, `session`, `prompts`, `paths` sections to `controller_config.json` schema. 95 new tests.
+- **Deferred:** Drop-in config dirs (`/etc/icebreaker/controller.toml.d/`) — Phase 7.
+- **Next:** PR #19 (cx-distro scaffold) consumes the installable package.
+
+### PR #19 — cx-distro scaffold + build.sh (`ed786c4`, June 2026)
+
+- **Shipped:** `cx-distro/` directory with Dockerized 6-stage `build.sh` (preflight → mcpd →
+  llama-server → venv → chroot → ISO). `Dockerfile.build` (Ubuntu noble + live-build + Rust +
+  cmake + Python). Pin files (`LLAMA_CPP_COMMIT`, `UBUNTU_BASE`). Production `controller.toml`
+  (UNIX sockets, FHS paths, correct catalogue model IDs — `pb_model_id` uses the canonical
+  catalogue key `qwen-2.5-coder-1.5b-instruct-q4_k_m`, not the dev-default file stem `run7_cot`).
+  Pure `KEY=VALUE` `locations.env` for systemd `EnvironmentFile`. POSIX sh CLI wrapper. Chroot
+  hook enabling services. `--skip-to=N` and `--no-models` flags for fast iteration. INV-7:
+  SHA-256 verification of all GGUF models before embedding (uses `basename` to handle absolute
+  paths in `checksums.sha256`). 19 static shell checks + 7 pytest cases. 1442 total tests (up
+  from 1347).
+- **Deferred:** Preseed / first-boot wizard (stub `install.cfg` created; full implementation PR #20).
+- **Next:** PR #20 (first-boot + safe mode), then PR #21 (CI gates + QEMU test).

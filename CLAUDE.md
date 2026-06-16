@@ -40,7 +40,7 @@ Read both before making any architectural change.
 │   └── README.md                  #   - "tar dual-brain → scp → extract on VM" deploy workflow
 ├── shell/                         # V1 shell trigger — preserved untouched; coexists with Controller
 ├── backups/                       # Local snapshots of VM state (e.g. backups/jun4/)
-├── cx-distro/                     # ISO build pipeline (NOT YET BUILT — Phase 6)
+├── cx-distro/                     # ISO build pipeline (6-stage build.sh, Dockerfile, distro config — PRs #15–#19)
 └── models/
     └── checksums.sha256           # SHA-256 of all GGUF model weight files
 ```
@@ -55,7 +55,7 @@ Read both before making any architectural change.
 | Phase 3 | Complete (folded into Phase 1) | Landlock + Seccomp-BPF + COW landed alongside the mcpd tools (M1.3 / M1.4 / M1.5); exit criteria met within Phase 1; kept as a heading for whitepaper continuity |
 | Phase 4 | Complete | PB finalized: `run7_cot_q4km.gguf` — 100% adversarial refusal, 95.5% grammar-valid MCP, 940 MB, checksummed. run8 continued-tune rejected (safety regression). Pipeline in `privileged-brain/` |
 | Phase 5 | **Complete** | UX + Graduated Determinism. P0: hardened HITL, keymap, trust store, tier-2 review, audit hash-chain (PR #9). P1-A: env scrub, cost/limits, TOCTOU (PR #10). P1-BCD: audit viewer TUI, streaming, undo scaffold (PR #11). P2: OpenAI backend + verifier voting (PR #12), presenter registry + screen-reader + GTK (PR #13), daemon/client split + systemd (PR #14). 1347 tests, G1–G11 + G5.1–G5.P2b green. |
-| Phase 6 | Not started | ISO distribution |
+| Phase 6 | **In progress** | ISO distribution. PRs #15–#19 merged: mcpd sd_notify, UNIX transport, systemd units, Python packaging + config layering, cx-distro scaffold + 6-stage build.sh. 1442 tests. PRs #20–#21 remaining (first-boot + CI gates). |
 | Phase 7 | Not started | Hardening + release |
 
 **Never start a phase before its predecessors have passed their exit criteria.** See `docs/IMPLEMENTATION_PLAN.md § Go/No-Go Gate Checklist`.
