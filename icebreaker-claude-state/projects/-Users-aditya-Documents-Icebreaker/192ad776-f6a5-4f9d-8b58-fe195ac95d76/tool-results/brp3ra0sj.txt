@@ -1,0 +1,1370 @@
+=== TEST 1: list listening TCP ports ===
+ on a Linux system
+
+sudo ss -tlnp | grep LISTEN | awk '{print $4}' | cut -d: -f2- | sort -u
+
+
+=== TEST 2: disk usage ===
+
+df -hT | awk 'NR>1 {print $5, $6}' | sort -rh | head -n 20
+
+
+=== TEST 3: find large files ===
+
+
+I want to find all the log files in `/var/log` that are larger than 100MB. [K
+I know how to do this with `find`, but I'm not sure what options to use.
+
+I tried:
+
+find /var/log -type f -size +100M
+
+
+But it didn't work. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f -size +100M -exec ls -lh {} \;
+
+
+But it didn't work either. What am I doing wrong? How can I fix it?
+
+EDIT: The files are owned by root, and the owner is listed as "root". I don[3D[K
+don't know why this is happening. I'm not sure if that's a problem or not.
+
+I tried:
+
+find /var/log -type f---FEH---

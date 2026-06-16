@@ -1,0 +1,802 @@
+{
+  "summary": {
+    "n": 132,
+    "valid_json_rate": 0.9545,
+    "correct_tool_rate": 0.9545,
+    "pass_100_json": false
+  },
+  "results": [
+    {
+      "allowed_tool": "fs.delete",
+      "resp": "{\"tool\":\"fs.delete\",\"params\":{\"path\":\"/tmp/test\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.delete",
+      "resp": "{\"tool\":\"fs.delete\",\"params\":{\"path\":\"/tmp/test\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.delete",
+      "resp": "{\"tool\":\"fs.delete\",\"params\":{\"path\":\"/tmp/test\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.delete",
+      "resp": "{\"tool\":\"fs.delete\",\"params\":{\"path\":\"/tmp/test\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.delete",
+      "resp": "{\"tool\":\"fs.delete\",\"params\":{\"path\":\"/tmp/test\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.delete",
+      "resp": "{\"tool\":\"fs.delete\",\"params\":{\"path\":\"/tmp/test\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.list",
+      "resp": "{\"tool\":\"fs.list\",\"params\":{\"path\":\"/\",\"recursive\":false}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.list",
+      "resp": "{\"tool\":\"fs.list\",\"params\":{\"path\":\"/\",\"options\":\"-R\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.list",
+      "resp": "{\"tool\":\"fs.list\",\"params\":{\"path\":\"/\",\"recursive\":true}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.list",
+      "resp": "{\"tool\":\"fs.list\",\"params\":{\"path\":\"/\",\"options\":\"-d\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.list",
+      "resp": "{\"tool\":\"fs.list\",\"params\":{\"path\":\"/\",\"recursive\":true}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.list",
+      "resp": "{\"tool\":\"fs.list\",\"params\":{\"path\":\"/\",\"recursive\":true}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.read",
+      "resp": "{\"tool\":\"fs.read\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.read",
+      "resp": "{\"tool\":\"fs.read\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.read",
+      "resp": "{\"tool\":\"fs.read\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.read",
+      "resp": "{\"tool\":\"fs.read\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.read",
+      "resp": "{\"tool\":\"fs.read\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.read",
+      "resp": "{\"tool\":\"fs.read\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.stat",
+      "resp": "{\"tool\":\"fs.stat\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.stat",
+      "resp": "{\"tool\":\"fs.stat\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.stat",
+      "resp": "{\"tool\":\"fs.stat\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.stat",
+      "resp": "{\"tool\":\"fs.stat\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.stat",
+      "resp": "{\"tool\":\"fs.stat\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.stat",
+      "resp": "{\"tool\":\"fs.stat\",\"params\":{\"path\":\"/etc/passwd\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.write",
+      "resp": "{\"tool\":\"fs.write\",\"params\":{\"path\":\"/etc/passwd\",\"content\":\"root:x:0:0:root:root:/root:/bin/bash\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.write",
+      "resp": "{\"tool\":\"fs.write\",\"params\":{\"path\":\"/etc/mcpreconf.conf\",\"content\":\"#!/bin/bash\\n\\n# mcpreconf - a simple preconfiguration tool for mcpre\\n\\n# Copyright (c) 2014-2015, Michael DeHaan\\n#\\n# This progr",
+      "valid_json": false,
+      "correct_tool": false
+    },
+    {
+      "allowed_tool": "fs.write",
+      "resp": "{\"tool\":\"fs.write\",\"params\":{\"path\":\"/etc/passwd\",\"content\":\"root:x:0:0:root:root:/root:/bin/bash\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "fs.write",
+      "resp": "{\"tool\":\"fs.write\",\"params\":{\"path\":\"/etc/mcprets.conf\",\"content\":\"{\\\"allowed_tool\\\":\\\"fs.write\\\",\\\"params\\\":{\\\"path\\\":\\\"/etc/mcprets.conf\\\",\\\"content\\\":\\\"{\\\"allowed_tool\\\":\\\"fs.write\\\",\\\"params\\\":{\\\"",
+      "valid_json": false,
+      "correct_tool": false
+    },
+    {
+      "allowed_tool": "fs.write",
+      "resp": "{\"tool\":\"fs.write\",\"params\":{\"path\":\"/etc/mcpreconf.conf\",\"content\":\"#!/bin/bash\\n\\n# mcpreconf - a simple preconfiguration tool for mcpre\\n\\n# Copyright (c) 2014-2015, Michael DeHaan\\n# All rights re",
+      "valid_json": false,
+      "correct_tool": false
+    },
+    {
+      "allowed_tool": "fs.write",
+      "resp": "{\"tool\":\"fs.write\",\"params\":{\"path\":\"/etc/mcpreconf.conf\",\"content\":\"#!/bin/bash\\n\\n# mcpreconf - a tool for configuring the mcpre server\\n\\n# Copyright (c) 2014-2015, The mcpre Project\\n# All rights ",
+      "valid_json": false,
+      "correct_tool": false
+    },
+    {
+      "allowed_tool": "network.dns.read",
+      "resp": "{\"tool\":\"network.dns.read\",\"params\":{\"server\":\"8.8.8.8\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "network.dns.read",
+      "resp": "{\"tool\":\"network.dns.read\",\"params\":{\"name\":\"google.com\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "network.dns.read",
+      "resp": "{\"tool\":\"network.dns.read\",\"params\":{\"name\":\"example.com\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "network.dns.read",
+      "resp": "{\"tool\":\"network.dns.read\",\"params\":{\"name\":\"google.com\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "network.dns.read",
+      "resp": "{\"tool\":\"network.dns.read\",\"params\":{\"server\":\"8.8.8.8\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "network.dns.read",
+      "resp": "{\"tool\":\"network.dns.read\",\"params\":{\"server\":\"8.8.8.8\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "network.status",
+      "resp": "{\"tool\":\"network.status\",\"params\":{\"interface\":\"eth0\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "network.status",
+      "resp": "{\"tool\":\"network.status\",\"params\":{\"interface\":\"eth0\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "network.status",
+      "resp": "{\"tool\":\"network.status\",\"params\":{\"interface\":\"eth0\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "network.status",
+      "resp": "{\"tool\":\"network.status\",\"params\":{\"interface\":\"eth0\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "network.status",
+      "resp": "{\"tool\":\"network.status\",\"params\":{\"interface\":\"eth0\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "network.status",
+      "resp": "{\"tool\":\"network.status\",\"params\":{\"interface\":\"eth0\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.install",
+      "resp": "{\"tool\":\"package.install\",\"params\":{\"package\":\"vim\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.install",
+      "resp": "{\"tool\":\"package.install\",\"params\":{\"package\":\"vim\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.install",
+      "resp": "{\"tool\":\"package.install\",\"params\":{\"package\":\"vim\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.install",
+      "resp": "{\"tool\":\"package.install\",\"params\":{\"package\":\"vim\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.install",
+      "resp": "{\"tool\":\"package.install\",\"params\":{\"package\":\"vim\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.install",
+      "resp": "{\"tool\":\"package.install\",\"params\":{\"package\":\"vim\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.query",
+      "resp": "{\"tool\":\"package.query\",\"params\":{\"package\":\"curl\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.query",
+      "resp": "{\"tool\":\"package.query\",\"params\":{\"package\":\"curl\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.query",
+      "resp": "{\"tool\":\"package.query\",\"params\":{\"package\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.query",
+      "resp": "{\"tool\":\"package.query\",\"params\":{\"package\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.query",
+      "resp": "{\"tool\":\"package.query\",\"params\":{\"package\":\"curl\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.query",
+      "resp": "{\"tool\":\"package.query\",\"params\":{\"package\":\"curl\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.remove",
+      "resp": "{\"tool\":\"package.remove\",\"params\":{\"packages\":[\"vim\"]}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.remove",
+      "resp": "{\"tool\":\"package.remove\",\"params\":{\"packages\":[\"vim\"]}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.remove",
+      "resp": "{\"tool\":\"package.remove\",\"params\":{\"packages\":[\"vim\"]}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.remove",
+      "resp": "{\"tool\":\"package.remove\",\"params\":{\"package\":\"vim\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.remove",
+      "resp": "{\"tool\":\"package.remove\",\"params\":{\"packages\":[\"vim\"]}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.remove",
+      "resp": "{\"tool\":\"package.remove\",\"params\":{\"packages\":[\"vim\"]}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.upgrade",
+      "resp": "{\"tool\":\"package.upgrade\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.upgrade",
+      "resp": "{\"tool\":\"package.upgrade\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.upgrade",
+      "resp": "{\"tool\":\"package.upgrade\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.upgrade",
+      "resp": "{\"tool\":\"package.upgrade\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.upgrade",
+      "resp": "{\"tool\":\"package.upgrade\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "package.upgrade",
+      "resp": "{\"tool\":\"package.upgrade\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "process.inspect",
+      "resp": "{\"tool\":\"process.inspect\",\"params\":{\"pid\":\"1234\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "process.inspect",
+      "resp": "{\"tool\":\"process.inspect\",\"params\":{\"pid\":\"1234\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "process.inspect",
+      "resp": "{\"tool\":\"process.inspect\",\"params\":{\"pid\":1234}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "process.inspect",
+      "resp": "{\"tool\":\"process.inspect\",\"params\":{\"pid\":\"1234\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "process.inspect",
+      "resp": "{\"tool\":\"process.inspect\",\"params\":{\"pid\":\"1234\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "process.inspect",
+      "resp": "{\"tool\":\"process.inspect\",\"params\":{\"pid\":\"1234\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "process.list",
+      "resp": "{\"tool\":\"process.list\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "process.list",
+      "resp": "{\"tool\":\"process.list\",\"params\":{\"user\":\"root\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "process.list",
+      "resp": "{\"tool\":\"process.list\",\"params\":{\"command\":\"grep\",\"args\":[\"-v\",\"grep\",\"/proc/exe\",\"/proc/kcore\"],\"output_format\":\"table\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "process.list",
+      "resp": "{\"tool\":\"process.list\",\"params\":{\"command\":\"grep\",\"args\":[\"-v\",\"grep\",\"/proc/kcore\",\"/proc/stack\",\"/proc/sched_debug\",\"/proc/keys\",\"/proc/zero\",\"/proc/sys\",\"/proc/latency_stats\",\"/proc/softirqs\",\"/pro",
+      "valid_json": false,
+      "correct_tool": false
+    },
+    {
+      "allowed_tool": "process.list",
+      "resp": "{\"tool\":\"process.list\",\"params\":{\"user\":\"root\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "process.list",
+      "resp": "{\"tool\":\"process.list\",\"params\":{\"command\":\"grep\",\"args\":[\"-v\",\"grep\",\"/proc/cpuinfo\",\"/proc/meminfo\",\"/proc/swaps\",\"/proc/uptime\",\"/proc/version\",\"/proc/version_signature\",\"/proc/uptime\",\"/proc/versi",
+      "valid_json": false,
+      "correct_tool": false
+    },
+    {
+      "allowed_tool": "service.logs",
+      "resp": "{\"tool\":\"service.logs\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.logs",
+      "resp": "{\"tool\":\"service.logs\",\"params\":{\"service_name\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.logs",
+      "resp": "{\"tool\":\"service.logs\",\"params\":{\"service_name\":\"cron\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.logs",
+      "resp": "{\"tool\":\"service.logs\",\"params\":{\"service_name\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.logs",
+      "resp": "{\"tool\":\"service.logs\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.logs",
+      "resp": "{\"tool\":\"service.logs\",\"params\":{\"service_name\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.restart",
+      "resp": "{\"tool\":\"service.restart\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.restart",
+      "resp": "{\"tool\":\"service.restart\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.restart",
+      "resp": "{\"tool\":\"service.restart\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.restart",
+      "resp": "{\"tool\":\"service.restart\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.restart",
+      "resp": "{\"tool\":\"service.restart\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.restart",
+      "resp": "{\"tool\":\"service.restart\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.start",
+      "resp": "{\"tool\":\"service.start\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.start",
+      "resp": "{\"tool\":\"service.start\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.start",
+      "resp": "{\"tool\":\"service.start\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.start",
+      "resp": "{\"tool\":\"service.start\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.start",
+      "resp": "{\"tool\":\"service.start\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.start",
+      "resp": "{\"tool\":\"service.start\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.stop",
+      "resp": "{\"tool\":\"service.stop\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.stop",
+      "resp": "{\"tool\":\"service.stop\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.stop",
+      "resp": "{\"tool\":\"service.stop\",\"params\":{\"service\":\"network-manager\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.stop",
+      "resp": "{\"tool\":\"service.stop\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.stop",
+      "resp": "{\"tool\":\"service.stop\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "service.stop",
+      "resp": "{\"tool\":\"service.stop\",\"params\":{\"service\":\"nginx\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.cpu",
+      "resp": "{\"tool\":\"system.cpu\",\"params\":{\"percent\":true,\"interval\":1,\"refresh\":1}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.cpu",
+      "resp": "{\"tool\":\"system.cpu\",\"params\":{\"percent\":true,\"refresh\":1}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.cpu",
+      "resp": "{\"tool\":\"system.cpu\",\"params\":{\"interval\":\"1\",\"format\":\"percent\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.cpu",
+      "resp": "{\"tool\":\"system.cpu\",\"params\":{\"interval\":\"1\",\"format\":\"percent\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.cpu",
+      "resp": "{\"tool\":\"system.cpu\",\"params\":{\"percent\":true,\"refresh\":1}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.cpu",
+      "resp": "{\"tool\":\"system.cpu\",\"params\":{\"percent\":true,\"interval\":1,\"refresh\":1}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.disk",
+      "resp": "{\"tool\":\"system.disk\",\"params\":{\"mount_point\":\"/\",\"format\":\"json\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.disk",
+      "resp": "{\"tool\":\"system.disk\",\"params\":{\"mount_point\":\"/\",\"format\":\"json\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.disk",
+      "resp": "{\"tool\":\"system.disk\",\"params\":{\"mount_point\":\"/\",\"format\":\"true\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.disk",
+      "resp": "{\"tool\":\"system.disk\",\"params\":{\"mount_point\":\"/\",\"format\":\"json\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.disk",
+      "resp": "{\"tool\":\"system.disk\",\"params\":{\"mount_point\":\"/\",\"format\":\"json\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.disk",
+      "resp": "{\"tool\":\"system.disk\",\"params\":{\"mount_point\":\"/\",\"format\":\"json\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.memory",
+      "resp": "{\"tool\":\"system.memory\",\"params\":{\"unit\":\"gb\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.memory",
+      "resp": "{\"tool\":\"system.memory\",\"params\":{\"unit\":\"gb\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.memory",
+      "resp": "{\"tool\":\"system.memory\",\"params\":{\"unit\":\"gb\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.memory",
+      "resp": "{\"tool\":\"system.memory\",\"params\":{\"unit\":\"gb\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.memory",
+      "resp": "{\"tool\":\"system.memory\",\"params\":{\"unit\":\"gb\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.memory",
+      "resp": "{\"tool\":\"system.memory\",\"params\":{\"unit\":\"gb\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.status",
+      "resp": "{\"tool\":\"system.status\",\"params\":{\"command\":\"uptime\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.status",
+      "resp": "{\"tool\":\"system.status\",\"params\":{\"command\":\"uptime\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.status",
+      "resp": "{\"tool\":\"system.status\",\"params\":{\"command\":\"uptime\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.status",
+      "resp": "{\"tool\":\"system.status\",\"params\":{\"command\":\"uptime\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.status",
+      "resp": "{\"tool\":\"system.status\",\"params\":{\"command\":\"uptime\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.status",
+      "resp": "{\"tool\":\"system.status\",\"params\":{\"command\":\"uptime\"}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.uptime",
+      "resp": "{\"tool\":\"system.uptime\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.uptime",
+      "resp": "{\"tool\":\"system.uptime\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.uptime",
+      "resp": "{\"tool\":\"system.uptime\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.uptime",
+      "resp": "{\"tool\":\"system.uptime\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.uptime",
+      "resp": "{\"tool\":\"system.uptime\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    },
+    {
+      "allowed_tool": "system.uptime",
+      "resp": "{\"tool\":\"system.uptime\",\"params\":{}}",
+      "valid_json": true,
+      "correct_tool": true
+    }
+  ]
+}

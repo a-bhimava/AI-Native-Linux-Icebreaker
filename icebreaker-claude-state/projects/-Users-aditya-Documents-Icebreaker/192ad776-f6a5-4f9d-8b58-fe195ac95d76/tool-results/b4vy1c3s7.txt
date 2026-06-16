@@ -1,0 +1,610 @@
+[ clean NL2Bash dataset ]
+Loaded 10,512 rows from train (train.jsonl)
+
+========================================================================
+  Showing 100 random samples  (total pool: 10,512)
+========================================================================
+
+────────────────────────────────────────────────────────────────────────
+  [1/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : find all files with pattern` '*song*abc2009*.jpg' and replace "abc2009" with "def2010"
+  BASH: find . -name '*song*abc2009*.jpg' | sed 's/\(^.*song.*\)abc2009\(.*.jpg\)$/mv "&" "\1def2010\2"/' | sh
+
+────────────────────────────────────────────────────────────────────────
+  [2/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all 1US* files/directories under current directory
+  BASH: find . -name '1US*'
+
+────────────────────────────────────────────────────────────────────────
+  [3/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Mount "/tmp/loop.img" on "/mnt/image" as a loop back device
+  BASH: mount /tmp/loop.img /mnt/image -o loop
+
+────────────────────────────────────────────────────────────────────────
+  [4/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Convert *.doc files in the current directory tree to the .txt format
+  BASH: find . -name '*.doc' | while read i; do antiword -i 1 "${i}" >"${i/doc/txt}"; done
+
+────────────────────────────────────────────────────────────────────────
+  [5/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all files/directories under $1 which have at least write permission for their owner and set write permission for group for these files/directories
+  BASH: find "$1" -perm -u+w -print0 | xargs chmod g+w
+
+────────────────────────────────────────────────────────────────────────
+  [6/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : remove all the pdf files in the current folder and do not delete those in the sub folders
+  BASH: find . -name "*.pdf" -maxdepth 1 -print0 | xargs -0 rm
+
+────────────────────────────────────────────────────────────────────────
+  [7/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : List recursively all files and directories in /var/www
+  BASH: find /var/www
+
+────────────────────────────────────────────────────────────────────────
+  [8/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Calculate the md5 sum of all files in "/your/dir" including content and filenames
+  BASH: grep -ar -e . /your/dir | md5sum | cut -c-32
+
+────────────────────────────────────────────────────────────────────────
+  [9/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Check if "~/mnt/sdc1" is mounted
+  BASH: mount | grep -q ~/mnt/sdc1
+
+────────────────────────────────────────────────────────────────────────
+  [10/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Create a directory named 'alpha_real' in the current directory
+  BASH: mkdir alpha_real
+
+────────────────────────────────────────────────────────────────────────
+  [11/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Mount "ntfs-3g" filesystem "/dev/mapper/myvolume" on "/media/volume"
+  BASH: mount -t ntfs-3g /dev/mapper/myvolume /media/volume
+
+────────────────────────────────────────────────────────────────────────
+  [12/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find process "terminal" displaying the searching process
+  BASH: ps aux | grep '[t]erminal'
+
+────────────────────────────────────────────────────────────────────────
+  [13/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Read a single character from standard input into variable "REPLY" ignoring backslash escapes and using the prompt "${1:-Continue?} [y/n]: "
+  BASH: read -r -n 1 -p "${1:-Continue?} [y/n]: " REPLY
+
+────────────────────────────────────────────────────────────────────────
+  [14/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Removes any empty folder that matches pattern ed*.
+  BASH: rmdir ed*
+
+────────────────────────────────────────────────────────────────────────
+  [15/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Examines the path expanded by variable $FILENAME to see if it is a symlink and if so, sets SOURCE_DIR to the location of the link itself.
+  BASH: ls -l $FILENAME | grep -q ^l && SOURCE_DIR=$(ls -l $FILENAME | awk '{print $NF}');
+
+────────────────────────────────────────────────────────────────────────
+  [16/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : find the path of a specfic video file in the current directory
+  BASH: find ./ -name "foo.mp4" -printf "%h\n"
+
+────────────────────────────────────────────────────────────────────────
+  [17/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all directories under '/var/www' directory tree excluding '/var/www/web-release-data' and '/var/www/web-development-data' directories and their sub-directories
+  BASH: find /var/www -type d \( ! -wholename "/var/www/web-release-data/*"  ! -wholename "/var/www/web-development-data/*" \)
+
+────────────────────────────────────────────────────────────────────────
+  [18/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Merge lines whose first comma-separated field in file 'in1' also appears as a first comma-separated in file 'in2' - both files must be sorted, and the output format of each line will be: first field of in1, second field of in2, and third field of in2.
+  BASH: join -t, -o 1.1,1.2,2.3 in1 in2
+
+────────────────────────────────────────────────────────────────────────
+  [19/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Search file /etc/logs/Server.log for lines containing "Error"
+  BASH: find /etc/logs/Server.log -exec grep Error {} \; -print
+
+────────────────────────────────────────────────────────────────────────
+  [20/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Remove any file containing string "GUI"
+  BASH: find / -type f -print0 | xargs -0 grep -liwZ GUI | xargs -0 rm -f
+
+────────────────────────────────────────────────────────────────────────
+  [21/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find files/directories that belong to user 'ian' under '/tmp' directory tree
+  BASH: find /tmp -user ian
+
+────────────────────────────────────────────────────────────────────────
+  [22/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Search regular files under ~/mail for string "Linux"
+  BASH: find ~/mail -type f | xargs grep "Linux"
+
+────────────────────────────────────────────────────────────────────────
+  [23/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : find in the file system for the directories with the name "httpdocs"
+  BASH: find / -type d -name 'httpdocs'
+
+────────────────────────────────────────────────────────────────────────
+  [24/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Run 'otherscript.sh' script with all environment variables specified in the file 'xxxx'
+  BASH: env `cat xxxx` otherscript.sh
+
+────────────────────────────────────────────────────────────────────────
+  [25/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Continuously write "UUUUUUUUUUUUUUUUU" without newlines to "/dev/to/overwrite"
+  BASH: yes 'UUUUUUUUUUUUUUUUU' | tr -d '\n' > /dev/to/overwrite
+
+────────────────────────────────────────────────────────────────────────
+  [26/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Search the regular files of the current directory tree for string "whatever"
+  BASH: find . -type f | xargs -L 100 grep whatever
+
+────────────────────────────────────────────────────────────────────────
+  [27/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Create script filesPermissions.sh that restores the original permissions of the regular files in the current directory tree
+  BASH: find . -type f | xargs stat -c "%a %n" | awk '{print "chmod "$1" "$2}' > ./filesPermissions.sh
+
+────────────────────────────────────────────────────────────────────────
+  [28/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : find all case-insensitive php or pthml files, which whole path does not contain /some/directory case-insensitivily , and excute xgettext which whole name as   parameter
+  BASH: find /project/directory -iname '*.php' -or -iname '*.phtml' | grep -iv '/some/directory' | xargs xgettext
+
+────────────────────────────────────────────────────────────────────────
+  [29/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all files under current directory and print only the filenames (not paths)
+  BASH: find . -type f -execdir echo '{}' ';'
+
+────────────────────────────────────────────────────────────────────────
+  [30/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all *.ogg files under the home directory ignoring the case
+  BASH: find $HOME -iname '*.ogg'
+
+────────────────────────────────────────────────────────────────────────
+  [31/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all files under current directory and print them by removing the leading ./ in their paths
+  BASH: find . -type f -exec bash -c 'f="{}"; echo "${f:2}"' \;
+
+────────────────────────────────────────────────────────────────────────
+  [32/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Merge colon-separated information from file1 and file2 where first field of both files matches
+  BASH: join -t: <(sort file1) <(sort file2)
+
+────────────────────────────────────────────────────────────────────────
+  [33/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : find all files owned by alice
+  BASH: find / -user alice 2>/dev/null
+
+────────────────────────────────────────────────────────────────────────
+  [34/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Convert "abc" to a string of hexadecimal bytes
+  BASH: echo abc | od -A n -v -t x1 | tr -d ' \n'
+
+────────────────────────────────────────────────────────────────────────
+  [35/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : list in long format all files from / whose filename ends in "jbd", not descending into directories that are not readable while searching.
+  BASH: find / \! -readable -prune -o -name '*.jbd' -ls
+
+────────────────────────────────────────────────────────────────────────
+  [36/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Print NS record for domain 'domain.' from 8.8.8.8 nameserver
+  BASH: dig @8.8.8.8 domain. ns
+
+────────────────────────────────────────────────────────────────────────
+  [37/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Rename all *company* files/directories under current directory to *nemcompany* files/directories
+  BASH: for f in `find -name '*company*'` ; do mv "$f" "`echo $f | sed s/company/nemcompany/`" ; done
+
+────────────────────────────────────────────────────────────────────────
+  [38/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : find all the normal/regular files in the folder main-directory
+  BASH: find main-directory -type f
+
+────────────────────────────────────────────────────────────────────────
+  [39/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all regular files in the current directory tree ignoring directory ./source/script
+  BASH: find . -path ./source/script -prune -o -type f -print;
+
+────────────────────────────────────────────────────────────────────────
+  [40/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all files/directories that start with 'screen' (case insensitive) in their names under user's home directory tree
+  BASH: find ~ -iname "screen*"
+
+────────────────────────────────────────────────────────────────────────
+  [41/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : list all files
+  BASH: find .
+
+────────────────────────────────────────────────────────────────────────
+  [42/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Convert symlink to regular file
+  BASH: find . -type l | while read f; do /bin/cp -rf --remove-destination -f $(find . -name $(readlink "${f}")) "${f}";done;
+
+────────────────────────────────────────────────────────────────────────
+  [43/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : check filesystem integrity on /dev/sda1
+  BASH: sudo fsck -n /dev/sda1
+
+────────────────────────────────────────────────────────────────────────
+  [44/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Set variable OS to the name of the operating system, ie. "Linux"
+  BASH: OS=$(uname -s)
+
+────────────────────────────────────────────────────────────────────────
+  [45/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : set alias "prettify_json" for command "php -E '$o = json_decode($argn); print json_encode($o, JSON_PRETTY_PRINT);'"
+  BASH: alias prettify_json=php -E '$o = json_decode($argn); print json_encode($o, JSON_PRETTY_PRINT);'
+
+────────────────────────────────────────────────────────────────────────
+  [46/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Remove all files except the ones listed in "MANIFEST"
+  BASH: find -type f -printf %P\\n | sort | comm -3 MANIFEST - | xargs rm
+
+────────────────────────────────────────────────────────────────────────
+  [47/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : display all the files in the current folder excluding search in the paths containing the folder having the word "mmm"
+  BASH: find . ! -path *mmm*
+
+────────────────────────────────────────────────────────────────────────
+  [48/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Recursively copy "dir_a" to "dir_b" and delete any new files in "dir_b"
+  BASH: rsync -u -r --delete dir_a dir_b
+
+────────────────────────────────────────────────────────────────────────
+  [49/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Look for *log files in directories at least three levels down the directory tree
+  BASH: find / -mindepth 3  -name "*log"
+
+────────────────────────────────────────────────────────────────────────
+  [50/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all files under /path and below writable by `group' and `other'
+  BASH: find /path -perm -go+w
+
+────────────────────────────────────────────────────────────────────────
+  [51/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all files/directories in entire file system with 644 permission
+  BASH: find / -perm 644
+
+────────────────────────────────────────────────────────────────────────
+  [52/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Recursively from current folder searches only files that names match ".*xxx" pattern, ignores binary files and prints file name before every string that contains "my Text to grep".
+  BASH: grep --include="*.xxx" -nRHI "my Text to grep" *
+
+────────────────────────────────────────────────────────────────────────
+  [53/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : change owner of the files into directory "/mydir" with ".txt" extension to user root
+  BASH: find /mydir -type f -name "*.txt" -execdir chown root {} ';'
+
+────────────────────────────────────────────────────────────────────────
+  [54/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Recursively removes all empty folders from the X folder.
+  BASH: find X -depth -type d -exec rmdir {} \;
+
+────────────────────────────────────────────────────────────────────────
+  [55/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : List all symlinks under current directory and search for targetfile.txt in this list
+  BASH: find . -type l | xargs -I % ls -l % | grep targetfile.txt
+
+────────────────────────────────────────────────────────────────────────
+  [56/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Open a ssh connection to "user@host" with a control socket "/tmp/%r@%h:%p"
+  BASH: ssh user@host -S /tmp/%r@%h:%p
+
+────────────────────────────────────────────────────────────────────────
+  [57/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Make a copy of file1 in dir1, dir2, and dir3.
+  BASH: echo dir1 dir2 dir3 | xargs -n 1 cp file1
+
+────────────────────────────────────────────────────────────────────────
+  [58/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : find files which modification time is  7 days ago
+  BASH: find . -mtime -7
+
+────────────────────────────────────────────────────────────────────────
+  [59/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : create symbolic links in directory "/your/dest/dir/" to all files located in "/your/source/dir/" and have filename extension "txt.mrg"
+  BASH: find /your/source/dir/ -iname '*.txt.mrg' -exec ln -s '{}' /your/dest/dir/ \;
+
+────────────────────────────────────────────────────────────────────────
+  [60/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : download a file from a URL
+  BASH: wget -O output.file https://example.com/file
+
+────────────────────────────────────────────────────────────────────────
+  [61/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Login to remote system "app1" through an ssh gateway system called "gw"
+  BASH: ssh -At gw ssh -A app1
+
+────────────────────────────────────────────────────────────────────────
+  [62/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : search for all the regular/normal mp3 files in the file system and move them to the folder /mnt/mp3
+  BASH: find / -iname "*.mp3" -type f -print0 | xargs -0 -I '{}' /bin/mv "{}" /mnt/mp3/
+
+────────────────────────────────────────────────────────────────────────
+  [63/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find symlinks in the current directory tree
+  BASH: find . -type l | xargs ls -ld
+
+────────────────────────────────────────────────────────────────────────
+  [64/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find the "param1" string in regular files under and below /var
+  BASH: find /var -type f  | xargs grep "param1"
+
+────────────────────────────────────────────────────────────────────────
+  [65/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : display all directories in the folder "/myfiles"
+  BASH: find /myfiles -type d
+
+────────────────────────────────────────────────────────────────────────
+  [66/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : SSH in server 'server' as user 'user' with X11 forwarding disabled
+  BASH: ssh -x user@server
+
+────────────────────────────────────────────────────────────────────────
+  [67/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find command will display top 5 small files from curent directory . most probably you will get ZERO  bytes files .
+  BASH: find . -type f -exec ls -s {} \; sort -n |head -5
+
+────────────────────────────────────────────────────────────────────────
+  [68/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : locate large files (> 100 MB) in /home/ for 'cleaning'
+  BASH: find /home -type f -size +100M -delete
+
+────────────────────────────────────────────────────────────────────────
+  [69/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Print lines of 'file' reverted order, and reverted characterwise
+  BASH: tac file | rev
+
+────────────────────────────────────────────────────────────────────────
+  [70/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all *.txt files in directory tree /mnt/msdos suppressing error messages
+  BASH: find /mnt/msdos  -name "*.txt" 2> /dev/null
+
+────────────────────────────────────────────────────────────────────────
+  [71/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all files/directories owned by the user 'bob' under '/home' directory tree
+  BASH: find /home -user bob
+
+────────────────────────────────────────────────────────────────────────
+  [72/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Convert all image.pdf files to image.png files under ./polkadots
+  BASH: find ./polkadots -name 'image.pdf' -exec convert -transparent white -fuzz 10% {} image.png \; -print
+
+────────────────────────────────────────────────────────────────────────
+  [73/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all symlinks in the /myfiles directory tree
+  BASH: find /myfiles -type l
+
+────────────────────────────────────────────────────────────────────────
+  [74/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Show manual page of find
+  BASH: man find
+
+────────────────────────────────────────────────────────────────────────
+  [75/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Rename files from the current directory tree to the ASCII standard
+  BASH: find . -type f -exec bash -c 'for f do d=${f%/*} b=${f##*/} nb=${b//[^A-Za-z0-9._-]/_}; [[ $b = "$nb" ]] || echo mv "$f" "$d/$nb"; done' _ {} +
+
+────────────────────────────────────────────────────────────────────────
+  [76/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : find all the files in the current folder which have been modified after the file disk.log
+  BASH: find . -newer disk.log -print
+
+────────────────────────────────────────────────────────────────────────
+  [77/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Calculate MD5 sums for all regular files in the current directory tree and save the result as "MD5SUMS"
+  BASH: find . -type f -exec md5sum {} \; > MD5SUMS
+
+────────────────────────────────────────────────────────────────────────
+  [78/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Get domain name with 'google' from address $IP
+  BASH: dig -x $IP | grep PTR | cut -d ' ' -f 2 | grep google | cut -f 5
+
+────────────────────────────────────────────────────────────────────────
+  [79/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Use the contents of compressed files "input1.txt.gz" and "input2.txt" as arguments to "command"
+  BASH: command $(zcat input1.txt.gz) $(zcat input2.txt)
+
+────────────────────────────────────────────────────────────────────────
+  [80/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Remove all regular non-hidden files modified more than 7 days ago and residing in the /tmp directory tree
+  BASH: find /tmp -type f -name '*' -mtime +7 -print0 | xargs -0 rm -f
+
+────────────────────────────────────────────────────────────────────────
+  [81/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Send one ping request to host whose name or IP address is specified by variable "ip", using network interface eth9.
+  BASH: ping ${ip} -I eth9 -c 1
+
+────────────────────────────────────────────────────────────────────────
+  [82/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all Makefile's in the current directory tree and print the line 235 of each of them
+  BASH: find . -type f -name Makefile -print -exec sed -n '235p' {} \;
+
+────────────────────────────────────────────────────────────────────────
+  [83/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Search for files/directories with a case insensitive .txt extension in entire file system
+  BASH: find / -iname '*.txt'
+
+────────────────────────────────────────────────────────────────────────
+  [84/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Rename "fghfilea" to "jklfilea"
+  BASH: mv fghfilea jklfilea
+
+────────────────────────────────────────────────────────────────────────
+  [85/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Greps domain $domain IP name from long dig listing.
+  BASH: dig $domain | grep $domain | grep -v ';' | awk '{ print $5 }'
+
+────────────────────────────────────────────────────────────────────────
+  [86/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Mount remote "cifs" filesystem "//server/source/" on "/mnt/source-tmp" with username "Username" and password "password"
+  BASH: mount -t cifs //server/source/ /mnt/source-tmp -o username=Username,password=password
+
+────────────────────────────────────────────────────────────────────────
+  [87/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all .txt files in the current directory tree on a BSD system and edit them with `vim'
+  BASH: find . -name "*.txt" | xargs -o vim
+
+────────────────────────────────────────────────────────────────────────
+  [88/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : List all files with their modification time in entire file system that are newer than the file $newerthan and older than the file $olderthan in regards of modification time and sort them according to file modification time
+  BASH: find / -type f -name "*" -newermt "$newerthan" ! -newermt "$olderthan" -printf "%T+\t%p\n" | sort
+
+────────────────────────────────────────────────────────────────────────
+  [89/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : find all php files in the folder  /var/www/
+  BASH: find /var/www/ -type f -iname "*.php" -print
+
+────────────────────────────────────────────────────────────────────────
+  [90/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : List all .jpg files in the home directory tree
+  BASH: find . -name "*.jpg" -exec ls {} \;
+
+────────────────────────────────────────────────────────────────────────
+  [91/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Page through the disassembler output of objdump on executable file 'my-crashing-program'.
+  BASH: objdump --disassemble my-crashing-program | less
+
+────────────────────────────────────────────────────────────────────────
+  [92/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find all regular files with 755 permission under current directory tree and change their permission to 644
+  BASH: find . -type f -perm 755 -exec chmod 644 {} \;
+
+────────────────────────────────────────────────────────────────────────
+  [93/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Print a space separated list of numbers from 1 to 10 with no trailing new line
+  BASH: seq 10 | xargs echo -n
+
+────────────────────────────────────────────────────────────────────────
+  [94/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Execute COMMAND for all files and directories under the current directory tree
+  BASH: find . -print0 | xargs -0 COMMAND
+
+────────────────────────────────────────────────────────────────────────
+  [95/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find files in the current directory recursively that are not readable by all
+  BASH: find -type f ! -perm -444
+
+────────────────────────────────────────────────────────────────────────
+  [96/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Find files under /etc/apache-perl that are modified more recently than /etc/apache-perl/httpd.conf
+  BASH: find /etc/apache-perl -newer /etc/apache-perl/httpd.conf
+
+────────────────────────────────────────────────────────────────────────
+  [97/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Archive the directory structure under backup directory into directory-structure.tar
+  BASH: find backup/ -type d | tar cf directory-structure.tar -T - --no-recursion
+
+────────────────────────────────────────────────────────────────────────
+  [98/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Split "input.txt" into files of at most 10 bytes each with prefix "/tmp/split-file"
+  BASH: split -b 10 input.txt /tmp/split-file
+
+────────────────────────────────────────────────────────────────────────
+  [99/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : Recursively change the owner of all files in "/home/test" to "test"
+  BASH: sudo chown -R test /home/test
+
+────────────────────────────────────────────────────────────────────────
+  [100/100]  split=train
+────────────────────────────────────────────────────────────────────────
+  NL  : change group of the file /tmp/php_session to group daemon
+  BASH: chown -R :daemon /tmp/php_session
+
+────────────────────────────────────────────────────────────────────────
+  Done. 0/100 samples flagged as suspicious.
+────────────────────────────────────────────────────────────────────────

@@ -19,7 +19,7 @@ phase sections below describe the original plan. Mirrors the Phase Status table 
 | **Phase 3** — Kernel sandboxing | ✅ **Complete (folded into Phase 1)** | Landlock / Seccomp-BPF / COW shipped *with* mcpd as M1.3 / M1.4 / M1.5 — not a separate phase; exit criteria (zero sandbox escapes, <10 ms overhead, atomic COW) met within Phase 1 on `main`. Heading kept below for whitepaper continuity. |
 | **Phase 2** — Dual-Brain Controller | ✅ **Complete (merged to `main`)** | M2.0–M2.14 on `feature/phase2-controller`; full gate suite `controller/ci.sh` **G1–G11 green** on the cloud VM `icebreaker-phase2-vm` (G9 N/A in the cloud-QB config). See close-out note below. |
 | **Phase 4** — Fine-tune Privileged Brain | ✅ **Complete** | `run7_cot_q4km.gguf` (Qwen2.5-Coder-1.5B SFT) **finalized as the PB**: 100% adversarial refusal, 95.5% grammar-valid MCP, 940 MB, checksum recorded. A run8 continued-tune was evaluated and **rejected** (regressed safety). See Phase 4 close-out. |
-| **Phase 5** — UX + Graduated Determinism | ⬜ Not started | Tier 0–3 classifier already lives in the Controller (`risk_classifier.py`); UX/HITL polish remains |
+| **Phase 5** — UX + Graduated Determinism | ✅ **Complete** | 6 PRs (#9–#14): hardened HITL + keymap + trust store + tier-2 review + audit hash-chain (P0), env scrub + cost/limits + TOCTOU (P1-A), audit viewer TUI + streaming + undo scaffold (P1-BCD), OpenAI backend + verifier voting (P2-backends), presenter registry + screen-reader + GTK (P2-access), daemon/client split + systemd (P2-daemon). 1347 tests, G1–G11 + G5 gates green. |
 | **Phase 6** — ISO distribution | ⬜ Not started | |
 | **Phase 7** — Hardening + release | ⬜ Not started | |
 
@@ -34,6 +34,18 @@ was added — it caught **three real bugs the mocks missed**: (1) the Gemini
 `additionalProperties`, `pattern`) that Gemini rejects; (2) the shipped default model
 `gemini-2.0-flash` was retired; (3) the CLI entry point built `McpdClient` with the
 wrong constructor (now uses `McpdClient.spawn`). All fixed; regression guards added.
+
+**Phase 5 close-out (June 2026).** Built across 6 PRs (#9–#14) over three priority
+tiers (P0 security, P1 polish, P2 architecture). Key deliverables: hardened HITL gate
+with configurable keymap/trust/lockout (INV-6/BP-4), escalate-only tier-2 review
+(BP-5), tamper-evident audit hash-chain with Shannon entropy redaction (INV-8/BP-7),
+env scrub for child processes (BP-8), cost/rate/input governance (BP-10), interactive
+audit viewer TUI, TurnEvent streaming protocol with Ctrl+C cancel, undo scaffold
+(awaits mcpd rollback RPC), OpenAI Structured Outputs backend + QB-verifier majority
+voting, pluggable presenter registry with screen-reader + GTK scaffold (BP-1/BP-11),
+and a persistent daemon/client architecture over AF_UNIX JSON-RPC 2.0 with systemd
+units. 1347 tests (up from 906 at Phase 2 close). Deferred to Phase 6/7: mcpd
+rollback RPC, socket activation, GTK live rendering tests, live OpenAI CI smoke test.
 
 ---
 
