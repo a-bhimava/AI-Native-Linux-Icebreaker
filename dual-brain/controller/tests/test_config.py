@@ -357,3 +357,24 @@ def test_local_config_api_key_is_none(tmp_path):
     string and not a SecretRef pointing at an unset var)."""
     cfg = load(_write_toml(tmp_path, _LOCAL_TOML))
     assert cfg.qb.api_key is None
+
+
+# ── 50: pb_transport field in RunConfig ─────────────────────────────────────
+
+
+def test_pb_transport_defaults_to_http(tmp_path):
+    """Without pb_transport in TOML, RunConfig defaults to 'http'."""
+    cfg = load(_write_toml(tmp_path, _LOCAL_TOML))
+    assert cfg.run.pb_transport == "http"
+
+
+def test_pb_transport_unix_from_toml(tmp_path):
+    toml = _LOCAL_TOML + '\n[run]\npb_transport = "unix"\n'
+    cfg = load(_write_toml(tmp_path, toml))
+    assert cfg.run.pb_transport == "unix"
+
+
+def test_pb_transport_invalid_rejected_by_schema(tmp_path):
+    toml = _LOCAL_TOML + '\n[run]\npb_transport = "grpc"\n'
+    with pytest.raises(BrainConfigError, match="schema violation"):
+        load(_write_toml(tmp_path, toml))

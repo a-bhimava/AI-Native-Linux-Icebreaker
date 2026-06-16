@@ -2,7 +2,7 @@
 
 Mocked llama-server (no live HTTP). Tests:
 * Health probe at construction
-* transport="unix" raises NotImplementedError-style BrainConfigError
+* transport="unix" mounts UNIX adapter and rewrites endpoint
 * Unknown transport rejected
 * Grammar attached to request body
 * Sampling decay round-trip
@@ -175,19 +175,74 @@ def test_health_probe_failure_raises_brainconfigerror(monkeypatch):
         LlamaCppLocalBackend(_Cfg())
 
 
-# ─── 2: transport='unix' raises ──────────────────────────────────────────
-
-
-def test_transport_unix_raises_brainconfigerror():
-    cfg = _Cfg(transport="unix")
-    with pytest.raises(BrainConfigError, match="Phase 6"):
-        LlamaCppLocalBackend(cfg)
+# ─── 2: transport validation ─────────────────────────────────────────────
 
 
 def test_unknown_transport_raises():
     cfg = _Cfg(transport="grpc")
     with pytest.raises(BrainConfigError, match="unknown transport"):
         LlamaCppLocalBackend(cfg)
+
+
+# ─── 2b: transport='unix' — adapter mounting + endpoint rewrite ──────────
+
+
+def test_unix_transport_mounts_adapter(monkeypatch):
+    """transport='unix' with a valid UNIX endpoint should construct
+    successfully (health probe mocked) and mount UnixHTTPAdapter."""
+    from controller.backends._unix_http import UnixHTTPAdapter
+
+    import requests as real_requests
+
+    _mounted: dict[str, object] = {}
+    _original_mount = real_requests.Session.mount
+
+    def _tracking_mount(self, prefix, adapter):
+        _mounted[prefix] = adapter
+        return _original_mount(self, prefix, adapter)
+
+    monkeypatch.setattr(real_requests.Session, "mount", _tracking_mount)
+    monkeypatch.setattr(
+        real_requests.Session,
+        "get",
+        lambda self, url, **kw: _FakeResponse(body={"status": "ok"}),
+    )
+
+    backend = LlamaCppLocalBackend(
+        _Cfg(transport="unix", endpoint="unix:///run/icebreaker/pbd.sock")
+    )
+    assert "http+unix://" in _mounted
+    assert isinstance(_mounted["http+unix://"], UnixHTTPAdapter)
+
+
+def test_unix_transport_rewrites_endpoint(monkeypatch):
+    """After construction with unix transport, _endpoint is http+unix://localhost."""
+    import requests as real_requests
+
+    monkeypatch.setattr(
+        real_requests.Session,
+        "get",
+        lambda self, url, **kw: _FakeResponse(body={"status": "ok"}),
+    )
+    backend = LlamaCppLocalBackend(
+        _Cfg(transport="unix", endpoint="unix:///tmp/test.sock")
+    )
+    assert backend._endpoint == "http+unix://localhost"
+
+
+def test_unix_malformed_endpoint_raises():
+    """transport='unix' with an HTTP endpoint raises BrainConfigError."""
+    cfg = _Cfg(transport="unix", endpoint="http://localhost:8080")
+    with pytest.raises(BrainConfigError, match="unix://"):
+        LlamaCppLocalBackend(cfg)
+
+
+def test_http_transport_unchanged(fake_requests):
+    """transport='http' still creates a plain session with no adapter (regression)."""
+    backend = LlamaCppLocalBackend(_Cfg(transport="http"))
+    assert backend._endpoint == "http://127.0.0.1:8081"
+    health_url = fake_requests.get_calls[0][0]
+    assert health_url == "http://127.0.0.1:8081/health"
 
 
 # ─── 3: config validation ────────────────────────────────────────────────
@@ -200,11 +255,12 @@ def test_missing_endpoint_raises():
         LlamaCppLocalBackend(cfg)
 
 
-def test_missing_grammar_path_raises():
+def test_none_grammar_constructs_ok(fake_requests):
+    """PB omits grammar — grammar_path=None must not raise."""
     cfg = _Cfg()
     cfg.grammar_path = None
-    with pytest.raises(BrainConfigError, match="grammar_path"):
-        LlamaCppLocalBackend(cfg)
+    backend = LlamaCppLocalBackend(cfg)
+    assert backend._grammar is None
 
 
 def test_nonexistent_grammar_file_raises(tmp_path):

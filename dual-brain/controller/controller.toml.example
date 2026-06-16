@@ -118,6 +118,7 @@ timeout_seconds = 30
 # mcpd_timeout_seconds = 10.0
 # qb_max_retries       = 3
 # mcpd_schemas_dir     = ""   # empty = auto-detected from mcpd_binary path
+# pb_transport         = "http"   # "http" (loopback) or "unix" (AF_UNIX socket for distro)
 
 
 # REPL session — all optional; defaults shown.

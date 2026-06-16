@@ -40,7 +40,7 @@ def _build_pb(cfg: ControllerConfig) -> Any:
         max_tokens=cfg.run.pb_max_tokens,
         timeout_seconds=cfg.run.pb_timeout_seconds,
         endpoint=cfg.run.pb_endpoint,
-        transport="http",
+        transport=cfg.run.pb_transport,
     )
     return LlamaCppLocalBackend(pb_cfg)
 
