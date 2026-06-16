@@ -1,0 +1,17 @@
+#!/bin/sh
+# Chroot hook: enable Icebreaker services and create build-time state.
+# Runs inside the live-build chroot during ISO assembly.
+set -e
+
+# Enable services for boot.
+systemctl enable icebreaker-pbd.service
+systemctl enable icebreaker-qbd.service
+systemctl enable icebreaker-controller.service
+
+# Create service users (sysusers.d runs at boot too, but we need them now
+# for correct file ownership in the chroot image).
+systemd-sysusers /etc/sysusers.d/icebreaker.conf 2>/dev/null || true
+
+# Ensure log directory exists with correct ownership.
+install -dm750 -groot -gicebreaker-users /var/log/icebreaker 2>/dev/null || \
+    install -dm750 /var/log/icebreaker
