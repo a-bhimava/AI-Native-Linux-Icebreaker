@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# safe-mode — Icebreaker diagnostic and recovery tool.
+#
+# Pure shell (no Python) so it works even when the venv is broken.
+# Invoked via: icebreaker --safe-mode
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+LOCATIONS="${ICEBREAKER_LOCATIONS_ENV:-/etc/icebreaker/locations.env}"
+if [ -f "${LOCATIONS}" ]; then
+    # shellcheck source=/dev/null
+    source "${LOCATIONS}"
+fi
+
+: "${ICEBREAKER_MODELS_DIR:=/var/lib/icebreaker/models}"
+
+CHECKSUMS="${ICEBREAKER_MODELS_DIR}/checksums.sha256"
+
+# ── 1. System info ──────────────────────────────────────────────────────
+printf "\n${BOLD}═══ Icebreaker Safe Mode ═══${NC}\n\n"
+printf "${BOLD}System:${NC}\n"
+printf "  Kernel:  %s\n" "$(uname -r)"
+printf "  RAM:     %s\n" "$(free -h 2>/dev/null | awk '/^Mem:/{print $2}' || echo 'unknown')"
+printf "  Disk:    %s\n" "$(df -h / 2>/dev/null | awk 'NR==2{print $4 " free of " $2}' || echo 'unknown')"
+echo ""
+
+# ── 2. Model checksums ─────────────────────────────────────────────────
+printf "${BOLD}Model Checksums:${NC}\n"
+if [ -f "${CHECKSUMS}" ]; then
+    PASS=0
+    FAIL=0
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        [[ "$line" == \#* ]] && continue
+
+        expected_hash=$(echo "$line" | awk '{print $1}')
+        raw_path=$(echo "$line" | awk '{print $2}')
+        filename=$(basename "$raw_path")
+        model_file="${ICEBREAKER_MODELS_DIR}/${filename}"
+
+        if [ ! -f "$model_file" ]; then
+            printf "  ${RED}MISSING${NC}: %s\n" "$filename"
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+
+        actual_hash=$(sha256sum "$model_file" | awk '{print $1}')
+        if [ "$expected_hash" = "$actual_hash" ]; then
+            printf "  ${GREEN}OK${NC}:      %s\n" "$filename"
+            PASS=$((PASS + 1))
+        else
+            printf "  ${RED}MISMATCH${NC}: %s\n" "$filename"
+            printf "    expected: %s\n" "$expected_hash"
+            printf "    actual:   %s\n" "$actual_hash"
+            FAIL=$((FAIL + 1))
+        fi
+    done < "${CHECKSUMS}"
+    printf "  Results: ${GREEN}%d OK${NC}, ${RED}%d failed${NC}\n" "$PASS" "$FAIL"
+else
+    printf "  ${YELLOW}checksums file not found:${NC} %s\n" "${CHECKSUMS}"
+fi
+echo ""
+
+# ── 3. Journal errors ──────────────────────────────────────────────────
+printf "${BOLD}Recent Errors:${NC}\n"
+if command -v journalctl >/dev/null 2>&1; then
+    journalctl -u icebreaker-pbd -u icebreaker-qbd \
+        -u icebreaker-controller -u icebreaker-first-boot \
+        --no-pager -n 50 --priority=err 2>/dev/null || \
+        printf "  ${YELLOW}(no journal access)${NC}\n"
+else
+    printf "  ${YELLOW}(journalctl not available)${NC}\n"
+fi
+echo ""
+
+# ── 4. Service status ──────────────────────────────────────────────────
+printf "${BOLD}Service Status:${NC}\n"
+if command -v systemctl >/dev/null 2>&1; then
+    for svc in icebreaker-pbd icebreaker-qbd icebreaker-controller; do
+        status=$(systemctl is-active "${svc}.service" 2>/dev/null || true)
+        case "$status" in
+            active)   color="${GREEN}" ;;
+            failed)   color="${RED}" ;;
+            *)        color="${YELLOW}" ;;
+        esac
+        printf "  ${color}%-12s${NC} %s\n" "$status" "$svc"
+    done
+else
+    printf "  ${YELLOW}(systemctl not available)${NC}\n"
+fi
+echo ""
+
+# ── 5. Interactive recovery ────────────────────────────────────────────
+if [ -t 0 ]; then
+    printf "${BOLD}Recovery Options:${NC}\n"
+    printf "  1) Restart PB service\n"
+    printf "  2) Restart QB service\n"
+    printf "  3) Restart Controller service\n"
+    printf "  4) Reset user config to system defaults\n"
+    printf "  q) Quit\n"
+    echo ""
+
+    while true; do
+        printf "Choice [1-4/q]: "
+        read -r choice
+        case "$choice" in
+            1)
+                printf "\nRestarting icebreaker-pbd...\n"
+                systemctl restart icebreaker-pbd.service 2>&1 || true
+                systemctl status icebreaker-pbd.service --no-pager 2>&1 || true
+                echo ""
+                ;;
+            2)
+                printf "\nRestarting icebreaker-qbd...\n"
+                systemctl restart icebreaker-qbd.service 2>&1 || true
+                systemctl status icebreaker-qbd.service --no-pager 2>&1 || true
+                echo ""
+                ;;
+            3)
+                printf "\nRestarting icebreaker-controller...\n"
+                systemctl restart icebreaker-controller.service 2>&1 || true
+                systemctl status icebreaker-controller.service --no-pager 2>&1 || true
+                echo ""
+                ;;
+            4)
+                USER_CFG="${XDG_CONFIG_HOME:-${HOME}/.config}/icebreaker/controller.toml"
+                if [ -f "$USER_CFG" ]; then
+                    printf "Removing %s...\n" "$USER_CFG"
+                    rm -f "$USER_CFG"
+                    printf "  ${GREEN}Done.${NC} Restart services to apply system defaults.\n"
+                else
+                    printf "  No user config override found at %s\n" "$USER_CFG"
+                fi
+                echo ""
+                ;;
+            q|Q|"")
+                break
+                ;;
+            *)
+                printf "  Invalid choice.\n"
+                ;;
+        esac
+    done
+fi

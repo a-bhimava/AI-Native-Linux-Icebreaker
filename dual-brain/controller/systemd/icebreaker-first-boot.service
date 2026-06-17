@@ -1,0 +1,17 @@
+[Unit]
+Description=Icebreaker First-Boot Initialization
+After=systemd-tmpfiles-setup.service systemd-sysusers.service
+Before=icebreaker-controller.service
+Wants=icebreaker-pbd.service icebreaker-qbd.service
+ConditionPathExists=!/var/lib/icebreaker/.first-boot-complete
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/icebreaker/first-boot
+TimeoutStartSec=180
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

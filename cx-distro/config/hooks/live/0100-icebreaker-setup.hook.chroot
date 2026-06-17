@@ -7,6 +7,7 @@ set -e
 systemctl enable icebreaker-pbd.service
 systemctl enable icebreaker-qbd.service
 systemctl enable icebreaker-controller.service
+systemctl enable icebreaker-first-boot.service
 
 # Create service users (sysusers.d runs at boot too, but we need them now
 # for correct file ownership in the chroot image).
