@@ -20,7 +20,7 @@ phase sections below describe the original plan. Mirrors the Phase Status table 
 | **Phase 2** — Dual-Brain Controller | ✅ **Complete (merged to `main`)** | M2.0–M2.14 on `feature/phase2-controller`; full gate suite `controller/ci.sh` **G1–G11 green** on the cloud VM `icebreaker-phase2-vm` (G9 N/A in the cloud-QB config). See close-out note below. |
 | **Phase 4** — Fine-tune Privileged Brain | ✅ **Complete** | `run7_cot_q4km.gguf` (Qwen2.5-Coder-1.5B SFT) **finalized as the PB**: 100% adversarial refusal, 95.5% grammar-valid MCP, 940 MB, checksum recorded. A run8 continued-tune was evaluated and **rejected** (regressed safety). See Phase 4 close-out. |
 | **Phase 5** — UX + Graduated Determinism | ✅ **Complete** | 6 PRs (#9–#14): hardened HITL + keymap + trust store + tier-2 review + audit hash-chain (P0), env scrub + cost/limits + TOCTOU (P1-A), audit viewer TUI + streaming + undo scaffold (P1-BCD), OpenAI backend + verifier voting (P2-backends), presenter registry + screen-reader + GTK (P2-access), daemon/client split + systemd (P2-daemon). 1347 tests, G1–G11 + G5 gates green. |
-| **Phase 6** — ISO distribution | 🔄 **In progress** | PRs #15–#19 merged; cx-distro scaffold + 6-stage build.sh landed; 1442 tests. See Phase 6 progress note below. |
+| **Phase 6** — ISO distribution | ✅ **Complete** | PRs #15–#21 merged; cx-distro scaffold + 6-stage build.sh, first-boot + safe-mode, CI gates G12–G15; 1446 tests. See Phase 6 close-out below. |
 | **Phase 7** — Hardening + release | ⬜ Not started | |
 
 **Phase 2 close-out (June 2026).** Validated on a GCP VM (`icebreaker-phase2-vm`,
@@ -47,7 +47,7 @@ and a persistent daemon/client architecture over AF_UNIX JSON-RPC 2.0 with syste
 units. 1347 tests (up from 906 at Phase 2 close). Deferred to Phase 6/7: mcpd
 rollback RPC, socket activation, GTK live rendering tests, live OpenAI CI smoke test.
 
-**Phase 6 progress (June 2026).** Five of seven PRs merged (#15–#19). Foundation layer:
+**Phase 6 close-out (June 2026).** All seven PRs merged (#15–#21). Foundation layer:
 mcpd `sd_notify(READY=1)` for systemd readiness (#15, `8bb8444`); HTTP-over-AF_UNIX
 transport adapter + `pb_transport` config (#16, `04fbb8a`); five systemd units with
 service users, socket permissions, parallel PB/QB startup (#17, `540c567`); PEP 621
@@ -55,9 +55,17 @@ service users, socket permissions, parallel PB/QB startup (#17, `540c567`); PEP 
 Build scaffold: `cx-distro/` with Dockerized 6-stage `build.sh` (preflight → mcpd →
 llama-server → venv → chroot → ISO), `--skip-to=N`/`--no-models` for fast iteration,
 distro `controller.toml` (UNIX sockets, FHS paths, correct catalogue IDs), INV-7
-SHA-256 verification of all GGUF models before embedding (#19, `ed786c4`). 1442 tests
-(up from 1347 at Phase 5 close). Remaining: first-boot + safe mode (#20), CI gates +
-QEMU test (#21).
+SHA-256 verification of all GGUF models before embedding (#19, `ed786c4`). Post-boot:
+systemd oneshot first-boot service with INV-7 defense-in-depth checksum verification,
+AF_UNIX health polling for PB/QB, UID 1000 group membership, sentinel-based
+`ConditionPathExists`; safe-mode shell diagnostic tool (no Python dependency) with
+`--safe-mode` CLI flag using `os.execv` (#20, `45a8d94`). CI verification: G12 model
+checksum gate (INV-7), G13 systemd unit property validation (NoNewPrivileges,
+ProtectSystem, ConditionPathExists, After= ordering), G14 static checks (21 + 9 = 30
+checks), G15 venv integrity; manual QEMU boot checklist; config layering integration
+test (#21, `565962f`). 1446 tests (up from 1347 at Phase 5 close). This is a first
+draft of the ISO pipeline — Phase 7 adds install-to-disk, bare-metal testing on 3
+hardware configs, security audit, and release signing.
 
 ---
 

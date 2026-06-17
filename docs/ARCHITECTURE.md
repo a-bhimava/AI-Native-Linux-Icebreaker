@@ -135,10 +135,10 @@ These constraints are non-negotiable. Violating any of them breaks the security 
 | Phase 3 | **Complete (folded into Phase 1)** | Landlock + Seccomp-BPF + COW shipped as M1.3 / M1.4 / M1.5 |
 | Phase 4 | **Complete** | Privileged Brain finalized: `run7_cot_q4km.gguf` (100% adversarial refusal, 95.5% grammar-valid MCP); a run8 continued-tune was evaluated and rejected (safety regression) |
 | Phase 5 | **Complete** | UX + Graduated Determinism: hardened HITL, keymap, trust store, tier-2 review, audit hash-chain, env scrub, cost/limits, streaming, undo scaffold, OpenAI backend, verifier voting, presenter registry, daemon/client split. PRs #9–#14, 1347 tests. |
-| Phase 6 | Not started | ISO build pipeline (`cx-distro/`) |
+| Phase 6 | **Complete** | ISO build pipeline (`cx-distro/`): 7 PRs (#15–#21), 6-stage build.sh, first-boot + safe-mode, CI gates G12–G15 |
 | Phase 7 | Not started | Hardening, penetration testing, v1.0 release |
 
-**Phases 0–5 are complete.** The Privileged Brain (`run7_cot_q4km.gguf`) is finalized and runs end-to-end with the Controller and mcpd (NL → QB → Intent → PB → mcpd dispatch). The Controller has four QB backends (local, Anthropic, Gemini, OpenAI), pluggable presenters (terminal, screen-reader, GTK), a daemon/client architecture, and 1347 tests. Remaining work: Phase 6 (ISO), Phase 7 (hardening/release).
+**Phases 0–6 are complete.** The Privileged Brain (`run7_cot_q4km.gguf`) is finalized and runs end-to-end with the Controller and mcpd (NL → QB → Intent → PB → mcpd dispatch). The Controller has four QB backends (local, Anthropic, Gemini, OpenAI), pluggable presenters (terminal, screen-reader, GTK), a daemon/client architecture, and 1446 tests. The ISO build pipeline (`cx-distro/`) packages everything into a bootable Ubuntu live ISO with first-boot initialization, safe-mode diagnostics, and CI gates G12–G15. Remaining work: Phase 7 (hardening/release).
 
 ---
 

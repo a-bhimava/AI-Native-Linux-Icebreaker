@@ -197,10 +197,16 @@ branch, behind a feature flag, with the HITL hardening tests.
 
 ---
 
-## 8. Phase 6 & 7 (later)
-- **Phase 6 — ISO distribution:** `cx-distro/` not built — live-build, systemd units (mcpd + brain
-  services, `Type=notify` ordering), `build.sh` with SHA-256 verification, QEMU + bare-metal testing.
-- **Phase 7 — Hardening + release:** E2E (500 queries), external pentest, perf (p95 <500 ms), GPG-signed v1.0 ISO.
+## 8. Phase 6 (Complete) & Phase 7 (Next)
+- **Phase 6 — ISO distribution (COMPLETE):** 7 PRs (#15–#21) merged. `cx-distro/` fully built:
+  6-stage Dockerized `build.sh` (preflight → mcpd → llama-server → venv → chroot → ISO),
+  mcpd `sd_notify`, HTTP-over-AF_UNIX transport, 6 systemd units with service users + socket
+  permissions, PEP 621 packaging, 2-tier config layering, first-boot oneshot (INV-7 checksum
+  verification, health polling, group membership), safe-mode shell diagnostics (`--safe-mode`),
+  CI gates G12–G15, QEMU boot checklist. 1446 tests. This is a first draft — Phase 7 adds
+  install-to-disk, bare-metal testing, security audit, and release signing.
+- **Phase 7 — Hardening + release:** E2E (500 queries), external pentest, perf (p95 <500 ms),
+  install-to-disk (preseed/autoinstall), bare-metal testing on 3 hardware configs, GPG-signed v1.0 ISO.
 
 ---
 

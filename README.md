@@ -36,10 +36,10 @@ Sandboxed: Landlock + Seccomp-BPF + COW snapshots before destructive writes.
 | Phase 3 — Kernel sandboxing | Complete (folded into Phase 1) |
 | Phase 4 — Fine-tune Privileged Brain | Complete |
 | Phase 5 — UX + Graduated Determinism | Complete |
-| Phase 6 — ISO distribution | **In progress** (PRs #15–19 merged, PRs #20–21 remaining) |
+| Phase 6 — ISO distribution | **Complete** (PRs #15–21 merged) |
 | Phase 7 — Hardening + release | Not started |
 
-**Test count:** 1442 passing (25 skipped).
+**Test count:** 1446 passing (25 skipped).
 
 ## Directory Map
 
@@ -60,7 +60,7 @@ Sandboxed: Landlock + Seccomp-BPF + COW snapshots before destructive writes.
 | [`AI_Native_OS_Whitepaper.md`](./AI_Native_OS_Whitepaper.md) | Architecture, design decisions, KPIs (source of truth) |
 | [`CLAUDE.md`](./CLAUDE.md) | Invariants INV-1–8, security-critical files, agent workflow rules |
 | [`docs/implementation_plan.md`](./docs/implementation_plan.md) | Master build plan, phase gates, failure mode register |
-| [`docs/phase6_implementation_plan.md`](./docs/phase6_implementation_plan.md) | Phase 6 PR order, acceptance criteria, CI gates |
+| [`docs/Archive/phase6_implementation_plan.md`](./docs/Archive/phase6_implementation_plan.md) | Phase 6 PR order, acceptance criteria, CI gates (archived — phase complete) |
 
 ## Quick Start
 

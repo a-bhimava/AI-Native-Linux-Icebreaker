@@ -15,8 +15,8 @@
 | M6.3 systemd units | ✅ Merged | PR #17 (`540c567`) | Service users, socket perms, parallel startup, 43 tests |
 | M6.4 Python packaging + config layering | ✅ Merged | PR #18 (`7063e26`) | PEP 621 `pyproject.toml`, 2-tier config merge, schema gaps |
 | M6.5 cx-distro scaffold + build.sh | ✅ Merged | PR #19 (`ed786c4`) | 6-stage build.sh, Dockerfile, distro config, 19 static + 7 pytest |
-| M6.6 First-boot + safe mode | ⬜ Not started | PR #20 | Sentinel, health poll, recovery |
-| M6.7 CI gates + QEMU test | ⬜ Not started | PR #21 | G12–G15, path/config/venv validation |
+| M6.6 First-boot + safe mode | ✅ Merged | PR #20 (`45a8d94`) | Systemd oneshot first-boot (INV-7, health poll, group add), safe-mode diagnostics, `--safe-mode` CLI |
+| M6.7 CI gates + QEMU test | ✅ Merged | PR #21 (`565962f`) | G12–G15 CI gates, QEMU boot checklist, config layering integration test |
 
 ## §1 — Invariants we must not break
 
