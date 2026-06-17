@@ -50,6 +50,8 @@ check "build.sh syntax" bash -n "${CX_DIR}/build.sh"
 check "icebreaker-cli syntax" bash -n "${CX_DIR}/distro/icebreaker-cli"
 check "chroot hook syntax" bash -n "${CX_DIR}/config/hooks/live/0100-icebreaker-setup.hook.chroot"
 check "test script syntax" bash -n "${SCRIPT_DIR}/test_build_output.sh"
+check "first-boot syntax" bash -n "${CX_DIR}/distro/first-boot"
+check "safe-mode syntax" bash -n "${CX_DIR}/distro/safe-mode"
 
 # Pin files.
 check "LLAMA_CPP_COMMIT is 40-char hex" \
@@ -127,6 +129,8 @@ else
         "usr/libexec/icebreaker/llama-server"
         "usr/libexec/icebreaker/start-pbd"
         "usr/libexec/icebreaker/start-qbd"
+        "usr/libexec/icebreaker/first-boot"
+        "usr/libexec/icebreaker/safe-mode"
     )
     for f in "${EXPECT_755[@]}"; do
         check_file_exists "${CHROOT}/${f}"
@@ -136,6 +140,7 @@ else
     # Systemd units.
     for unit in icebreaker-controller.service icebreaker-pbd.service \
                 icebreaker-qbd.service icebreaker-mcpd@.service \
+                icebreaker-first-boot.service \
                 icebreaker-controller.socket; do
         check_file_exists "${CHROOT}/etc/systemd/system/${unit}"
     done
