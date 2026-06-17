@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# first-boot — One-shot initialization for the Icebreaker distro.
+#
+# Runs via icebreaker-first-boot.service (Type=oneshot) on every live
+# session and once on an installed system. Verifies model checksums
+# (INV-7 defense-in-depth), waits for PB/QB health, adds the first
+# human user to icebreaker-users, and drops a sentinel.
+set -euo pipefail
+
+TAG="icebreaker-first-boot"
+
+log()  { logger -t "${TAG}" -p user.info  "$*"; echo "[${TAG}] $*"; }
+warn() { logger -t "${TAG}" -p user.warning "$*"; echo "[${TAG}] WARN: $*" >&2; }
+err()  { logger -t "${TAG}" -p user.err "$*"; echo "[${TAG}] ERROR: $*" >&2; }
+
+# ── Environment ─────────────────────────────────────────────────────────
+LOCATIONS="${ICEBREAKER_LOCATIONS_ENV:-/etc/icebreaker/locations.env}"
+if [ -f "${LOCATIONS}" ]; then
+    # shellcheck source=/dev/null
+    source "${LOCATIONS}"
+fi
+
+: "${ICEBREAKER_MODELS_DIR:=/var/lib/icebreaker/models}"
+: "${ICEBREAKER_SOCKET_DIR:=/run/icebreaker}"
+: "${ICEBREAKER_FIRST_BOOT_TIMEOUT:=120}"
+
+CHECKSUMS="${ICEBREAKER_MODELS_DIR}/checksums.sha256"
+SENTINEL="/var/lib/icebreaker/.first-boot-complete"
+
+# ── Step 1: Model checksum verification (INV-7 defense-in-depth) ───────
+CHECKSUM_FAILURES=0
+if [ -f "${CHECKSUMS}" ]; then
+    log "Verifying model checksums..."
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        [[ "$line" == \#* ]] && continue
+
+        expected_hash=$(echo "$line" | awk '{print $1}')
+        raw_path=$(echo "$line" | awk '{print $2}')
+        filename=$(basename "$raw_path")
+        model_file="${ICEBREAKER_MODELS_DIR}/${filename}"
+
+        if [ ! -f "$model_file" ]; then
+            warn "model not found: ${filename}"
+            CHECKSUM_FAILURES=$((CHECKSUM_FAILURES + 1))
+            continue
+        fi
+
+        actual_hash=$(sha256sum "$model_file" | awk '{print $1}')
+        if [ "$expected_hash" != "$actual_hash" ]; then
+            err "checksum MISMATCH: ${filename}"
+            err "  expected: ${expected_hash}"
+            err "  actual:   ${actual_hash}"
+            err "  Recovery: run 'icebreaker --safe-mode'"
+            CHECKSUM_FAILURES=$((CHECKSUM_FAILURES + 1))
+        else
+            log "  ${filename}: OK"
+        fi
+    done < "${CHECKSUMS}"
+
+    if [ "$CHECKSUM_FAILURES" -gt 0 ]; then
+        err "${CHECKSUM_FAILURES} checksum failure(s). Run: icebreaker --safe-mode"
+    else
+        log "All model checksums verified."
+    fi
+else
+    warn "checksums file not found: ${CHECKSUMS}"
+fi
+
+# ── Step 2: Health polling ──────────────────────────────────────────────
+poll_health() {
+    local name="$1" sock="$2"
+    local deadline=$((SECONDS + ICEBREAKER_FIRST_BOOT_TIMEOUT))
+    log "Waiting for ${name} health (timeout ${ICEBREAKER_FIRST_BOOT_TIMEOUT}s)..."
+    while [ $SECONDS -lt $deadline ]; do
+        if curl --unix-socket "${sock}" --silent --max-time 2 \
+                "http://localhost/health" >/dev/null 2>&1; then
+            log "${name}: healthy"
+            return 0
+        fi
+        sleep 2
+    done
+    warn "${name}: health poll timed out after ${ICEBREAKER_FIRST_BOOT_TIMEOUT}s"
+    return 1
+}
+
+poll_health "PB" "${ICEBREAKER_SOCKET_DIR}/pbd.sock" || true
+poll_health "QB" "${ICEBREAKER_SOCKET_DIR}/qbd.sock" || true
+
+# ── Step 3: Add first human user to icebreaker-users ────────────────────
+FIRST_USER=$(getent passwd 1000 2>/dev/null | cut -d: -f1 || true)
+if [ -n "${FIRST_USER}" ]; then
+    if id -nG "${FIRST_USER}" 2>/dev/null | grep -qw icebreaker-users; then
+        log "User ${FIRST_USER} already in icebreaker-users."
+    else
+        if usermod -aG icebreaker-users "${FIRST_USER}" 2>/dev/null; then
+            log "Added ${FIRST_USER} to icebreaker-users."
+        else
+            warn "Failed to add ${FIRST_USER} to icebreaker-users."
+        fi
+    fi
+else
+    warn "No user with UID 1000 found; skipping group membership."
+fi
+
+# ── Step 4: Drop sentinel ──────────────────────────────────────────────
+touch "${SENTINEL}"
+log "First-boot complete. Sentinel: ${SENTINEL}"

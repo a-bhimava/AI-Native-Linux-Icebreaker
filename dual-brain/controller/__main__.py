@@ -260,21 +260,28 @@ def main(argv: list[str] | None = None) -> int:
         const="",
         help="Connect to a running daemon (default socket from config).",
     )
+    parser.add_argument(
+        "--safe-mode",
+        action="store_true",
+        dest="safe_mode",
+        help="Launch the diagnostic/recovery tool (distro only).",
+    )
     args = parser.parse_args(argv)
 
     if args.check_isolation:
         return 0 if _check_isolation() else 1
 
-    # Mutual exclusion: --daemon, --connect, --repl, COMMAND
+    # Mutual exclusion: --daemon, --connect, --safe-mode, --repl, COMMAND
     modes = sum([
         bool(args.daemon),
         args.connect is not None,
+        bool(args.safe_mode),
         bool(args.repl),
         bool(args.command),
     ])
     if modes > 1:
         print(
-            "Error: --daemon, --connect, --repl, and COMMAND are mutually exclusive.",
+            "Error: --daemon, --connect, --safe-mode, --repl, and COMMAND are mutually exclusive.",
             file=sys.stderr,
         )
         return 2
@@ -285,6 +292,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.connect is not None:
         config_path = Path(args.config).expanduser() if args.config else None
         return _run_connect(args.connect, config_path)
+
+    if args.safe_mode:
+        import os
+
+        safe_mode_path = "/usr/libexec/icebreaker/safe-mode"
+        if os.path.isfile(safe_mode_path) and os.access(safe_mode_path, os.X_OK):
+            os.execv(safe_mode_path, [safe_mode_path])
+        print(
+            "Safe mode is only available in the Icebreaker distro.",
+            file=sys.stderr,
+        )
+        return 1
 
     if not args.command and not args.repl:
         parser.print_help(sys.stderr)

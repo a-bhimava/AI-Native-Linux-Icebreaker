@@ -281,6 +281,10 @@ if [ "$SKIP_TO" -le 4 ]; then
         "${CHROOT}/usr/libexec/icebreaker/start-pbd"
     install -Dm755 "${REPO_ROOT}/dual-brain/scripts/start-qbd" \
         "${CHROOT}/usr/libexec/icebreaker/start-qbd"
+    install -Dm755 "${SCRIPT_DIR}/distro/first-boot" \
+        "${CHROOT}/usr/libexec/icebreaker/first-boot"
+    install -Dm755 "${SCRIPT_DIR}/distro/safe-mode" \
+        "${CHROOT}/usr/libexec/icebreaker/safe-mode"
 
     # ── /usr/share/icebreaker/ ──────────────────────────────────────────
     install -Dm644 "${REPO_ROOT}/dual-brain/controller/catalogue.toml" \
