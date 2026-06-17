@@ -429,6 +429,18 @@ else
   fail 5.P2c "presenter registry test failed"
 fi
 
+# ── Phase 6: ISO Distribution Gates (G12–G15) ──────────────────────────
+CX_DISTRO="${DUAL_BRAIN}/../cx-distro"
+if [ -d "${CX_DISTRO}" ] && [ -f "${CX_DISTRO}/ci.sh" ]; then
+    echo ""
+    echo "Phase 6 — ISO Distribution Gates (G12–G15)"
+    if bash "${CX_DISTRO}/ci.sh"; then
+        pass 6 "Phase 6 gates passed"
+    else
+        fail 6 "Phase 6 gates failed"
+    fi
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════════════"
 
