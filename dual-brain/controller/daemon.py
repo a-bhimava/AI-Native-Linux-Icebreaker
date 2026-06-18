@@ -46,6 +46,7 @@ from .protocol import (
 from .session import SessionState
 from .transport import Transport, TransportClosed, UnixSocketTransport
 from .turn_events import (
+    CotEvent,
     ErrorEvent,
     InfoEvent,
     ProgressEvent,
@@ -344,6 +345,17 @@ class Daemon:
                         elif isinstance(event, InfoEvent):
                             notif = JsonRpcNotification("turn.info", {
                                 "message": event.message,
+                            })
+                            session.transport.send(notif.to_bytes())
+                        elif isinstance(event, CotEvent):
+                            notif = JsonRpcNotification("turn.cot", {
+                                "step_index": event.step_index,
+                                "step_name": event.step_name,
+                                "step_state": event.step_state,
+                                "heading": event.heading,
+                                "body": event.body,
+                                "data": event.data,
+                                "timestamp_ms": event.timestamp_ms,
                             })
                             session.transport.send(notif.to_bytes())
                         elif isinstance(event, ResultEvent):

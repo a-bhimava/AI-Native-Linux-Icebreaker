@@ -156,6 +156,7 @@ class DaemonClient:
             "turn.progress": self._on_progress,
             "turn.token": self._on_token,
             "turn.info": self._on_info,
+            "turn.cot": self._on_cot,
             "hitl.prompt": self._on_hitl_prompt,
             "hitl.lockout": self._on_hitl_lockout,
         }
@@ -172,6 +173,9 @@ class DaemonClient:
         pass
 
     def _on_info(self, params: dict) -> None:
+        pass
+
+    def _on_cot(self, params: dict) -> None:
         pass
 
     def _on_hitl_prompt(self, params: dict) -> None:
@@ -205,6 +209,16 @@ class ClientRepl(DaemonClient):
         message = params.get("message", "")
         sys.stdout.write(message)
         sys.stdout.flush()
+
+    def _on_cot(self, params: dict) -> None:
+        state = params.get("step_state", "")
+        heading = params.get("heading", "")
+        body = params.get("body", "")
+        _STATE_GLYPHS = {"active": ">", "done": "+", "failed": "!"}
+        glyph = _STATE_GLYPHS.get(state, "?")
+        detail = f" — {body}" if body else ""
+        sys.stderr.write(f"  [{glyph}] {heading}{detail}\n")
+        sys.stderr.flush()
 
     def _on_hitl_prompt(self, params: dict) -> None:
         data = HitlDisplayData(

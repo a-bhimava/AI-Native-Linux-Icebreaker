@@ -25,6 +25,7 @@ import pytest
 from controller.audit import Outcome
 from controller.main import TurnResult
 from controller.turn_events import (
+    CotEvent,
     ErrorEvent,
     ProgressEvent,
     ResultEvent,
@@ -195,3 +196,84 @@ def test_error_event_all_fields_accessible():
     assert ev.error_type == "ValueError"
     assert ev.message == "bad data"
     assert ev.cancelled_at_step == "tool_validation"
+
+
+# ── CotEvent construction ──────────────────────────────────────────────────
+
+
+def test_cot_event_construction():
+    ev = CotEvent(
+        step_index=0,
+        step_name="qb_intent",
+        step_state="active",
+        heading="Intent Generation",
+        body="Parsing natural language",
+        data={"action": "system.status"},
+        timestamp_ms=42.5,
+    )
+    assert ev.step_index == 0
+    assert ev.step_name == "qb_intent"
+    assert ev.step_state == "active"
+    assert ev.heading == "Intent Generation"
+    assert ev.body == "Parsing natural language"
+    assert ev.data == {"action": "system.status"}
+    assert ev.timestamp_ms == 42.5
+
+
+def test_cot_event_valid_states():
+    for state in ("pending", "active", "done", "failed"):
+        ev = CotEvent(
+            step_index=0, step_name="test", step_state=state,
+            heading="h", body="", data={}, timestamp_ms=0.0,
+        )
+        assert ev.step_state == state
+
+
+def test_cot_event_invalid_state_raises():
+    with pytest.raises(ValueError, match="step_state must be one of"):
+        CotEvent(
+            step_index=0, step_name="test", step_state="invalid",
+            heading="h", body="", data={}, timestamp_ms=0.0,
+        )
+
+
+def test_cot_event_is_frozen():
+    ev = CotEvent(
+        step_index=0, step_name="test", step_state="done",
+        heading="h", body="", data={}, timestamp_ms=0.0,
+    )
+    with pytest.raises(AttributeError):
+        ev.step_state = "failed"
+
+
+def test_cot_event_isinstance():
+    ev = CotEvent(
+        step_index=0, step_name="test", step_state="done",
+        heading="h", body="", data={}, timestamp_ms=0.0,
+    )
+    assert isinstance(ev, CotEvent)
+    assert not isinstance(ev, ProgressEvent)
+    assert not isinstance(ev, TokenEvent)
+    assert not isinstance(ev, ResultEvent)
+    assert not isinstance(ev, ErrorEvent)
+
+
+def test_cot_event_empty_data():
+    ev = CotEvent(
+        step_index=5, step_name="intent_store", step_state="done",
+        heading="Intent Store", body="Stored",
+        data={}, timestamp_ms=100.0,
+    )
+    assert ev.data == {}
+
+
+def test_cot_event_rich_data():
+    ev = CotEvent(
+        step_index=2, step_name="risk_classification", step_state="done",
+        heading="Risk Classification",
+        body="Tier 1 — read-only",
+        data={"tier": 1, "reason": "read-only", "reversible": True},
+        timestamp_ms=55.0,
+    )
+    assert ev.data["tier"] == 1
+    assert ev.data["reversible"] is True

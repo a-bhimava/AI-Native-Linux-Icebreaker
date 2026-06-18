@@ -8,9 +8,11 @@ existing synchronous ``run_turn()`` is unchanged (BP-2 backward compat).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Union
+from typing import Any, Union
 
 from .main import TurnResult
+
+_COT_STEP_STATES = frozenset({"pending", "active", "done", "failed"})
 
 
 @dataclass(frozen=True)
@@ -56,4 +58,31 @@ class InfoEvent:
     message: str
 
 
-TurnEvent = Union[ProgressEvent, TokenEvent, ResultEvent, ErrorEvent, InfoEvent]
+@dataclass(frozen=True)
+class CotEvent:
+    """Chain-of-Thought event for the companion panel (ADR-16 / ADR-19).
+
+    Emitted at each pipeline step with structured data derived from the
+    step output.  ``step_state`` drives visual card rendering:
+    pending → active → done / failed.
+    """
+
+    step_index: int
+    step_name: str
+    step_state: str
+    heading: str
+    body: str
+    data: dict[str, Any]
+    timestamp_ms: float
+
+    def __post_init__(self) -> None:
+        if self.step_state not in _COT_STEP_STATES:
+            raise ValueError(
+                f"step_state must be one of {sorted(_COT_STEP_STATES)}, "
+                f"got {self.step_state!r}"
+            )
+
+
+TurnEvent = Union[
+    ProgressEvent, TokenEvent, ResultEvent, ErrorEvent, InfoEvent, CotEvent,
+]
