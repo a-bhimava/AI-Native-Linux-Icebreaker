@@ -266,25 +266,37 @@ def main(argv: list[str] | None = None) -> int:
         dest="safe_mode",
         help="Launch the diagnostic/recovery tool (distro only).",
     )
+    parser.add_argument(
+        "--terminal",
+        action="store_true",
+        help="Launch the split-pane AI Terminal (Phase 6T).",
+    )
     args = parser.parse_args(argv)
 
     if args.check_isolation:
         return 0 if _check_isolation() else 1
 
-    # Mutual exclusion: --daemon, --connect, --safe-mode, --repl, COMMAND
+    # Mutual exclusion: --daemon, --connect, --safe-mode, --terminal, --repl, COMMAND
     modes = sum([
         bool(args.daemon),
         args.connect is not None,
         bool(args.safe_mode),
+        bool(args.terminal),
         bool(args.repl),
         bool(args.command),
     ])
     if modes > 1:
         print(
-            "Error: --daemon, --connect, --safe-mode, --repl, and COMMAND are mutually exclusive.",
+            "Error: --daemon, --connect, --safe-mode, --terminal, --repl, "
+            "and COMMAND are mutually exclusive.",
             file=sys.stderr,
         )
         return 2
+
+    if args.terminal:
+        from terminal.app import run as run_terminal
+        run_terminal()
+        return 0
 
     if args.daemon:
         return _run_daemon(Path(args.config).expanduser() if args.config else None)

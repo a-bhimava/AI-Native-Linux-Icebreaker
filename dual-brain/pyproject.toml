@@ -13,6 +13,8 @@ dependencies = [
     "anthropic>=0.40",
     "google-generativeai>=0.8",
     "prompt-toolkit>=3.0",
+    "textual>=0.80",
+    "rich>=13",
     "tomli>=2.0; python_version < '3.11'",
 ]
 
@@ -20,4 +22,4 @@ dependencies = [
 icebreaker = "controller.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["controller*"]
+include = ["controller*", "terminal*"]
