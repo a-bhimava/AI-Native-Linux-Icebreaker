@@ -234,7 +234,6 @@ async def test_status_bar_has_key_hints():
 def test_terminal_flag_accepted():
     """--terminal flag is recognized by the arg parser."""
     from controller.__main__ import main
-    import sys
     from unittest.mock import patch
 
     with patch("controller.__main__.argparse.ArgumentParser.parse_args") as mock_parse:
@@ -243,7 +242,62 @@ def test_terminal_flag_accepted():
             check_isolation=False, daemon=False,
             connect=None, safe_mode=False, terminal=True,
         )
-        with patch("terminal.app.run") as mock_run:
+        with patch("controller.__main__._run_terminal", return_value=0) as mock_run:
             result = main([])
             mock_run.assert_called_once()
             assert result == 0
+
+
+# ── F2 toggle + NL mode ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_f2_toggles_nl_mode():
+    """F2 key toggles sticky NL mode on InputBar."""
+    async with AiTerminalApp().run_test(size=(120, 40)) as pilot:
+        app = pilot.app
+        bar = app.query_one(InputBar)
+        assert not bar.nl_mode
+        await pilot.press("f2")
+        assert bar.nl_mode
+        label = bar.query_one("#mode-label", Label)
+        assert "NL" in label.content
+        await pilot.press("f2")
+        assert not bar.nl_mode
+
+
+@pytest.mark.asyncio
+async def test_app_has_router():
+    """App exposes an InputRouter instance."""
+    async with AiTerminalApp().run_test(size=(120, 40)) as pilot:
+        from terminal.input_router import InputRouter
+        assert isinstance(pilot.app.router, InputRouter)
+
+
+@pytest.mark.asyncio
+async def test_companion_tier_badge_on_result():
+    """Interpretation view includes a tier badge."""
+    async with AiTerminalApp().run_test(size=(120, 40)) as pilot:
+        panel = pilot.app.query_one(CompanionPanel)
+        panel.handle_result({
+            "success": True, "output": "Done.",
+            "outcome": "executed", "tier": 2,
+        })
+        await pilot.pause()
+        header = panel.query_one("#companion-header", Label)
+        assert "Interpretation" in header.content
+
+
+@pytest.mark.asyncio
+async def test_companion_suggestions():
+    """Interpretation view renders suggestions when present."""
+    async with AiTerminalApp().run_test(size=(120, 40)) as pilot:
+        panel = pilot.app.query_one(CompanionPanel)
+        panel.handle_result({
+            "success": True, "output": "Installed.",
+            "outcome": "executed", "tier": 0,
+            "suggestions": ["Check version with --version"],
+        })
+        await pilot.pause()
+        container = panel.query_one("#cot-container")
+        assert len(container.children) >= 3

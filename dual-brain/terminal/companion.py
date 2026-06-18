@@ -1,8 +1,10 @@
 """Right panel — companion panel with dual-mode CoT / interpretation (ADR-19).
 
-PR #23 implements the CoT card rendering side. The interpretation view
-(bar charts, summaries, suggestions) is wired in PR #24 when the input
-router connects NL input to the daemon and turn results flow back.
+Dual-mode:
+  - **CoT mode** (during execution): pipeline step cards with
+    pending/active/done/failed visual states.
+  - **Interpretation mode** (after completion): outcome summary with
+    tier badge, result output, and actionable suggestions.
 """
 
 from __future__ import annotations
@@ -19,6 +21,13 @@ _STATE_GLYPHS = {
     "active":  "◉",
     "done":    "✓",
     "failed":  "✗",
+}
+
+_TIER_LABELS = {
+    0: ("Tier 0", "Auto-approved", "#5e8787"),
+    1: ("Tier 1", "Low risk", "#5e8787"),
+    2: ("Tier 2", "Needs approval", "#e78952"),
+    3: ("Tier 3", "High risk", "#f87171"),
 }
 
 
@@ -121,11 +130,7 @@ class CompanionPanel(Static):
         container.scroll_end(animate=False)
 
     def handle_result(self, result: dict) -> None:
-        """Switch to interpretation mode after turn completion.
-
-        Full interpretation rendering (bar charts, summaries, suggestions)
-        is PR #24 scope. This PR shows a simple result summary.
-        """
+        """Switch to interpretation mode after turn completion."""
         self._mode = "interpretation"
         header = self.query_one("#companion-header", Label)
         header.update("Interpretation")
@@ -137,9 +142,19 @@ class CompanionPanel(Static):
         outcome = result.get("outcome", "")
         success = result.get("success", False)
 
+        tier_label, tier_desc, tier_color = _TIER_LABELS.get(
+            tier, ("Tier ?", "Unknown", "#888888")
+        )
+        badge_text = Text()
+        badge_text.append(f" {tier_label} ", style=f"bold on {tier_color}")
+        badge_text.append(f" {tier_desc}", style="#888888")
+        badge_card = Static(badge_text, classes="cot-card s-pending")
+        container.mount(badge_card)
+
+        glyph = "✓" if success else "✗"
         style = "#5e8787" if success else "#f87171"
         summary_card = Static(
-            Text(f"{'✓' if success else '✗'} {outcome}", style=f"bold {style}"),
+            Text(f"{glyph} {outcome}", style=f"bold {style}"),
             classes="cot-card s-done" if success else "cot-card s-failed",
         )
         container.mount(summary_card)
@@ -150,6 +165,15 @@ class CompanionPanel(Static):
                 classes="cot-card s-done",
             )
             container.mount(output_card)
+
+        suggestions = result.get("suggestions", [])
+        if suggestions:
+            parts = Text()
+            parts.append("Suggestions:\n", style="bold #e78952")
+            for s in suggestions:
+                parts.append(f"  → {s}\n", style="#c0c0c0")
+            suggestion_card = Static(parts, classes="cot-card s-pending")
+            container.mount(suggestion_card)
 
         container.scroll_end(animate=False)
 

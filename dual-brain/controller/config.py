@@ -215,6 +215,19 @@ class DaemonConfig:
 
 
 @dataclass(frozen=True)
+class TerminalConfig:
+    split_ratio: float = 0.6
+    explanation_verbosity: str = "normal"
+    shell_explanation: str = "none"
+    cot_scrollback: int = 50
+    nl_prefix: str = "#"
+    theme: str = "oled-dark"
+    input_position: str = "top"
+    show_tier_badge: bool = True
+    show_suggestions: bool = True
+
+
+@dataclass(frozen=True)
 class ControllerConfig:
     qb: BackendConfig
     hitl: HitlConfig
@@ -230,6 +243,7 @@ class ControllerConfig:
     undo: UndoConfig = field(default_factory=UndoConfig)
     verifier: VerifierConfig = field(default_factory=VerifierConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
+    terminal: TerminalConfig = field(default_factory=TerminalConfig)
 
 
 def _default_config_path() -> Path:
@@ -518,6 +532,23 @@ def _build_daemon_config(raw: dict) -> DaemonConfig:
     )
 
 
+def _build_terminal_config(raw: dict) -> TerminalConfig:
+    section = raw.get("terminal", {})
+    appearance = section.get("appearance", {})
+    interp = section.get("interpretation", {})
+    return TerminalConfig(
+        split_ratio=section.get("split_ratio", 0.6),
+        explanation_verbosity=section.get("explanation_verbosity", "normal"),
+        shell_explanation=section.get("shell_explanation", "none"),
+        cot_scrollback=section.get("cot_scrollback", 50),
+        nl_prefix=section.get("nl_prefix", "#"),
+        theme=appearance.get("theme", "oled-dark"),
+        input_position=appearance.get("input_position", "top"),
+        show_tier_badge=interp.get("show_tier_badge", True),
+        show_suggestions=interp.get("show_suggestions", True),
+    )
+
+
 def _build_keymap(raw: dict) -> Keymap:
     section = raw.get("keymap")
     try:
@@ -543,6 +574,7 @@ def _build_config(raw: dict, config_path: Path) -> ControllerConfig:
         undo=_build_undo_config(raw),
         verifier=_build_verifier_config(raw),
         daemon=_build_daemon_config(raw),
+        terminal=_build_terminal_config(raw),
     )
 
 

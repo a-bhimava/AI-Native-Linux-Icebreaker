@@ -14,7 +14,7 @@
 |---|---|---|---|
 | M6T.1 CoT events + daemon emission | ✅ Complete | #22 | `CotEvent` dataclass, emitter in `main.py`, `turn.cot` notification, 19 new tests (1465 total) |
 | M6T.2 Textual TUI scaffold | ✅ Complete | #23 | Split-pane layout, companion panel CoT cards, input bar, OLED theme, 15 new tests (1480 total) |
-| M6T.3 Input router + NL mode | ⬜ Not started | — | `#` prefix, `F2` toggle, `Ctrl+Space` one-shot, HITL presenter |
+| M6T.3 Input router + NL mode | ✅ Complete | #24 | InputRouter, F2 toggle, AiTerminalPresenter, `[terminal]` config, daemon-backed NL turns, 28 new tests (1508 total) |
 | M6T.4 GUI Agent scaffold + AT-SPI | ⬜ Not started | — | Sandboxed process, AT-SPI client, screenshot manager |
 | M6T.5 GUI tools + risk + audit | ⬜ Not started | — | Tool schemas, risk classifier extension, COW preview, audit fields |
 | M6T.6 App API + LibreOffice PoC | ⬜ Not started | — | App API registry, UNO bridge, D-Bus wrappers |
