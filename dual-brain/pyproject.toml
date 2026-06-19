@@ -22,10 +22,16 @@ dependencies = [
 icebreaker = "controller.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["controller*", "terminal*", "gui_agent*"]
+include = ["controller*", "terminal*", "gui_agent*", "rpa_bridge*"]
 
 [project.optional-dependencies]
 gui = [
     "PyGObject>=3.42",
+    "seccomp>=0.5",
+]
+rpa = [
+    "robotframework>=7.0",
+    "rpaframework>=28.0",
+    "Pillow>=10.0",
     "seccomp>=0.5",
 ]
