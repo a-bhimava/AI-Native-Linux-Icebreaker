@@ -177,6 +177,56 @@ class CompanionPanel(Static):
 
         container.scroll_end(animate=False)
 
+    def handle_gui(self, params: dict) -> None:
+        """Render a GUI automation event card."""
+        self._mode = "cot"
+        container = self.query_one("#cot-container", VerticalScroll)
+
+        phase = params.get("phase", "")
+        action = params.get("action", "")
+        app_name = params.get("app_name", "")
+        window = params.get("window_title", "")
+        element_role = params.get("element_role", "")
+        element_name = params.get("element_name", "")
+        predicted = params.get("predicted_outcome", "")
+        error = params.get("error", "")
+        before_hash = params.get("screenshot_before_hash", "")
+        after_hash = params.get("screenshot_after_hash", "")
+
+        _PHASE_GLYPHS = {"preview": "○", "executing": "◉", "complete": "✓"}
+        _PHASE_STYLES = {"preview": "s-pending", "executing": "s-active", "complete": "s-done"}
+        glyph = _PHASE_GLYPHS.get(phase, "?")
+        css_class = _PHASE_STYLES.get(phase, "s-pending")
+
+        heading = f"{glyph} GUI: {action}"
+        if app_name:
+            heading += f" [{app_name}]"
+
+        parts = []
+        if window:
+            parts.append(f"Window: {window}")
+        if element_role and element_name:
+            parts.append(f"Element: {element_role} '{element_name}'")
+        if predicted:
+            parts.append(f"Predicted: {predicted}")
+        if before_hash:
+            parts.append(f"Before: {before_hash[:12]}...")
+        if after_hash:
+            parts.append(f"After: {after_hash[:12]}...")
+        if error:
+            parts.append(f"Error: {error}")
+
+        body_text = "\n".join(parts)
+
+        content = Text()
+        content.append(heading + "\n", style="bold #e78952")
+        if body_text:
+            content.append(body_text, style="#c0c0c0")
+
+        card = Static(content, classes=f"cot-card {css_class}")
+        container.mount(card)
+        container.scroll_end(animate=False)
+
     def clear(self) -> None:
         """Reset for a new turn."""
         self._cards.clear()

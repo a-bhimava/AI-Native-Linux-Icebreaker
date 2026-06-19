@@ -215,6 +215,15 @@ class DaemonConfig:
 
 
 @dataclass(frozen=True)
+class GuiConfig:
+    enabled: bool = True
+    screenshot_dir: str = "/tmp/icebreaker-gui"
+    screenshot_retention: int = 50
+    prefer_app_api: bool = True
+    a11y_timeout_ms: int = 5000
+
+
+@dataclass(frozen=True)
 class TerminalConfig:
     split_ratio: float = 0.6
     explanation_verbosity: str = "normal"
@@ -244,6 +253,7 @@ class ControllerConfig:
     verifier: VerifierConfig = field(default_factory=VerifierConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
     terminal: TerminalConfig = field(default_factory=TerminalConfig)
+    gui: GuiConfig = field(default_factory=GuiConfig)
 
 
 def _default_config_path() -> Path:
@@ -532,6 +542,17 @@ def _build_daemon_config(raw: dict) -> DaemonConfig:
     )
 
 
+def _build_gui_config(raw: dict) -> GuiConfig:
+    section = raw.get("gui", {})
+    return GuiConfig(
+        enabled=section.get("enabled", True),
+        screenshot_dir=section.get("screenshot_dir", "/tmp/icebreaker-gui"),
+        screenshot_retention=section.get("screenshot_retention", 50),
+        prefer_app_api=section.get("prefer_app_api", True),
+        a11y_timeout_ms=section.get("a11y_timeout_ms", 5000),
+    )
+
+
 def _build_terminal_config(raw: dict) -> TerminalConfig:
     section = raw.get("terminal", {})
     appearance = section.get("appearance", {})
@@ -575,6 +596,7 @@ def _build_config(raw: dict, config_path: Path) -> ControllerConfig:
         verifier=_build_verifier_config(raw),
         daemon=_build_daemon_config(raw),
         terminal=_build_terminal_config(raw),
+        gui=_build_gui_config(raw),
     )
 
 

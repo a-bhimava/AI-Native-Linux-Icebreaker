@@ -16,7 +16,7 @@
 | M6T.2 Textual TUI scaffold | ✅ Complete | #23 | Split-pane layout, companion panel CoT cards, input bar, OLED theme, 15 new tests (1480 total) |
 | M6T.3 Input router + NL mode | ✅ Complete | #24 | InputRouter, F2 toggle, AiTerminalPresenter, `[terminal]` config, daemon-backed NL turns, 28 new tests (1508 total) |
 | M6T.4 GUI Agent scaffold + AT-SPI | ✅ Complete | #25 | `gui_agent/` package: AT-SPI client, screenshot manager, Landlock+Seccomp sandbox, JSON-RPC protocol, 63 new tests (1571 total) |
-| M6T.5 GUI tools + risk + audit | ⬜ Not started | — | Tool schemas, risk classifier extension, COW preview, audit fields |
+| M6T.5 GUI tools + risk + audit | ✅ Complete | #26 | `GuiEvent`, risk classifier GUI tiers, GUI audit outcomes + sanitization, `[gui]` config, verifier concerns, dispatch routing, 53 new tests (1624 total) |
 | M6T.6 App API + LibreOffice PoC | ⬜ Not started | — | App API registry, UNO bridge, D-Bus wrappers |
 | M6T.7 RPA Bridge + Robot Framework | ⬜ Not started | — | RPA bridge process, workflow generator, image matcher |
 | M6T.8 Escalation + RPA HITL | ⬜ Not started | — | Tier B→C escalation, crosshair preview, timeout enforcement |

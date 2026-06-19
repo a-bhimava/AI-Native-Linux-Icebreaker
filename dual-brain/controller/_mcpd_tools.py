@@ -71,3 +71,22 @@ SYSTEM_WRITE_TOOLS = frozenset({
     "service.start",
     "service.stop",
 })
+
+
+# ── GUI tools (not in mcpd — manually maintained) ────────────────────────
+
+GUI_READONLY_TOOLS = frozenset({
+    "gui.ping",
+    "gui.screenshot",
+    "gui.find_element",
+    "gui.get_window_list",
+    "gui.get_element_tree",
+})
+
+GUI_WRITE_TOOLS = frozenset({
+    "gui.click",
+    "gui.type",
+    "gui.select",
+})
+
+ALL_GUI_TOOLS = GUI_READONLY_TOOLS | GUI_WRITE_TOOLS

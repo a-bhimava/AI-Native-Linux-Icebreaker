@@ -42,6 +42,17 @@ _VERIFY_SCHEMA = {
     "properties": {
         "verified": {"type": "boolean"},
         "reason":   {"type": "string"},
+        "concerns": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "wrong_element", "unintended_side_effect",
+                    "timing_issue", "accessibility_violation",
+                ],
+            },
+        },
+        "predicted_state": {"type": "string"},
     },
     "required": ["verified", "reason"],
     "additionalProperties": False,

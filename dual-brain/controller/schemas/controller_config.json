@@ -341,6 +341,33 @@
           "description": "Max retry attempts on Tier-2 review failure."
         }
       }
+    },
+    "gui": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "GUI Agent configuration (Phase 6T).",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable GUI automation tools."
+        },
+        "screenshot_dir": {
+          "type": "string",
+          "description": "Directory for GUI Agent screenshots."
+        },
+        "screenshot_retention": {
+          "type": "integer", "minimum": 1, "maximum": 500,
+          "description": "Keep last N screenshots."
+        },
+        "prefer_app_api": {
+          "type": "boolean",
+          "description": "Prefer D-Bus app APIs over generic AT-SPI."
+        },
+        "a11y_timeout_ms": {
+          "type": "integer", "minimum": 100, "maximum": 30000,
+          "description": "Timeout for AT-SPI tree queries in milliseconds."
+        }
+      }
     }
   },
   "definitions": {

@@ -157,6 +157,7 @@ class DaemonClient:
             "turn.token": self._on_token,
             "turn.info": self._on_info,
             "turn.cot": self._on_cot,
+            "turn.gui": self._on_gui,
             "hitl.prompt": self._on_hitl_prompt,
             "hitl.lockout": self._on_hitl_lockout,
         }
@@ -176,6 +177,9 @@ class DaemonClient:
         pass
 
     def _on_cot(self, params: dict) -> None:
+        pass
+
+    def _on_gui(self, params: dict) -> None:
         pass
 
     def _on_hitl_prompt(self, params: dict) -> None:
@@ -218,6 +222,24 @@ class ClientRepl(DaemonClient):
         glyph = _STATE_GLYPHS.get(state, "?")
         detail = f" — {body}" if body else ""
         sys.stderr.write(f"  [{glyph}] {heading}{detail}\n")
+        sys.stderr.flush()
+
+    def _on_gui(self, params: dict) -> None:
+        phase = params.get("phase", "")
+        action = params.get("action", "")
+        window = params.get("window_title", "")
+        element = params.get("element_name", "")
+        error = params.get("error", "")
+        _PHASE_GLYPHS = {"preview": "?", "executing": ">", "complete": "+"}
+        glyph = _PHASE_GLYPHS.get(phase, "~")
+        parts = [f"[{glyph}] GUI {action}"]
+        if window:
+            parts.append(f"in {window!r}")
+        if element:
+            parts.append(f"on {element!r}")
+        if error:
+            parts.append(f"— {error}")
+        sys.stderr.write(f"  {'  '.join(parts)}\n")
         sys.stderr.flush()
 
     def _on_hitl_prompt(self, params: dict) -> None:

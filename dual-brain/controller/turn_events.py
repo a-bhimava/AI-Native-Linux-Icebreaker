@@ -83,6 +83,38 @@ class CotEvent:
             )
 
 
+_GUI_PHASES = frozenset({"preview", "executing", "complete"})
+
+
+@dataclass(frozen=True)
+class GuiEvent:
+    """GUI automation event for the companion panel.
+
+    Emitted during GUI tool dispatch: preview (before-screenshot),
+    executing (action in progress), complete (after-screenshot).
+    """
+
+    phase: str
+    action: str
+    window_title: str
+    app_name: str = ""
+    element_role: str = ""
+    element_name: str = ""
+    screenshot_before_hash: str = ""
+    screenshot_after_hash: str = ""
+    predicted_outcome: str = ""
+    error: str = ""
+    timestamp_ms: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.phase not in _GUI_PHASES:
+            raise ValueError(
+                f"phase must be one of {sorted(_GUI_PHASES)}, "
+                f"got {self.phase!r}"
+            )
+
+
 TurnEvent = Union[
-    ProgressEvent, TokenEvent, ResultEvent, ErrorEvent, InfoEvent, CotEvent,
+    ProgressEvent, TokenEvent, ResultEvent, ErrorEvent, InfoEvent,
+    CotEvent, GuiEvent,
 ]

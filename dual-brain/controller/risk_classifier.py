@@ -31,6 +31,8 @@ from ._mcpd_tools import (
     ALL_TOOLS,
     CONDITIONAL_TIER_TOOLS,
     DESTRUCTIVE_TOOLS,
+    GUI_READONLY_TOOLS,
+    GUI_WRITE_TOOLS,
     SYSTEM_WRITE_TOOLS,
     TIER0_TOOLS,
 )
@@ -157,6 +159,28 @@ def classify(intent: dict) -> ClassificationResult:
             tier=Tier.MEDIUM,
             reason=f"{action} modifies system-level configuration",
             reversible=action.startswith("package."),
+        )
+
+    # GUI read-only tools — Tier 0
+    if action in GUI_READONLY_TOOLS:
+        return ClassificationResult(
+            tier=Tier.READ_ONLY,
+            reason=f"{action} is a read-only GUI operation",
+            reversible=True,
+        )
+
+    # GUI write tools — Tier 1 (user docs) or Tier 2 (system UI)
+    if action in GUI_WRITE_TOOLS:
+        if _target_is_in_user_home(target):
+            return ClassificationResult(
+                tier=Tier.LOW,
+                reason=f"{action} targets user application — auto-execute with audit",
+                reversible=True,
+            )
+        return ClassificationResult(
+            tier=Tier.MEDIUM,
+            reason=f"{action} is a GUI write operation on system UI",
+            reversible=True,
         )
 
     # Unclassified action: defensive medium tier (audit + notify; do not auto-block,
