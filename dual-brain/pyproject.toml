@@ -22,4 +22,10 @@ dependencies = [
 icebreaker = "controller.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["controller*", "terminal*"]
+include = ["controller*", "terminal*", "gui_agent*"]
+
+[project.optional-dependencies]
+gui = [
+    "PyGObject>=3.42",
+    "seccomp>=0.5",
+]
