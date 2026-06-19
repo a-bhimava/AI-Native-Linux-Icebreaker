@@ -18,7 +18,7 @@ from .hitl import Decision, HitlPresenter, HitlPrompt, TerminalPresenter
 from .presenters import make_presenter
 from .intent_schema import IntentValidationError, validate
 from .intent_store import IntentStore
-from .mcpd_client import JsonRpcError, McpdClient, McpdProcessError, McpdTimeoutError
+from .mcpd_client import JsonRpcError, McpdClient, McpdProcessError, McpdTimeoutError, ToolResult
 from .risk_classifier import ClassificationResult, Tier, classify
 from .tier2_review import Tier2Reviewer, get_reviewer
 from .trust_store import TrustStore
@@ -58,6 +58,27 @@ _PIPELINE_STEPS = [
     ("qb_summarize",        "Summarizing result..."),
     ("audit",               "Recording audit..."),
 ]
+
+_COT_HEADINGS: dict[str, str] = {
+    "qb_intent":           "Intent Generation",
+    "schema_validation":   "Schema Validation",
+    "risk_classification": "Risk Classification",
+    "tier2_review":        "Tier-2 Review",
+    "trust_consult":       "Trust Check",
+    "hitl_gate":           "HITL Approval",
+    "intent_store":        "Intent Store",
+    "pb_tool_call":        "Tool Call Generation",
+    "tool_validation":     "Tool Call Validation",
+    "qb_verify":           "Intent Verification",
+    "mcpd_dispatch":       "Tool Execution",
+    "cow_approval":        "COW Preview",
+    "qb_summarize":        "Result Summary",
+    "audit":               "Audit Record",
+}
+
+_STEP_INDEX: dict[str, int] = {
+    name: i for i, (name, _) in enumerate(_PIPELINE_STEPS)
+}
 
 
 @dataclass(frozen=True)
@@ -148,7 +169,9 @@ class Controller:
         The existing ``run_turn()`` is unchanged (BP-2 backward compat).
         """
         from .turn_events import (
+            CotEvent,
             ErrorEvent,
+            GuiEvent,
             InfoEvent,
             ProgressEvent,
             ResultEvent,
@@ -159,6 +182,19 @@ class Controller:
         step_idx = 0
         total = len(_PIPELINE_STEPS)
         current_step = ""
+
+        def _cot(
+            name: str, state: str, body: str = "", **data: Any,
+        ) -> CotEvent:
+            return CotEvent(
+                step_index=_STEP_INDEX.get(name, 0),
+                step_name=name,
+                step_state=state,
+                heading=_COT_HEADINGS.get(name, name),
+                body=body,
+                data=dict(data) if data else {},
+                timestamp_ms=(time.monotonic() - t0) * 1000,
+            )
 
         def _progress(name: str) -> ProgressEvent:
             nonlocal step_idx, current_step
@@ -189,6 +225,8 @@ class Controller:
 
             # Step 1: QB → Intent Object
             yield _progress("qb_intent")
+            yield _cot("qb_intent", "active",
+                        body="Parsing natural language into structured intent")
             session.add_user_message(user_input)
             qb_response = self._qb.complete(
                 system=qb_system, user=user_input,
@@ -200,16 +238,24 @@ class Controller:
             qb_cost += qb_response.cost_usd or 0.0
             qb_tokens_in += qb_response.tokens_in
             qb_tokens_out += qb_response.tokens_out
+            yield _cot("qb_intent", "done", body="Intent generated",
+                        action=raw_intent.get("action", ""),
+                        target=raw_intent.get("target", ""),
+                        risk_level=raw_intent.get("risk_level", ""))
 
             # Step 2: Schema validation
             yield _progress("schema_validation")
+            yield _cot("schema_validation", "active",
+                        body="Validating intent against JSON Schema (INV-2)")
             try:
                 validated = validate(raw_intent)
             except IntentValidationError as exc:
+                yield _cot("schema_validation", "failed", body=str(exc))
                 yield ResultEvent(
                     result=self._schema_rejected(session, str(exc), qb_response, t0)
                 )
                 return
+            yield _cot("schema_validation", "done", body="Schema valid")
 
             intent = validated.intent
             raw_target = intent.get("target", "")
@@ -220,12 +266,21 @@ class Controller:
 
             # Step 3: Risk classification
             yield _progress("risk_classification")
+            yield _cot("risk_classification", "active",
+                        body="Classifying risk tier")
             cls_result = classify(intent)
+            yield _cot("risk_classification", "done",
+                        body=f"Tier {int(cls_result.tier)} — {cls_result.reason}",
+                        tier=int(cls_result.tier),
+                        reason=cls_result.reason,
+                        reversible=cls_result.reversible)
 
             # Step 3b: Tier-2 review
             original_tier = cls_result.tier
             if self._tier2 and cls_result.tier == Tier.MEDIUM:
                 yield _progress("tier2_review")
+                yield _cot("tier2_review", "active",
+                            body="Escalate-only second review")
                 t2_decision = self._tier2.review(intent, cls_result)
                 if t2_decision.escalate:
                     cls_result = ClassificationResult(
@@ -233,12 +288,22 @@ class Controller:
                         reversible=cls_result.reversible,
                     )
                 assert cls_result.tier >= original_tier
+                yield _cot("tier2_review", "done",
+                            body="Escalated to Tier 3" if t2_decision.escalate
+                            else "No escalation",
+                            escalated=t2_decision.escalate,
+                            final_tier=int(cls_result.tier))
+            else:
+                yield _cot("tier2_review", "done", body="Skipped",
+                            skipped=True)
 
             # Step 3c: Trust consult
             trust_ttl = self._cfg.hitl.trust_ttl_seconds
             cls_result_requires_hitl = cls_result.requires_hitl
             if self._trust_store and trust_ttl > 0 and cls_result.requires_hitl:
                 yield _progress("trust_consult")
+                yield _cot("trust_consult", "active",
+                            body="Checking trust grants")
                 grant = self._trust_store.is_trusted(
                     intent["action"], intent["target"],
                     cls_result.tier, session.session_id,
@@ -259,10 +324,23 @@ class Controller:
                         extra={"grant_id": grant.grant_id},
                     ))
                     cls_result_requires_hitl = False
+                    yield _cot("trust_consult", "done",
+                                body="Auto-approved via trust grant",
+                                trusted=True,
+                                grant_id=grant.grant_id)
+                else:
+                    yield _cot("trust_consult", "done",
+                                body="No matching trust grant",
+                                trusted=False)
+            else:
+                yield _cot("trust_consult", "done", body="Skipped",
+                            skipped=True)
 
             # Step 4: HITL gate
             if cls_result_requires_hitl:
                 yield _progress("hitl_gate")
+                yield _cot("hitl_gate", "active",
+                            body=f"Tier {int(cls_result.tier)} — awaiting human decision")
                 modify_count = 0
                 while True:
                     hitl_prompt = HitlPrompt(
@@ -284,6 +362,9 @@ class Controller:
                     if decision == Decision.MODIFY:
                         modify_count += 1
                         if modify_count >= _MAX_MODIFY_CYCLES:
+                            yield _cot("hitl_gate", "failed",
+                                        body="Modify limit reached — denied",
+                                        decision="modify_limit")
                             yield InfoEvent(message="\n  Modify limit reached — operation denied.")
                             yield ResultEvent(result=self._denied(
                                 session, intent, cls_result, Decision.DENIED,
@@ -319,21 +400,39 @@ class Controller:
                             cost_estimate_usd=0.0,
                             extra={"grant_id": grant.grant_id, "ttl_seconds": trust_ttl, **hitl_extra},
                         ))
+                        yield _cot("hitl_gate", "done",
+                                    body="Trust granted — approved",
+                                    decision="trust")
                         break
                     if decision != Decision.APPROVED:
+                        yield _cot("hitl_gate", "failed",
+                                    body="Operation denied by user",
+                                    decision=decision.name.lower())
                         yield ResultEvent(result=self._denied(
                             session, intent, cls_result, decision,
                             qb_response, t0, extra=hitl_extra,
                         ))
                         return
+                    yield _cot("hitl_gate", "done",
+                                body="Approved",
+                                decision="approved")
                     break
+
+            else:
+                yield _cot("hitl_gate", "done", body="Skipped (no HITL required)",
+                            skipped=True)
 
             # Step 5: Store intent
             yield _progress("intent_store")
+            yield _cot("intent_store", "active", body="Persisting intent as opaque UUID")
             intent_id = self._store.put(intent)
+            yield _cot("intent_store", "done", body="Stored",
+                        intent_id=intent_id)
 
             # Step 6: PB → tool call
             yield _progress("pb_tool_call")
+            yield _cot("pb_tool_call", "active",
+                        body="Privileged Brain generating MCP tool call")
             tool_schema = self._get_tool_schema(intent["action"])
             pb_user = session.build_pb_user_turn(intent_id, intent["action"], tool_schema)
             pb_system = self._prompts.get("pb")
@@ -345,12 +444,18 @@ class Controller:
             total_cost = qb_cost + pb_cost
             total_tokens_in = qb_tokens_in + pb_response.tokens_in
             total_tokens_out = qb_tokens_out + pb_response.tokens_out
+            yield _cot("pb_tool_call", "done",
+                        body=f"Tool call: {tool_call.get('tool', '?')}",
+                        tool=tool_call.get("tool", ""))
 
             # Step 7: Validate tool call
             yield _progress("tool_validation")
+            yield _cot("tool_validation", "active",
+                        body="Validating PB output against tool schema")
             try:
                 self._validate_tool_call(tool_call, intent["action"])
             except ValueError as exc:
+                yield _cot("tool_validation", "failed", body=str(exc))
                 duration = (time.monotonic() - t0) * 1000
                 self._audit.write_fields(AuditFields(
                     session_id=session.session_id, turn_index=session.turn_index,
@@ -370,12 +475,20 @@ class Controller:
                     tokens_in=total_tokens_in, tokens_out=total_tokens_out,
                 ))
                 return
+            yield _cot("tool_validation", "done", body="Tool call valid")
 
             # Step 8: QB verifier
             yield _progress("qb_verify")
+            yield _cot("qb_verify", "active",
+                        body="QB verifying intent↔tool-call alignment")
             verifier_system = self._prompts.get("qb_verifier")
             vresult = self._verifier.verify(intent, tool_call, self._qb, verifier_system)
             if not vresult.verified:
+                yield _cot("qb_verify", "failed",
+                            body=f"Rejected: {vresult.reason}",
+                            reason=vresult.reason,
+                            votes_cast=vresult.votes_cast,
+                            verified_count=vresult.verified_count)
                 duration = (time.monotonic() - t0) * 1000
                 extra = {}
                 if vresult.votes_cast > 1:
@@ -401,58 +514,201 @@ class Controller:
                     tokens_in=total_tokens_in, tokens_out=total_tokens_out,
                 ))
                 return
+            yield _cot("qb_verify", "done",
+                        body="Verified",
+                        votes_cast=vresult.votes_cast,
+                        verified_count=vresult.verified_count)
 
-            # Step 9: mcpd dispatch
+            # Step 9: tool dispatch (mcpd or GUI Agent)
+            tool_name = tool_call.get("tool", "")
+            is_gui = tool_name.startswith("gui.")
+
             yield _progress("mcpd_dispatch")
-            try:
-                tool_result = self._mcpd.call(
-                    tool_call["tool"], tool_call.get("params"),
-                    timeout=self._cfg.run.mcpd_timeout_seconds,
+            if is_gui:
+                yield _cot("mcpd_dispatch", "active",
+                            body=f"Executing {tool_name} via GUI Agent",
+                            tool=tool_name, execution_tier="gui")
+                yield GuiEvent(
+                    phase="preview",
+                    action=tool_name,
+                    window_title=tool_call.get("params", {}).get("window", ""),
+                    element_role=tool_call.get("params", {}).get("role", ""),
+                    element_name=tool_call.get("params", {}).get("name", ""),
+                    predicted_outcome=f"{tool_name} on target element",
+                    timestamp_ms=(time.monotonic() - t0) * 1000,
                 )
-            except McpdTimeoutError:
-                duration = (time.monotonic() - t0) * 1000
-                self._audit.write_fields(AuditFields(
-                    session_id=session.session_id, turn_index=session.turn_index,
-                    intent_id=intent_id, action=intent["action"],
-                    target=intent["target"], tier=int(cls_result.tier),
-                    reason=intent["reason"], risk_level=intent["risk_level"],
-                    outcome=Outcome.TOOL_TIMEOUT, duration_ms=duration,
-                    backend=session.backend, model=self._cfg.qb.model,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                    cost_estimate_usd=total_cost,
-                ))
-                yield ResultEvent(result=TurnResult(
-                    success=False, output="mcpd timed out — operation did not complete.",
-                    outcome=Outcome.TOOL_TIMEOUT, tier=int(cls_result.tier),
-                    backend=session.backend, duration_ms=duration,
-                    cost_usd=total_cost if total_cost > 0 else None,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                ))
-                return
-            except (McpdProcessError, JsonRpcError) as exc:
-                duration = (time.monotonic() - t0) * 1000
-                self._audit.write_fields(AuditFields(
-                    session_id=session.session_id, turn_index=session.turn_index,
-                    intent_id=intent_id, action=intent["action"],
-                    target=intent["target"], tier=int(cls_result.tier),
-                    reason=intent["reason"], risk_level=intent["risk_level"],
-                    outcome=Outcome.TOOL_ERROR, duration_ms=duration,
-                    backend=session.backend, model=self._cfg.qb.model,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                    cost_estimate_usd=total_cost,
-                ))
-                yield ResultEvent(result=TurnResult(
-                    success=False, output=f"Tool error: {exc}",
-                    outcome=Outcome.TOOL_ERROR, tier=int(cls_result.tier),
-                    backend=session.backend, duration_ms=duration,
-                    cost_usd=total_cost if total_cost > 0 else None,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                ))
-                return
+                gui_cfg = getattr(self._cfg, "gui", None)
+                if gui_cfg and not gui_cfg.enabled:
+                    yield _cot("mcpd_dispatch", "failed",
+                                body="GUI Agent disabled in config")
+                    duration = (time.monotonic() - t0) * 1000
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id, turn_index=session.turn_index,
+                        intent_id=intent_id, action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"], risk_level=intent["risk_level"],
+                        outcome=Outcome.GUI_DENIED, duration_ms=duration,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                        cost_estimate_usd=total_cost,
+                        extra={"execution_tier": "gui"},
+                    ))
+                    yield ResultEvent(result=TurnResult(
+                        success=False,
+                        output="GUI automation is disabled. Enable with [gui] enabled = true.",
+                        outcome=Outcome.GUI_DENIED, tier=int(cls_result.tier),
+                        backend=session.backend, duration_ms=duration,
+                        cost_usd=total_cost if total_cost > 0 else None,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    ))
+                    return
+
+                yield GuiEvent(
+                    phase="executing",
+                    action=tool_name,
+                    window_title=tool_call.get("params", {}).get("window", ""),
+                    element_role=tool_call.get("params", {}).get("role", ""),
+                    element_name=tool_call.get("params", {}).get("name", ""),
+                    timestamp_ms=(time.monotonic() - t0) * 1000,
+                )
+
+                try:
+                    from gui_agent.agent import GuiAgent
+                    gui = GuiAgent(scratch_dir=getattr(
+                        gui_cfg, "screenshot_dir", "/tmp/icebreaker-gui"
+                    ) if gui_cfg else "/tmp/icebreaker-gui")
+                    gui_result = gui.handle_request(
+                        tool_name, tool_call.get("params", {}),
+                    )
+                except Exception as exc:
+                    yield _cot("mcpd_dispatch", "failed", body=str(exc))
+                    yield GuiEvent(
+                        phase="complete",
+                        action=tool_name,
+                        window_title=tool_call.get("params", {}).get("window", ""),
+                        error=str(exc),
+                        timestamp_ms=(time.monotonic() - t0) * 1000,
+                    )
+                    duration = (time.monotonic() - t0) * 1000
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id, turn_index=session.turn_index,
+                        intent_id=intent_id, action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"], risk_level=intent["risk_level"],
+                        outcome=Outcome.GUI_ERROR, duration_ms=duration,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                        cost_estimate_usd=total_cost,
+                        extra={"execution_tier": "gui", "gui_error": str(exc)},
+                    ))
+                    yield ResultEvent(result=TurnResult(
+                        success=False, output=f"GUI error: {exc}",
+                        outcome=Outcome.GUI_ERROR, tier=int(cls_result.tier),
+                        backend=session.backend, duration_ms=duration,
+                        cost_usd=total_cost if total_cost > 0 else None,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    ))
+                    return
+
+                gui_error = gui_result.get("error")
+                gui_success = gui_result.get("success", True) if gui_error is None else False
+                gui_outcome = Outcome.GUI_EXECUTED if gui_success else Outcome.GUI_ERROR
+
+                from .audit import sanitize_gui_field
+                extra_fields: dict[str, Any] = {
+                    "execution_tier": "gui",
+                    "element_role": sanitize_gui_field(
+                        tool_call.get("params", {}).get("role", ""),
+                    ),
+                    "element_name": sanitize_gui_field(
+                        tool_call.get("params", {}).get("name", ""),
+                    ),
+                    "window_title": sanitize_gui_field(
+                        tool_call.get("params", {}).get("window", ""),
+                    ),
+                }
+                sha = gui_result.get("sha256", "")
+                if sha:
+                    extra_fields["screenshot_before_hash"] = sha
+
+                yield GuiEvent(
+                    phase="complete",
+                    action=tool_name,
+                    window_title=tool_call.get("params", {}).get("window", ""),
+                    element_role=tool_call.get("params", {}).get("role", ""),
+                    element_name=tool_call.get("params", {}).get("name", ""),
+                    screenshot_before_hash=sha,
+                    error=gui_error or "",
+                    timestamp_ms=(time.monotonic() - t0) * 1000,
+                )
+
+                from .mcpd_client import ToolResult
+                tool_result = ToolResult(
+                    result=gui_result, request_id=0,
+                )
+                yield _cot("mcpd_dispatch", "done",
+                            body=f"GUI execution {'complete' if gui_success else 'failed'}",
+                            execution_tier="gui",
+                            requires_cow=False)
+            else:
+                yield _cot("mcpd_dispatch", "active",
+                            body=f"Executing {tool_name} via mcpd",
+                            tool=tool_name)
+                try:
+                    tool_result = self._mcpd.call(
+                        tool_call["tool"], tool_call.get("params"),
+                        timeout=self._cfg.run.mcpd_timeout_seconds,
+                    )
+                except McpdTimeoutError:
+                    yield _cot("mcpd_dispatch", "failed", body="Timeout")
+                    duration = (time.monotonic() - t0) * 1000
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id, turn_index=session.turn_index,
+                        intent_id=intent_id, action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"], risk_level=intent["risk_level"],
+                        outcome=Outcome.TOOL_TIMEOUT, duration_ms=duration,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                        cost_estimate_usd=total_cost,
+                    ))
+                    yield ResultEvent(result=TurnResult(
+                        success=False, output="mcpd timed out — operation did not complete.",
+                        outcome=Outcome.TOOL_TIMEOUT, tier=int(cls_result.tier),
+                        backend=session.backend, duration_ms=duration,
+                        cost_usd=total_cost if total_cost > 0 else None,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    ))
+                    return
+                except (McpdProcessError, JsonRpcError) as exc:
+                    yield _cot("mcpd_dispatch", "failed", body=str(exc))
+                    duration = (time.monotonic() - t0) * 1000
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id, turn_index=session.turn_index,
+                        intent_id=intent_id, action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"], risk_level=intent["risk_level"],
+                        outcome=Outcome.TOOL_ERROR, duration_ms=duration,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                        cost_estimate_usd=total_cost,
+                    ))
+                    yield ResultEvent(result=TurnResult(
+                        success=False, output=f"Tool error: {exc}",
+                        outcome=Outcome.TOOL_ERROR, tier=int(cls_result.tier),
+                        backend=session.backend, duration_ms=duration,
+                        cost_usd=total_cost if total_cost > 0 else None,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    ))
+                    return
+                yield _cot("mcpd_dispatch", "done", body="Execution complete",
+                            requires_cow=tool_result.requires_cow_approval)
 
             # Step 10: COW approval
             if tool_result.requires_cow_approval:
                 yield _progress("cow_approval")
+                yield _cot("cow_approval", "active",
+                            body="Destructive op — awaiting COW preview approval")
                 cow_preview_text = ""
                 if tool_result.cow_preview:
                     cow_preview_text = json.dumps(tool_result.cow_preview, indent=2)
@@ -470,6 +726,9 @@ class Controller:
                         "key_pressed_class": cow_prompt.key_pressed_class,
                         "latency_ms": cow_prompt.decision_latency_ms,
                     }
+                    yield _cot("cow_approval", "failed",
+                                body="COW preview denied",
+                                decision=decision.name.lower())
                     yield ResultEvent(result=self._denied(
                         session, intent, cls_result, decision,
                         qb_response, t0, intent_id=intent_id,
@@ -479,9 +738,15 @@ class Controller:
                         extra=cow_extra,
                     ))
                     return
+                yield _cot("cow_approval", "done", body="COW approved")
+            else:
+                yield _cot("cow_approval", "done", body="Skipped (no COW required)",
+                            skipped=True)
 
             # Step 11: QB summarisation (with optional streaming)
             yield _progress("qb_summarize")
+            yield _cot("qb_summarize", "active",
+                        body="QB summarizing tool output for user")
             raw_output = json.dumps(tool_result.result)
             truncated = "\n".join(
                 raw_output.splitlines()[:self._cfg.session.max_tool_output_lines]
@@ -521,9 +786,11 @@ class Controller:
                 summary = self._qb_summarise(truncated, intent)
 
             session.add_tool_result_summary(summary)
+            yield _cot("qb_summarize", "done", body="Summary ready")
 
             # Step 12: Audit
             yield _progress("audit")
+            yield _cot("audit", "active", body="Writing audit record (INV-8)")
             duration = (time.monotonic() - t0) * 1000
             self._audit.write_fields(AuditFields(
                 session_id=session.session_id, turn_index=session.turn_index,
@@ -535,6 +802,8 @@ class Controller:
                 tokens_in=total_tokens_in, tokens_out=total_tokens_out,
                 cost_estimate_usd=total_cost,
             ))
+            yield _cot("audit", "done", body="Audit recorded",
+                        outcome="executed", intent_id=intent_id)
 
             session.touch()
 
@@ -807,51 +1076,107 @@ class Controller:
                 tokens_in=total_tokens_in, tokens_out=total_tokens_out,
             )
 
-        # ── Step 9: Dispatch via McpdClient ──────────────────────────────────
-        try:
-            tool_result = self._mcpd.call(
-                tool_call["tool"],
-                tool_call.get("params"),
-                timeout=self._cfg.run.mcpd_timeout_seconds,
-            )
-        except McpdTimeoutError:
-            duration = (time.monotonic() - t0) * 1000
-            self._audit.write_fields(AuditFields(
-                session_id=session.session_id, turn_index=session.turn_index,
-                intent_id=intent_id, action=intent["action"],
-                target=intent["target"], tier=int(cls_result.tier),
-                reason=intent["reason"], risk_level=intent["risk_level"],
-                outcome=Outcome.TOOL_TIMEOUT, duration_ms=duration,
-                backend=session.backend, model=self._cfg.qb.model,
-                tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                cost_estimate_usd=total_cost,
-            ))
-            return TurnResult(
-                success=False, output="mcpd timed out — operation did not complete.",
-                outcome=Outcome.TOOL_TIMEOUT, tier=int(cls_result.tier),
-                backend=session.backend, duration_ms=duration,
-                cost_usd=total_cost if total_cost > 0 else None,
-                tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-            )
-        except (McpdProcessError, JsonRpcError) as exc:
-            duration = (time.monotonic() - t0) * 1000
-            self._audit.write_fields(AuditFields(
-                session_id=session.session_id, turn_index=session.turn_index,
-                intent_id=intent_id, action=intent["action"],
-                target=intent["target"], tier=int(cls_result.tier),
-                reason=intent["reason"], risk_level=intent["risk_level"],
-                outcome=Outcome.TOOL_ERROR, duration_ms=duration,
-                backend=session.backend, model=self._cfg.qb.model,
-                tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                cost_estimate_usd=total_cost,
-            ))
-            return TurnResult(
-                success=False, output=f"Tool error: {exc}",
-                outcome=Outcome.TOOL_ERROR, tier=int(cls_result.tier),
-                backend=session.backend, duration_ms=duration,
-                cost_usd=total_cost if total_cost > 0 else None,
-                tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-            )
+        # ── Step 9: Dispatch via McpdClient or GUI Agent ───────────────────
+        tool_name = tool_call.get("tool", "")
+        is_gui = tool_name.startswith("gui.")
+
+        if is_gui:
+            gui_cfg = getattr(self._cfg, "gui", None)
+            if gui_cfg and not gui_cfg.enabled:
+                duration = (time.monotonic() - t0) * 1000
+                self._audit.write_fields(AuditFields(
+                    session_id=session.session_id, turn_index=session.turn_index,
+                    intent_id=intent_id, action=intent["action"],
+                    target=intent["target"], tier=int(cls_result.tier),
+                    reason=intent["reason"], risk_level=intent["risk_level"],
+                    outcome=Outcome.GUI_DENIED, duration_ms=duration,
+                    backend=session.backend, model=self._cfg.qb.model,
+                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    cost_estimate_usd=total_cost,
+                    extra={"execution_tier": "gui"},
+                ))
+                return TurnResult(
+                    success=False,
+                    output="GUI automation is disabled. Enable with [gui] enabled = true.",
+                    outcome=Outcome.GUI_DENIED, tier=int(cls_result.tier),
+                    backend=session.backend, duration_ms=duration,
+                    cost_usd=total_cost if total_cost > 0 else None,
+                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                )
+            try:
+                from gui_agent.agent import GuiAgent
+                gui = GuiAgent(scratch_dir=getattr(
+                    gui_cfg, "screenshot_dir", "/tmp/icebreaker-gui"
+                ) if gui_cfg else "/tmp/icebreaker-gui")
+                gui_result = gui.handle_request(
+                    tool_name, tool_call.get("params", {}),
+                )
+            except Exception as exc:
+                duration = (time.monotonic() - t0) * 1000
+                self._audit.write_fields(AuditFields(
+                    session_id=session.session_id, turn_index=session.turn_index,
+                    intent_id=intent_id, action=intent["action"],
+                    target=intent["target"], tier=int(cls_result.tier),
+                    reason=intent["reason"], risk_level=intent["risk_level"],
+                    outcome=Outcome.GUI_ERROR, duration_ms=duration,
+                    backend=session.backend, model=self._cfg.qb.model,
+                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    cost_estimate_usd=total_cost,
+                    extra={"execution_tier": "gui", "gui_error": str(exc)},
+                ))
+                return TurnResult(
+                    success=False, output=f"GUI error: {exc}",
+                    outcome=Outcome.GUI_ERROR, tier=int(cls_result.tier),
+                    backend=session.backend, duration_ms=duration,
+                    cost_usd=total_cost if total_cost > 0 else None,
+                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                )
+            tool_result = ToolResult(result=gui_result, request_id=0)
+        else:
+            try:
+                tool_result = self._mcpd.call(
+                    tool_call["tool"],
+                    tool_call.get("params"),
+                    timeout=self._cfg.run.mcpd_timeout_seconds,
+                )
+            except McpdTimeoutError:
+                duration = (time.monotonic() - t0) * 1000
+                self._audit.write_fields(AuditFields(
+                    session_id=session.session_id, turn_index=session.turn_index,
+                    intent_id=intent_id, action=intent["action"],
+                    target=intent["target"], tier=int(cls_result.tier),
+                    reason=intent["reason"], risk_level=intent["risk_level"],
+                    outcome=Outcome.TOOL_TIMEOUT, duration_ms=duration,
+                    backend=session.backend, model=self._cfg.qb.model,
+                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    cost_estimate_usd=total_cost,
+                ))
+                return TurnResult(
+                    success=False, output="mcpd timed out — operation did not complete.",
+                    outcome=Outcome.TOOL_TIMEOUT, tier=int(cls_result.tier),
+                    backend=session.backend, duration_ms=duration,
+                    cost_usd=total_cost if total_cost > 0 else None,
+                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                )
+            except (McpdProcessError, JsonRpcError) as exc:
+                duration = (time.monotonic() - t0) * 1000
+                self._audit.write_fields(AuditFields(
+                    session_id=session.session_id, turn_index=session.turn_index,
+                    intent_id=intent_id, action=intent["action"],
+                    target=intent["target"], tier=int(cls_result.tier),
+                    reason=intent["reason"], risk_level=intent["risk_level"],
+                    outcome=Outcome.TOOL_ERROR, duration_ms=duration,
+                    backend=session.backend, model=self._cfg.qb.model,
+                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    cost_estimate_usd=total_cost,
+                ))
+                return TurnResult(
+                    success=False, output=f"Tool error: {exc}",
+                    outcome=Outcome.TOOL_ERROR, tier=int(cls_result.tier),
+                    backend=session.backend, duration_ms=duration,
+                    cost_usd=total_cost if total_cost > 0 else None,
+                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                )
 
         # ── Step 10: COW approval (if mcpd requires it) ───────────────────────
         if tool_result.requires_cow_approval:

@@ -34,6 +34,10 @@ google-generativeai>=0.8
 # Multi-turn REPL line editing + history (M2.11)
 prompt-toolkit>=3.0
 
+# AI Terminal TUI (Phase 6T, PR #23)
+textual>=0.80
+rich>=13
+
 # TOML config parsing (M2.4)
 # tomllib is stdlib in Python 3.11+; tomli is the back-port for 3.10.
 tomli>=2.0; python_version < "3.11"

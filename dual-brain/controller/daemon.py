@@ -46,7 +46,9 @@ from .protocol import (
 from .session import SessionState
 from .transport import Transport, TransportClosed, UnixSocketTransport
 from .turn_events import (
+    CotEvent,
     ErrorEvent,
+    GuiEvent,
     InfoEvent,
     ProgressEvent,
     ResultEvent,
@@ -344,6 +346,32 @@ class Daemon:
                         elif isinstance(event, InfoEvent):
                             notif = JsonRpcNotification("turn.info", {
                                 "message": event.message,
+                            })
+                            session.transport.send(notif.to_bytes())
+                        elif isinstance(event, CotEvent):
+                            notif = JsonRpcNotification("turn.cot", {
+                                "step_index": event.step_index,
+                                "step_name": event.step_name,
+                                "step_state": event.step_state,
+                                "heading": event.heading,
+                                "body": event.body,
+                                "data": event.data,
+                                "timestamp_ms": event.timestamp_ms,
+                            })
+                            session.transport.send(notif.to_bytes())
+                        elif isinstance(event, GuiEvent):
+                            notif = JsonRpcNotification("turn.gui", {
+                                "phase": event.phase,
+                                "action": event.action,
+                                "window_title": event.window_title,
+                                "app_name": event.app_name,
+                                "element_role": event.element_role,
+                                "element_name": event.element_name,
+                                "screenshot_before_hash": event.screenshot_before_hash,
+                                "screenshot_after_hash": event.screenshot_after_hash,
+                                "predicted_outcome": event.predicted_outcome,
+                                "error": event.error,
+                                "timestamp_ms": event.timestamp_ms,
                             })
                             session.transport.send(notif.to_bytes())
                         elif isinstance(event, ResultEvent):

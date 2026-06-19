@@ -1,0 +1,209 @@
+/* AI Terminal — Dark theme (ADR-10)
+ *
+ * Palette derived from user's OKLCH design tokens (dark mode):
+ *   bg:        #111112  (near-OLED black)
+ *   surface:   #111111  (card/panel bg)
+ *   border:    #222222  (subtle dividers)
+ *   muted:     #888888  (secondary text)
+ *   text:      #c0c0c0  (primary text)
+ *   primary:   #e78952  (warm amber — NL mode, active states)
+ *   secondary: #5e8787  (teal — shell PS1, success, done states)
+ *   golden:    #faca97  (chart highlights, warnings)
+ *   red:       #f87171  (errors, failed states)
+ *   accent-bg: #333333  (hover/selected surfaces)
+ */
+
+Screen {
+    background: #111112;
+    color: #c0c0c0;
+}
+
+/* ── Input bar (top) ─────────────────────────────────── */
+
+InputBar {
+    dock: top;
+    height: 3;
+    background: #111111;
+    border-bottom: solid #222222;
+    padding: 0 1;
+}
+
+InputBar.nl-mode {
+    border-bottom: solid #e78952;
+}
+
+InputBar #mode-label {
+    width: 8;
+    color: #888888;
+    text-style: bold;
+    padding: 0 1;
+    content-align: center middle;
+}
+
+InputBar.nl-mode #mode-label {
+    color: #e78952;
+}
+
+InputBar #input-field {
+    background: #111112;
+    color: #c0c0c0;
+    border: round #222222;
+    padding: 0 1;
+}
+
+InputBar.nl-mode #input-field {
+    border: round #e78952;
+}
+
+InputBar #input-field:focus {
+    border: round #e78952;
+}
+
+/* ── Main split pane ─────────────────────────────────── */
+
+#main-split {
+    height: 1fr;
+}
+
+/* ── Execution panel (left) ──────────────────────────── */
+
+ExecutionPanel {
+    width: 3fr;
+    min-width: 30;
+    border-right: solid #222222;
+    background: #111112;
+    padding: 0;
+}
+
+ExecutionPanel #shell-output {
+    background: #111112;
+    color: #c0c0c0;
+    scrollbar-size: 1 1;
+}
+
+/* ── Companion panel (right) ─────────────────────────── */
+
+CompanionPanel {
+    width: 2fr;
+    min-width: 24;
+    background: #111112;
+    padding: 0 1;
+}
+
+CompanionPanel #companion-header {
+    height: 1;
+    color: #888888;
+    text-style: bold;
+    padding: 0 0;
+}
+
+CompanionPanel #cot-container {
+    height: 1fr;
+    overflow-y: auto;
+    scrollbar-size: 1 1;
+}
+
+/* ── CoT step cards ──────────────────────────────────── */
+
+.cot-card {
+    height: auto;
+    margin: 0 0 1 0;
+    padding: 0 1;
+    background: #111111;
+    border-left: tall #222222;
+}
+
+.cot-card.s-active {
+    border-left: tall #e78952;
+}
+
+.cot-card.s-active .card-heading {
+    color: #e78952;
+    text-style: bold;
+}
+
+.cot-card.s-done {
+    border-left: tall #5e8787;
+}
+
+.cot-card.s-done .card-heading {
+    color: #5e8787;
+}
+
+.cot-card.s-failed {
+    border-left: tall #f87171;
+}
+
+.cot-card.s-failed .card-heading {
+    color: #f87171;
+    text-style: bold;
+}
+
+.cot-card.s-pending {
+    border-left: tall #888888;
+    color: #888888;
+}
+
+.card-heading {
+    height: 1;
+    color: #c0c0c0;
+}
+
+.card-body {
+    height: auto;
+    color: #888888;
+}
+
+/* ── Status bar (bottom) ─────────────────────────────── */
+
+StatusBar {
+    dock: bottom;
+    height: 1;
+    background: #111111;
+    color: #888888;
+    padding: 0 1;
+}
+
+StatusBar .key-hint {
+    color: #e78952;
+    text-style: bold;
+}
+
+/* ── Auto-hide right panel when narrow ───────────────── */
+
+CompanionPanel.-hidden {
+    display: none;
+}
+
+/* ── $NO_COLOR overrides (monochrome fallback) ───────── */
+
+Screen.-no-color {
+    background: #000000;
+    color: #cccccc;
+}
+
+Screen.-no-color InputBar {
+    background: #000000;
+    border-bottom: solid #444444;
+}
+
+Screen.-no-color InputBar.nl-mode {
+    border-bottom: solid #444444;
+}
+
+Screen.-no-color .cot-card {
+    background: #000000;
+    border-left: tall #444444;
+}
+
+Screen.-no-color .cot-card.s-active {
+    border-left: tall #cccccc;
+}
+
+Screen.-no-color .cot-card.s-done {
+    border-left: tall #cccccc;
+}
+
+Screen.-no-color .cot-card.s-failed {
+    border-left: tall #999999;
+}

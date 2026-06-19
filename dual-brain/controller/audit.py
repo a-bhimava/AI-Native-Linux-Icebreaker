@@ -112,6 +112,11 @@ class Outcome(str, Enum):
     UNDO_UNAVAILABLE        = "undo_unavailable"         # mcpd lacks rollback RPC
     UNDONE                  = "undone"                   # future: successfully rolled back
 
+    # GUI Agent outcomes (Phase 6T)
+    GUI_EXECUTED            = "gui_executed"              # GUI Agent action succeeded
+    GUI_DENIED              = "gui_denied"                # GUI action denied at HITL
+    GUI_ERROR               = "gui_error"                 # GUI Agent returned error
+
 
 # ── Required entry fields ──────────────────────────────────────────────────
 
@@ -200,7 +205,25 @@ def _high_entropy(s: str, *, min_len: int = 24, bits: float = 4.0) -> bool:
 _TOOL_FIELD_ALLOWLIST: dict[str, frozenset[str]] = {
     "fs.write": frozenset({"path"}),
     "fs.delete": frozenset({"path"}),
+    "gui.click": frozenset({"window", "role", "name"}),
+    "gui.type": frozenset({"window", "role", "name"}),
+    "gui.select": frozenset({"window", "role", "name", "value"}),
 }
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+_C0_C1_RE = re.compile(r"[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f\x80-\x9f]")
+
+
+def sanitize_gui_field(s: str, *, max_len: int = 256) -> str:
+    """Sanitize a GUI-sourced string for audit entries (BP-3)."""
+    if not isinstance(s, str):
+        s = str(s)
+    s = _ANSI_ESCAPE_RE.sub("", s)
+    s = s.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    s = _C0_C1_RE.sub("", s)
+    if len(s) > max_len:
+        s = s[:max_len] + "..."
+    return s
 
 
 def _redact_params(params: Any, *, action: str = "") -> Any:

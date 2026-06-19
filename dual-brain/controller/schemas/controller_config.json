@@ -33,8 +33,8 @@
           "description": "Decision timeout in seconds — auto-deny on expiry."
         },
         "presenter": {
-          "type": "string", "enum": ["terminal", "screen_reader", "gtk"],
-          "description": "HITL approval presenter. 'terminal' (default), 'screen_reader' (a11y), 'gtk' (GUI, requires PyGObject)."
+          "type": "string", "enum": ["terminal", "screen_reader", "gtk", "ai_terminal"],
+          "description": "HITL approval presenter. 'terminal' (default), 'screen_reader' (a11y), 'gtk' (GUI, requires PyGObject), 'ai_terminal' (Textual TUI)."
         },
         "trust_ttl_seconds": {
           "type": "integer", "minimum": 0, "maximum": 3600,
@@ -268,6 +268,61 @@
         }
       }
     },
+    "terminal": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "AI Terminal TUI settings (Phase 6T). All optional — defaults to OLED dark, top input, # prefix.",
+      "properties": {
+        "split_ratio": {
+          "type": "number", "minimum": 0.2, "maximum": 0.9,
+          "description": "Left panel width ratio (0.0–1.0). Default 0.6."
+        },
+        "explanation_verbosity": {
+          "type": "string", "enum": ["minimal", "normal", "verbose", "debug"],
+          "description": "Companion panel detail level."
+        },
+        "shell_explanation": {
+          "type": "string", "enum": ["none", "man", "exit_code"],
+          "description": "Shell result explanation mode."
+        },
+        "cot_scrollback": {
+          "type": "integer", "minimum": 1, "maximum": 500,
+          "description": "Number of CoT traces to keep in scrollback."
+        },
+        "nl_prefix": {
+          "type": "string", "minLength": 1, "maxLength": 2,
+          "description": "Character that triggers NL mode at column 0. Default '#'."
+        },
+        "appearance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "theme": {
+              "type": "string", "enum": ["oled-dark", "dark", "light", "high-contrast"],
+              "description": "Terminal color theme."
+            },
+            "input_position": {
+              "type": "string", "enum": ["top", "bottom"],
+              "description": "Input bar position (ADR-18: default top)."
+            }
+          }
+        },
+        "interpretation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "show_tier_badge": {
+              "type": "boolean",
+              "description": "Show tier classification badge in interpretation view."
+            },
+            "show_suggestions": {
+              "type": "boolean",
+              "description": "Show actionable suggestions after turn completion."
+            }
+          }
+        }
+      }
+    },
     "tier2": {
       "type": "object",
       "additionalProperties": false,
@@ -284,6 +339,33 @@
         "max_retries": {
           "type": "integer", "minimum": 0, "maximum": 5,
           "description": "Max retry attempts on Tier-2 review failure."
+        }
+      }
+    },
+    "gui": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "GUI Agent configuration (Phase 6T).",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable GUI automation tools."
+        },
+        "screenshot_dir": {
+          "type": "string",
+          "description": "Directory for GUI Agent screenshots."
+        },
+        "screenshot_retention": {
+          "type": "integer", "minimum": 1, "maximum": 500,
+          "description": "Keep last N screenshots."
+        },
+        "prefer_app_api": {
+          "type": "boolean",
+          "description": "Prefer D-Bus app APIs over generic AT-SPI."
+        },
+        "a11y_timeout_ms": {
+          "type": "integer", "minimum": 100, "maximum": 30000,
+          "description": "Timeout for AT-SPI tree queries in milliseconds."
         }
       }
     }
