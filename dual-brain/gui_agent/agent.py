@@ -53,6 +53,7 @@ from .protocol import (
     GUI_SELECT,
     validate_gui_params,
 )
+from .app_apis.registry import get_app_api
 from .screenshots import ScreenshotManager, ScreenshotUnavailableError
 
 
@@ -92,10 +93,16 @@ class GuiAgent:
     Use ``GuiAgent.spawn()`` from the Controller to launch the subprocess.
     """
 
-    def __init__(self, scratch_dir: str | Path = _DEFAULT_SCRATCH_DIR) -> None:
+    def __init__(
+        self,
+        scratch_dir: str | Path = _DEFAULT_SCRATCH_DIR,
+        *,
+        prefer_app_api: bool = True,
+    ) -> None:
         self._scratch = Path(scratch_dir)
         self._atspi = AtSpiClient()
         self._screenshots = ScreenshotManager(self._scratch)
+        self._prefer_app_api = prefer_app_api
 
     def handle_request(self, method: str, params: dict) -> dict:
         """Dispatch a GUI method call. Returns a result dict."""
@@ -182,7 +189,26 @@ class GuiAgent:
         tree = self._atspi.get_element_tree(params["window"], max_depth=max_depth)
         return {"tree": tree}
 
+    def _try_app_api(self, action: str, params: dict) -> dict | None:
+        """Try the registered app API for the target window. Returns None to fall back."""
+        if not self._prefer_app_api:
+            return None
+        window = params.get("window", "")
+        if not window:
+            return None
+        api = get_app_api(window)
+        if api is None:
+            return None
+        result = api.execute(action, params)
+        if result.get("fallback") == "atspi":
+            return None
+        result["api_used"] = type(api).__name__
+        return result
+
     def _handle_click(self, params: dict) -> dict:
+        app_result = self._try_app_api("click", params)
+        if app_result is not None:
+            return app_result
         try:
             elem = self._atspi.find_element(
                 params["window"], params["role"], params["name"],
@@ -193,6 +219,9 @@ class GuiAgent:
             return {"success": False, "error": str(exc)}
 
     def _handle_type(self, params: dict) -> dict:
+        app_result = self._try_app_api("type", params)
+        if app_result is not None:
+            return app_result
         try:
             elem = self._atspi.find_element(
                 params["window"], params["role"], params["name"],
@@ -203,6 +232,9 @@ class GuiAgent:
             return {"success": False, "error": str(exc)}
 
     def _handle_select(self, params: dict) -> dict:
+        app_result = self._try_app_api("select", params)
+        if app_result is not None:
+            return app_result
         try:
             elem = self._atspi.find_element(
                 params["window"], params["role"], params["name"],
@@ -271,7 +303,8 @@ class GuiAgent:
                 print(f"GUI Agent sandbox failed: {exc}", file=sys.stderr)
                 return 1
 
-        agent = cls(scratch_dir=scratch)
+        prefer_app_api = os.environ.get("ICEBREAKER_GUI_PREFER_APP_API", "1") != "0"
+        agent = cls(scratch_dir=scratch, prefer_app_api=prefer_app_api)
         return agent._run_loop()
 
     @classmethod
