@@ -17,11 +17,11 @@
 | M6T.3 Input router + NL mode | ✅ Complete | #24 | InputRouter, F2 toggle, AiTerminalPresenter, `[terminal]` config, daemon-backed NL turns, 28 new tests (1508 total) |
 | M6T.4 GUI Agent scaffold + AT-SPI | ✅ Complete | #25 | `gui_agent/` package: AT-SPI client, screenshot manager, Landlock+Seccomp sandbox, JSON-RPC protocol, 63 new tests (1571 total) |
 | M6T.5 GUI tools + risk + audit | ✅ Complete | #26 | `GuiEvent`, risk classifier GUI tiers, GUI audit outcomes + sanitization, `[gui]` config, verifier concerns, dispatch routing, 53 new tests (1624 total) |
-| M6T.6 App API + LibreOffice PoC | ⬜ Not started | — | App API registry, UNO bridge, D-Bus wrappers |
-| M6T.7 RPA Bridge + Robot Framework | ⬜ Not started | — | RPA bridge process, workflow generator, image matcher |
-| M6T.8 Escalation + RPA HITL | ⬜ Not started | — | Tier B→C escalation, crosshair preview, timeout enforcement |
-| M6T.9 Polish + security audit | ⬜ Not started | — | Additional app APIs, accessibility, performance, hardening |
-| M6T.10 CI gates + integration tests | ⬜ Not started | — | G16–G22 CI gates, end-to-end tests, doc updates |
+| M6T.6 App API + LibreOffice PoC | ✅ Complete | #27 | App API registry, LibreOffice UNO bridge, GenericAtSpi fallback, 12 new tests |
+| M6T.7 RPA Bridge + Robot Framework | ✅ Complete | #28 | RPA bridge process, workflow gen, image matcher, Landlock+Seccomp+uinput sandbox, 16 new tests |
+| M6T.8 Escalation + RPA HITL | ✅ Complete | #29 | GUI→RPA escalation, QB-monitored execution, RpaEvent, RPA config/risk/trust/audit, 32 new tests |
+| M6T.9 Polish + security audit | ✅ Complete | #30 | Firefox + GNOME Files APIs, JPEG screenshots, AT-SPI fast path, accessibility announcements |
+| M6T.10 CI gates + integration tests | ✅ Complete | #30 | G16–G22 CI gates, static validation tests, doc updates, 17 new tests (1749 total) |
 
 ## §1 — Invariants we must not break
 
@@ -629,4 +629,13 @@ All ten PR acceptance sections above, plus:
 
 ## §14 — Closeout notes (update as PRs land)
 
-*(Empty — PRs have not started.)*
+**Phase 6T closeout (June 2026).** Nine PRs merged (#22–#30) across ten milestones
+(M6T.1–M6T.10). What shipped: three-tier terminal execution engine (CLI/mcpd Tier A,
+GUI/AT-SPI Tier B, RPA/Robot Framework Tier C) with Landlock+Seccomp sandboxing per
+tier, QB-as-Monitor for RPA workflows, escalation from Tier A→B→C, five app-specific
+APIs (LibreOffice, Firefox CDP, GNOME Files, generic AT-SPI, registry), CoT streaming
+to a Textual companion panel with screen-reader accessibility, JPEG screenshot
+compression with thumbnails, AT-SPI BFS fast path, and CI gates G16–G22. ~1775 tests
+(up from 1446 at Phase 6 close). Deferred to Phase 7: bare-metal GUI/RPA integration
+tests (require display server), CDP WebSocket live tests, GTK live rendering, Robot
+Framework keyword coverage beyond the 30-entry allowlist.

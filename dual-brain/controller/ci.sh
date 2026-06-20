@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ci.sh — Icebreaker Phase 2 + Phase 5 exit-gate verification (G1–G11, G5.1–G5.P2c).
+# ci.sh — Icebreaker Phase 2 + Phase 5 + Phase 6T exit-gate verification (G1–G11, G5.1–G5.P2c, G16–G22).
 #
 # Run from the dual-brain/ directory:
 #   bash controller/ci.sh
@@ -45,7 +45,7 @@ FAILED_GATES=()
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  Icebreaker Phase 2 + Phase 5 — Exit Gate Verification"
+echo "  Icebreaker Phase 2 + Phase 5 + Phase 6T — Exit Gate Verification"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
@@ -441,11 +441,140 @@ if [ -d "${CX_DISTRO}" ] && [ -f "${CX_DISTRO}/ci.sh" ]; then
     fi
 fi
 
+# ── Phase 6T: AI Terminal Gates (G16–G22) ────────────────────────────────
+CX_DIR="${DUAL_BRAIN}/../cx-distro"
+echo ""
+echo "Phase 6T — AI Terminal Gates (G16–G22)"
+
+# ── G16: GUI Agent sandbox integrity ─────────────────────────────────────
+echo "G16: GUI Agent sandbox integrity..."
+if bash "${CX_DIR}/tests/test_gui_agent.sh" "${DUAL_BRAIN}"; then
+  pass 16 "GUI Agent sandbox integrity OK"
+else
+  fail 16 "GUI Agent sandbox integrity failed"
+fi
+
+echo ""
+
+# ── G17: GUI tool schema validation ─────────────────────────────────────
+echo "G17: GUI tool schema validation..."
+if PYTHONPATH="${DUAL_BRAIN}" python3 -c "
+from gui_agent.protocol import _PARAM_SCHEMAS, ALL_GUI_METHODS
+from controller._mcpd_tools import ALL_GUI_TOOLS, GUI_READONLY_TOOLS, GUI_WRITE_TOOLS
+
+# Every method must have a schema
+missing = [m for m in ALL_GUI_METHODS if m not in _PARAM_SCHEMAS]
+assert not missing, f'methods without schemas: {missing}'
+
+# Read + write = all
+combined = GUI_READONLY_TOOLS | GUI_WRITE_TOOLS
+assert combined == ALL_GUI_TOOLS, (
+    f'GUI_READONLY_TOOLS | GUI_WRITE_TOOLS != ALL_GUI_TOOLS; '
+    f'diff: {combined.symmetric_difference(ALL_GUI_TOOLS)}'
+)
+print('  schema coverage complete; read|write == all')
+" 2>&1; then
+  pass 17 "GUI tool schema validation OK"
+else
+  fail 17 "GUI tool schema validation failed"
+fi
+
+echo ""
+
+# ── G18: RPA sandbox integrity ──────────────────────────────────────────
+echo "G18: RPA sandbox integrity..."
+_G18_OK=true
+if ! bash "${CX_DIR}/tests/test_rpa_bridge.sh" "${DUAL_BRAIN}"; then
+  _G18_OK=false
+fi
+if ! PYTHONPATH="${DUAL_BRAIN}" python3 -c "
+from controller._mcpd_tools import RPA_WRITE_TOOLS
+from controller.risk_classifier import classify, Tier
+from controller.trust_store import TrustStore
+
+# All RPA write tools must classify as HIGH
+for tool in RPA_WRITE_TOOLS:
+    r = classify({'action': tool, 'target': '', 'risk_level': ''})
+    assert r.tier == Tier.HIGH, f'{tool} classified as {r.tier}, expected HIGH'
+
+# Trust store must reject rpa.execute_workflow grant
+store = TrustStore()
+try:
+    store.grant(action='rpa.execute_workflow', target_prefix='',
+                max_tier=Tier.LOW, session_id='ci', ttl_seconds=300)
+    assert False, 'trust store should reject rpa.execute_workflow grant'
+except ValueError:
+    pass
+print('  RPA write tools = HIGH; trust store rejects rpa.execute_workflow')
+" 2>&1; then
+  _G18_OK=false
+fi
+if $_G18_OK; then
+  pass 18 "RPA sandbox integrity OK"
+else
+  fail 18 "RPA sandbox integrity failed"
+fi
+
+echo ""
+
+# ── G19: Display sanitization (best-effort — warn only) ─────────────────
+echo "G19: Display sanitization..."
+_G19_SUSPECT=$(grep -rn 'os\.system\|subprocess\.call.*shell=True' \
+    "${DUAL_BRAIN}/gui_agent/" "${DUAL_BRAIN}/rpa_bridge/" \
+    "${DUAL_BRAIN}/terminal/" \
+    --include='*.py' 2>/dev/null \
+    | grep -v __pycache__ | grep -v '/tests/' || true)
+if [ -z "$_G19_SUSPECT" ]; then
+  pass 19 "no suspicious shell patterns in display modules"
+else
+  warn 19 "suspicious shell patterns found (review manually): ${_G19_SUSPECT}"
+fi
+
+echo ""
+
+# ── G20: CoT event coverage ─────────────────────────────────────────────
+echo "G20: CoT event coverage..."
+if PYTHONPATH="${DUAL_BRAIN}" python3 -m pytest controller/tests/test_cot_streaming.py -x -q 2>&1; then
+  pass 20 "CoT event coverage OK"
+else
+  fail 20 "CoT event coverage failed"
+fi
+
+echo ""
+
+# ── G20.1: Companion panel dual-mode ────────────────────────────────────
+echo "G20.1: Companion panel dual-mode..."
+if PYTHONPATH="${DUAL_BRAIN}" python3 -m pytest terminal/tests/test_tui.py -x -q 2>&1; then
+  pass 20.1 "companion panel dual-mode OK"
+else
+  fail 20.1 "companion panel dual-mode failed"
+fi
+
+echo ""
+
+# ── G21: Screenshot cleanup ────────────────────────────────────────────
+echo "G21: Screenshot cleanup..."
+if PYTHONPATH="${DUAL_BRAIN}" python3 -m pytest gui_agent/tests/test_screenshots.py -x -q 2>&1; then
+  pass 21 "screenshot cleanup OK"
+else
+  fail 21 "screenshot cleanup failed"
+fi
+
+echo ""
+
+# ── G22: RPA timeout enforcement ────────────────────────────────────────
+echo "G22: RPA timeout enforcement..."
+if PYTHONPATH="${DUAL_BRAIN}" python3 -m pytest rpa_bridge/tests/test_bridge_integration.py -x -q 2>&1; then
+  pass 22 "RPA timeout enforcement OK"
+else
+  fail 22 "RPA timeout enforcement failed"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════════════"
 
 if [ ${#FAILED_GATES[@]} -eq 0 ]; then
-  echo "  All gates passed. Phase 2 + Phase 5 (P0/P1/P2) ready for PR review."
+  echo "  All gates passed. Phase 2 + Phase 5 (P0/P1/P2) + Phase 6T ready for PR review."
   echo "═══════════════════════════════════════════════════════════"
   echo ""
   exit 0
