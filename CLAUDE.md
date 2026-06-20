@@ -34,7 +34,10 @@ Read both before making any architectural change.
 ├── src/
 │   └── mcpd/                      # Rust MCP daemon (Phase 1 — COMPLETE, on main)
 ├── dual-brain/                    # Phase 2 deployable bundle (Python)
-│   ├── controller/                #   - Controller package (skeleton in; M2.0+ adds backends, audit, hitl, session, repl)
+│   ├── controller/                #   - Controller package (backends, audit, hitl, session, repl, risk, trust)
+│   ├── gui_agent/                 #   - GUI Agent: AT-SPI client, screenshot manager, app APIs, Landlock sandbox
+│   ├── rpa_bridge/                #   - RPA Bridge: Robot Framework, workflow gen, image match, Landlock+uinput sandbox
+│   ├── terminal/                  #   - Textual TUI: split-pane, companion panel, input router, CoT rendering
 │   ├── scripts/                   #   - Operator scripts (export_mcpd_catalogue.py, start_pb.sh, start_qb_local.sh)
 │   ├── docs/phase2/               #   - Mirror of project Phase 2 planning docs
 │   └── README.md                  #   - "tar dual-brain → scp → extract on VM" deploy workflow
@@ -56,6 +59,7 @@ Read both before making any architectural change.
 | Phase 4 | Complete | PB finalized: `run7_cot_q4km.gguf` — 100% adversarial refusal, 95.5% grammar-valid MCP, 940 MB, checksummed. run8 continued-tune rejected (safety regression). Pipeline in `privileged-brain/` |
 | Phase 5 | **Complete** | UX + Graduated Determinism. P0: hardened HITL, keymap, trust store, tier-2 review, audit hash-chain (PR #9). P1-A: env scrub, cost/limits, TOCTOU (PR #10). P1-BCD: audit viewer TUI, streaming, undo scaffold (PR #11). P2: OpenAI backend + verifier voting (PR #12), presenter registry + screen-reader + GTK (PR #13), daemon/client split + systemd (PR #14). 1347 tests, G1–G11 + G5.1–G5.P2b green. |
 | Phase 6 | **Complete** | ISO distribution. PRs #15–#21 merged: mcpd sd_notify (#15), UNIX transport (#16), systemd units (#17), Python packaging + config layering (#18), cx-distro scaffold + 6-stage build.sh (#19), first-boot + safe-mode + `--safe-mode` CLI (#20), CI gates G12–G15 + QEMU checklist + config layering test (#21). 1446 tests. |
+| Phase 6T | **Complete** | AI Terminal. PRs #22–#30: Textual TUI (#22–#24), GUI Agent + AT-SPI + Landlock (#25–#26), App APIs — LibreOffice/Firefox/GNOME Files (#27, #30), RPA Bridge + Robot Framework (#28), B→C escalation + QB-monitored RPA (#29), CI gates G16–G22 (#30). 1749 tests. |
 | Phase 7 | Not started | Hardening + release |
 
 **Never start a phase before its predecessors have passed their exit criteria.** See `docs/IMPLEMENTATION_PLAN.md § Go/No-Go Gate Checklist`.
@@ -144,6 +148,10 @@ The following files implement core security mechanisms. **Any PR touching these 
 | `inference/grammar/mcp_tool_call.gbnf` | Grammar definition — must stay in sync with mcpd schemas |
 | `models/checksums.sha256` | Authoritative hash manifest — tampering = wrong model loaded |
 | `cx-distro/build.sh` | ISO builder — checksum verification lives here |
+| `dual-brain/gui_agent/sandbox.py` | Landlock + Seccomp for GUI Agent — too-permissive = sandbox escape |
+| `dual-brain/rpa_bridge/sandbox.py` | Landlock + Seccomp + `/dev/uinput` for RPA — most permissive sandbox in the system |
+| `dual-brain/rpa_bridge/workflow_gen.py` | Keyword allowlist — if bypassed, arbitrary Robot Framework code runs |
+| `dual-brain/gui_agent/app_apis/base.py` | AppApi ABC — subclasses get D-Bus/UNO access |
 
 ---
 
@@ -190,6 +198,19 @@ child_process.apply_seccomp()  # ❌ — must be applied in parent before fork
 
 # FORBIDDEN: TCP listener in mcpd
 TcpListener::bind("0.0.0.0:8080")  // ❌ in mcpd
+
+# FORBIDDEN: raw X11 in gui_agent/ (use AT-SPI or D-Bus app APIs only)
+import Xlib  # ❌
+subprocess.run(["xdotool", "click", "1"])  # ❌
+
+# FORBIDDEN: /dev/uinput access in gui_agent/ (only in rpa_bridge/)
+open("/dev/uinput", "wb")  # ❌ in gui_agent/
+
+# FORBIDDEN: arbitrary Robot Framework keywords
+suite.keywords.create(name=user_input)  # ❌ — must be from ALLOWED_KEYWORDS
+
+# FORBIDDEN: raw screenshot pixels to Quarantined Brain (INV-1)
+qb.complete(system=prompt, user=screenshot_bytes)  # ❌ — QB gets text summaries and hashes only
 ```
 
 ```rust
@@ -455,4 +476,4 @@ qemu-system-x86_64 -m 8G -boot d -cdrom ainative.iso -enable-kvm
 
 ---
 
-*Last updated: June 2026 (Phase 6 complete — PRs #15–#21 merged; 1446 tests; ISO build pipeline, first-boot, safe-mode, CI gates G12–G15). Update this file whenever an architectural decision changes, a new invariant is established, or a phase gate passes.*
+*Last updated: June 2026 (Phase 6T complete — PRs #22–#30 merged; 1749 tests; AI Terminal, GUI Agent, RPA Bridge, CI gates G16–G22). Update this file whenever an architectural decision changes, a new invariant is established, or a phase gate passes.*

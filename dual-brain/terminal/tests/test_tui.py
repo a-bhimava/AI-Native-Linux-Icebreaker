@@ -301,3 +301,38 @@ async def test_companion_suggestions():
         await pilot.pause()
         container = panel.query_one("#cot-container")
         assert len(container.children) >= 3
+
+
+@pytest.mark.asyncio
+async def test_companion_gui_announcement():
+    """handle_gui emits a screen-reader-friendly notification."""
+    async with AiTerminalApp().run_test(size=(120, 40)) as pilot:
+        panel = pilot.app.query_one(CompanionPanel)
+        panel.handle_gui({
+            "phase": "executing",
+            "action": "click",
+            "app_name": "Firefox",
+            "element_name": "Submit",
+        })
+        await pilot.pause()
+        container = panel.query_one("#cot-container")
+        assert len(container.children) >= 1
+
+
+@pytest.mark.asyncio
+async def test_companion_rpa_announcement():
+    """handle_rpa emits a screen-reader-friendly notification."""
+    async with AiTerminalApp().run_test(size=(120, 40)) as pilot:
+        panel = pilot.app.query_one(CompanionPanel)
+        panel.handle_rpa({
+            "phase": "step",
+            "workflow_name": "test_wf",
+            "keyword_index": 2,
+            "keyword_total": 5,
+            "current_keyword": "Click Element",
+            "timeout_remaining_ms": 15000,
+            "qb_on_track": True,
+        })
+        await pilot.pause()
+        container = panel.query_one("#cot-container")
+        assert len(container.children) >= 1

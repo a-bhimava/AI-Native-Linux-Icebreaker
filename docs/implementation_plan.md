@@ -21,6 +21,7 @@ phase sections below describe the original plan. Mirrors the Phase Status table 
 | **Phase 4** — Fine-tune Privileged Brain | ✅ **Complete** | `run7_cot_q4km.gguf` (Qwen2.5-Coder-1.5B SFT) **finalized as the PB**: 100% adversarial refusal, 95.5% grammar-valid MCP, 940 MB, checksum recorded. A run8 continued-tune was evaluated and **rejected** (regressed safety). See Phase 4 close-out. |
 | **Phase 5** — UX + Graduated Determinism | ✅ **Complete** | 6 PRs (#9–#14): hardened HITL + keymap + trust store + tier-2 review + audit hash-chain (P0), env scrub + cost/limits + TOCTOU (P1-A), audit viewer TUI + streaming + undo scaffold (P1-BCD), OpenAI backend + verifier voting (P2-backends), presenter registry + screen-reader + GTK (P2-access), daemon/client split + systemd (P2-daemon). 1347 tests, G1–G11 + G5 gates green. |
 | **Phase 6** — ISO distribution | ✅ **Complete** | PRs #15–#21 merged; cx-distro scaffold + 6-stage build.sh, first-boot + safe-mode, CI gates G12–G15; 1446 tests. See Phase 6 close-out below. |
+| **Phase 6T** — AI Terminal (GUI + RPA) | ✅ **Complete** | PRs #22–#30 merged; three-tier execution (CLI/mcpd, GUI/AT-SPI, RPA/Robot Framework), Landlock+Seccomp per tier, QB-as-Monitor, escalation, 5 app APIs, CoT streaming, screen-reader a11y, CI gates G16–G22; ~1775 tests. See Phase 6T close-out below. |
 | **Phase 7** — Hardening + release | ⬜ Not started | |
 
 **Phase 2 close-out (June 2026).** Validated on a GCP VM (`icebreaker-phase2-vm`,
@@ -66,6 +67,21 @@ checks), G15 venv integrity; manual QEMU boot checklist; config layering integra
 test (#21, `565962f`). 1446 tests (up from 1347 at Phase 5 close). This is a first
 draft of the ISO pipeline — Phase 7 adds install-to-disk, bare-metal testing on 3
 hardware configs, security audit, and release signing.
+
+**Phase 6T close-out (June 2026).** Nine PRs merged (#22–#30). Three execution tiers:
+CLI/mcpd (Tier A, existing), GUI/AT-SPI (Tier B, new), RPA/Robot Framework (Tier C,
+new). Each tier runs under Landlock+Seccomp with tier-specific allowlists. Key
+deliverables: AT-SPI client with window cache, BFS fast path, element descriptors,
+and sanitized GUI strings; screenshot manager with D-Bus capture, JPEG compression,
+thumbnails, and retention cleanup; RPA bridge with Robot Framework subprocess, keyword
+allowlist (30 entries), SIGALRM timeout enforcement, and `/dev/uinput` sandbox;
+QB-as-Monitor pattern for RPA workflows (INV-1 compliant — text summaries only, no
+raw pixels); escalation engine (Tier A→B→C with risk re-classification); five app APIs
+(LibreOffice UNO, Firefox CDP, GNOME Files D-Bus, generic AT-SPI, registry pattern);
+CoT streaming to a Textual companion panel with screen-reader announcements; CI gates
+G16–G22 (static validation + pytest). ~1775 tests (up from 1446 at Phase 6 close).
+Deferred to Phase 7: bare-metal GUI/RPA integration tests, CDP WebSocket live tests,
+Robot Framework keyword coverage expansion.
 
 ---
 

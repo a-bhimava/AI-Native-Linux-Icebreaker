@@ -92,13 +92,14 @@ class AtSpiClient:
     """AT-SPI accessibility tree client with lazy import."""
 
     _MAX_TREE_ELEMENTS = 500
-    _WINDOW_CACHE_TTL = 2.0
+    _DEFAULT_CACHE_TTL = 2.0
 
-    def __init__(self) -> None:
+    def __init__(self, *, window_cache_ttl: float = _DEFAULT_CACHE_TTL) -> None:
         self._atspi = None
         self._available = False
         self._window_cache: list[WindowDescriptor] | None = None
         self._window_cache_time: float = 0.0
+        self._window_cache_ttl = window_cache_ttl
 
         try:
             import gi
@@ -121,7 +122,7 @@ class AtSpiClient:
         now = time.monotonic()
         if (
             self._window_cache is not None
-            and (now - self._window_cache_time) < self._WINDOW_CACHE_TTL
+            and (now - self._window_cache_time) < self._window_cache_ttl
         ):
             return self._window_cache
 
@@ -187,6 +188,10 @@ class AtSpiClient:
                 "may need to be enabled in system settings.",
                 reason="no_a11y_tree",
             )
+
+        fast = self._find_element_fast(win_acc, role, name)
+        if fast is not None:
+            return fast
 
         matches = self._search_tree(win_acc, role, name, max_elements=self._MAX_TREE_ELEMENTS)
 
@@ -330,6 +335,69 @@ class AtSpiClient:
                 return self.find_element(window, element.role, element.name)
         except (ElementNotFoundError, AtSpiUnavailableError):
             pass
+        return None
+
+    def _find_element_fast(
+        self, root: Any, role: str, name: str,
+    ) -> ElementDescriptor | None:
+        """BFS that returns immediately on first match, skipping full tree walk."""
+        Atspi = self._atspi
+        queue = [(root, f"/{_sanitize_gui_string(root.get_name() or '')}")]
+        visited = 0
+
+        while queue and visited < self._MAX_TREE_ELEMENTS:
+            acc, path = queue.pop(0)
+            visited += 1
+            acc_role = str(acc.get_role_name())
+            acc_name = acc.get_name() or ""
+
+            if acc_role == role and acc_name == name:
+                try:
+                    ext = acc.get_extents(Atspi.CoordType.SCREEN)
+                    pos = (ext.x, ext.y)
+                    size = (ext.width, ext.height)
+                except Exception:
+                    pos = (0, 0)
+                    size = (0, 0)
+
+                states: frozenset[str] = frozenset()
+                try:
+                    st = acc.get_state_set()
+                    state_names = []
+                    for s in [
+                        Atspi.StateType.ENABLED, Atspi.StateType.VISIBLE,
+                        Atspi.StateType.FOCUSABLE, Atspi.StateType.FOCUSED,
+                    ]:
+                        if st.contains(s):
+                            state_names.append(s.value_nick)
+                    states = frozenset(state_names)
+                except Exception:
+                    pass
+
+                text = ""
+                try:
+                    ti = acc.get_text_iface()
+                    if ti:
+                        text = ti.get_text(0, min(ti.get_character_count(), 256))
+                except Exception:
+                    pass
+
+                return ElementDescriptor(
+                    path=f"{path}/{_sanitize_gui_string(acc_name)}",
+                    role=acc_role,
+                    name=_sanitize_gui_string(acc_name),
+                    position=pos,
+                    size=size,
+                    states=states,
+                    text=_sanitize_gui_string(text),
+                )
+
+            for i in range(acc.get_child_count()):
+                child = acc.get_child_at_index(i)
+                if child is not None:
+                    child_name = child.get_name() or ""
+                    queue.append((child, f"{path}/{_sanitize_gui_string(child_name)}"))
+
         return None
 
     def _find_window(self, title: str) -> Any:

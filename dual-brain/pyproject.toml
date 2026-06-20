@@ -28,6 +28,7 @@ include = ["controller*", "terminal*", "gui_agent*", "rpa_bridge*"]
 gui = [
     "PyGObject>=3.42",
     "seccomp>=0.5",
+    "websockets>=12.0",
 ]
 rpa = [
     "robotframework>=7.0",

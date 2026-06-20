@@ -65,7 +65,13 @@ class ScreenshotManager:
     def available(self) -> bool:
         return self._dbus_available
 
-    def capture(self, window_title: str = "") -> ScreenshotResult:
+    def capture(
+        self,
+        window_title: str = "",
+        *,
+        format: str = "png",
+        jpeg_quality: int = 85,
+    ) -> ScreenshotResult:
         """Capture a screenshot. Empty window_title = full screen.
 
         Raises ``ScreenshotUnavailableError`` if no D-Bus method works.
@@ -79,8 +85,8 @@ class ScreenshotManager:
         self._enforce_retention()
 
         ts = time.time()
-        filename = f"screenshot_{int(ts * 1000)}.png"
-        dest = self._scratch / filename
+        png_name = f"screenshot_{int(ts * 1000)}.png"
+        dest = self._scratch / png_name
 
         path = self._try_portal(dest, window_title)
         if path is None:
@@ -92,6 +98,9 @@ class ScreenshotManager:
                 "org.gnome.Shell.Screenshot responded. "
                 "Ensure you are running a GNOME-based desktop session."
             )
+
+        if format == "jpeg":
+            path = self._convert_to_jpeg(path, jpeg_quality)
 
         os.chmod(path, 0o600)
 
@@ -109,12 +118,13 @@ class ScreenshotManager:
     def cleanup(self) -> int:
         """Remove all screenshots from scratch dir. Returns count removed."""
         count = 0
-        for f in self._scratch.glob("screenshot_*.png"):
-            try:
-                f.unlink()
-                count += 1
-            except OSError:
-                pass
+        for pattern in ("screenshot_*.png", "screenshot_*.jpg"):
+            for f in self._scratch.glob(pattern):
+                try:
+                    f.unlink()
+                    count += 1
+                except OSError:
+                    pass
         return count
 
     def _try_portal(self, dest: Path, window_title: str) -> Path | None:
@@ -190,10 +200,34 @@ class ScreenshotManager:
             pass
         return None
 
+    def _convert_to_jpeg(self, png_path: Path, quality: int) -> Path:
+        """Convert a PNG screenshot to JPEG. Removes the original."""
+        from PIL import Image
+        jpg_path = png_path.with_suffix(".jpg")
+        with Image.open(png_path) as img:
+            img = img.convert("RGB")
+            img.save(jpg_path, "JPEG", quality=quality)
+        png_path.unlink()
+        return jpg_path
+
+    def thumbnail(
+        self, path: str | Path, *, max_size: tuple[int, int] = (160, 120),
+    ) -> Path:
+        """Generate a thumbnail. Returns the thumbnail path."""
+        from PIL import Image
+        src = Path(path)
+        thumb_path = src.with_stem(src.stem + "_thumb")
+        with Image.open(src) as img:
+            img.thumbnail(max_size)
+            img.save(thumb_path, img.format or "PNG")
+        os.chmod(thumb_path, 0o600)
+        return thumb_path
+
     def _enforce_retention(self) -> None:
         """Evict oldest screenshots if over the retention limit."""
         files = sorted(
-            self._scratch.glob("screenshot_*.png"),
+            list(self._scratch.glob("screenshot_*.png"))
+            + list(self._scratch.glob("screenshot_*.jpg")),
             key=lambda f: f.stat().st_mtime,
         )
         while len(files) >= _MAX_RETAINED:
@@ -213,7 +247,7 @@ class ScreenshotManager:
 
     @staticmethod
     def _image_dimensions(path: Path) -> tuple[int, int]:
-        """Read PNG dimensions from the IHDR chunk (bytes 16-23)."""
+        """Read image dimensions from header (PNG IHDR or Pillow fallback)."""
         try:
             with open(path, "rb") as f:
                 header = f.read(24)
@@ -221,6 +255,10 @@ class ScreenshotManager:
                     w = int.from_bytes(header[16:20], "big")
                     h = int.from_bytes(header[20:24], "big")
                     return (w, h)
+            if path.suffix.lower() in (".jpg", ".jpeg"):
+                from PIL import Image
+                with Image.open(path) as img:
+                    return img.size
         except Exception:
             pass
         return (0, 0)

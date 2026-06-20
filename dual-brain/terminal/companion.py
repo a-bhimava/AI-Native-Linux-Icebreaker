@@ -227,6 +227,16 @@ class CompanionPanel(Static):
         container.mount(card)
         container.scroll_end(animate=False)
 
+        sr_parts = [f"GUI: {action}"]
+        if element_name:
+            sr_parts.append(f"on {element_name}")
+        if app_name:
+            sr_parts.append(f"in {app_name}")
+        try:
+            self.app.notify(" ".join(sr_parts), timeout=3)
+        except Exception:
+            pass
+
     def handle_rpa(self, params: dict) -> None:
         """Render an RPA Bridge automation event card."""
         self._mode = "cot"
@@ -284,6 +294,18 @@ class CompanionPanel(Static):
         card = Static(content, classes=f"cot-card {css_class}")
         container.mount(card)
         container.scroll_end(animate=False)
+
+        sr_parts = [f"RPA"]
+        if kw_total:
+            sr_parts.append(f"{kw_idx}/{kw_total}")
+        if current_kw:
+            sr_parts.append(current_kw)
+        if timeout_ms > 0:
+            sr_parts.append(f"{timeout_ms / 1000:.0f}s remaining")
+        try:
+            self.app.notify(" ".join(sr_parts), timeout=3)
+        except Exception:
+            pass
 
     def clear(self) -> None:
         """Reset for a new turn."""

@@ -69,6 +69,7 @@ class TestFindElement:
             client._available = True
             client._window_cache = None
             client._window_cache_time = 0.0
+            client._window_cache_ttl = 2.0
 
             result = client.find_element("Test Window", "push-button", "OK")
             assert result.role == "push-button"
@@ -90,6 +91,7 @@ class TestElementNotFound:
             client._available = True
             client._window_cache = None
             client._window_cache_time = 0.0
+            client._window_cache_ttl = 2.0
 
             with pytest.raises(ElementNotFoundError) as exc_info:
                 client.find_element("Test Window", "push-button", "OK")
@@ -106,6 +108,7 @@ class TestElementNotFound:
             client._available = True
             client._window_cache = None
             client._window_cache_time = 0.0
+            client._window_cache_ttl = 2.0
 
             with pytest.raises(ElementNotFoundError) as exc_info:
                 client.find_element("Nonexistent", "button", "OK")
@@ -127,6 +130,7 @@ class TestNoA11yTree:
             client._available = True
             client._window_cache = None
             client._window_cache_time = 0.0
+            client._window_cache_ttl = 2.0
 
             with pytest.raises(ElementNotFoundError) as exc_info:
                 client.find_element("Test Window", "button", "OK")
@@ -143,6 +147,7 @@ class TestTinyElement:
             client._available = True
             client._window_cache = None
             client._window_cache_time = 0.0
+            client._window_cache_ttl = 2.0
 
             tiny = ElementDescriptor(
                 path="/win/tiny",
@@ -171,6 +176,7 @@ class TestWindowCache:
             client._available = True
             client._window_cache = None
             client._window_cache_time = 0.0
+            client._window_cache_ttl = 2.0
 
             list1 = client.get_window_list()
             list2 = client.get_window_list()
