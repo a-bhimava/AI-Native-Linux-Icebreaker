@@ -368,6 +368,29 @@
           "description": "Timeout for AT-SPI tree queries in milliseconds."
         }
       }
+    },
+    "rpa": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "RPA Bridge configuration (Phase 6T). Off by default (BP-2).",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable RPA escalation from GUI Agent failures."
+        },
+        "timeout_seconds": {
+          "type": "integer", "minimum": 5, "maximum": 120,
+          "description": "Hard timeout for RPA workflows in seconds."
+        },
+        "max_keywords_per_workflow": {
+          "type": "integer", "minimum": 1, "maximum": 50,
+          "description": "Maximum keywords per RPA workflow."
+        },
+        "screenshot_every_step": {
+          "type": "boolean",
+          "description": "Capture screenshot after every keyword."
+        }
+      }
     }
   },
   "definitions": {

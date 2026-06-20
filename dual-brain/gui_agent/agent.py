@@ -215,8 +215,11 @@ class GuiAgent:
             )
             result = self._atspi.click(elem)
             return {"success": result.success, "error": result.error}
-        except (AtSpiUnavailableError, ElementNotFoundError, ElementTooSmallError) as exc:
-            return {"success": False, "error": str(exc)}
+        except ElementNotFoundError as exc:
+            return {"success": False, "error": str(exc), "reason": exc.reason}
+        except (AtSpiUnavailableError, ElementTooSmallError) as exc:
+            reason = "atspi_unavailable" if isinstance(exc, AtSpiUnavailableError) else "element_too_small"
+            return {"success": False, "error": str(exc), "reason": reason}
 
     def _handle_type(self, params: dict) -> dict:
         app_result = self._try_app_api("type", params)
@@ -228,8 +231,10 @@ class GuiAgent:
             )
             result = self._atspi.type_text(elem, params["text"])
             return {"success": result.success, "error": result.error}
-        except (AtSpiUnavailableError, ElementNotFoundError) as exc:
-            return {"success": False, "error": str(exc)}
+        except ElementNotFoundError as exc:
+            return {"success": False, "error": str(exc), "reason": exc.reason}
+        except AtSpiUnavailableError as exc:
+            return {"success": False, "error": str(exc), "reason": "atspi_unavailable"}
 
     def _handle_select(self, params: dict) -> dict:
         app_result = self._try_app_api("select", params)
@@ -241,8 +246,10 @@ class GuiAgent:
             )
             result = self._atspi.select(elem, params["value"])
             return {"success": result.success, "error": result.error}
-        except (AtSpiUnavailableError, ElementNotFoundError) as exc:
-            return {"success": False, "error": str(exc)}
+        except ElementNotFoundError as exc:
+            return {"success": False, "error": str(exc), "reason": exc.reason}
+        except AtSpiUnavailableError as exc:
+            return {"success": False, "error": str(exc), "reason": "atspi_unavailable"}
 
     def _run_loop(self) -> int:
         """Read JSON-RPC requests from stdin, write responses to stdout."""

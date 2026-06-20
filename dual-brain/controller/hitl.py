@@ -117,6 +117,7 @@ class HitlDisplayData:
     reason: str
     blocked_pattern: Optional[str]
     cow_summary: Optional[str]
+    rpa_keyword_preview: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for field_name in ("action", "target", "reason", "backend", "risk_level"):
@@ -129,6 +130,10 @@ class HitlDisplayData:
         if self.cow_summary:
             object.__setattr__(self, "cow_summary",
                                _sanitize_display(self.cow_summary, max_len=4096))
+        if self.rpa_keyword_preview:
+            object.__setattr__(self, "rpa_keyword_preview", tuple(
+                _sanitize_display(kw, max_len=120) for kw in self.rpa_keyword_preview
+            ))
 
 
 # ── cbreak context manager ────────────────────────────────────────────────
@@ -381,6 +386,11 @@ class TerminalPresenter(HitlPresenter):
             lines.append(f"  {dim('Backend')}    {data.backend}")
         if data.reason:
             lines.append(f"  {dim('Why')}        {data.reason}")
+        if data.rpa_keyword_preview:
+            rpa_line = line_char if not ascii_mode else "-"
+            lines += ["", f"  {dim('RPA Workflow:')}"]
+            for i, kw in enumerate(data.rpa_keyword_preview, 1):
+                lines.append(f"    {i:2d}. {kw}")
         if data.cow_summary:
             lines += ["", f"  {dim('Dry-run preview:')}"]
             for ln in data.cow_summary.splitlines()[:20]:

@@ -52,6 +52,7 @@ from .turn_events import (
     InfoEvent,
     ProgressEvent,
     ResultEvent,
+    RpaEvent,
     TokenEvent,
 )
 
@@ -370,6 +371,22 @@ class Daemon:
                                 "screenshot_before_hash": event.screenshot_before_hash,
                                 "screenshot_after_hash": event.screenshot_after_hash,
                                 "predicted_outcome": event.predicted_outcome,
+                                "error": event.error,
+                                "timestamp_ms": event.timestamp_ms,
+                            })
+                            session.transport.send(notif.to_bytes())
+                        elif isinstance(event, RpaEvent):
+                            notif = JsonRpcNotification("turn.rpa", {
+                                "phase": event.phase,
+                                "workflow_name": event.workflow_name,
+                                "keyword_index": event.keyword_index,
+                                "keyword_total": event.keyword_total,
+                                "current_keyword": event.current_keyword,
+                                "keyword_status": event.keyword_status,
+                                "timeout_remaining_ms": event.timeout_remaining_ms,
+                                "screenshot_hash": event.screenshot_hash,
+                                "qb_on_track": event.qb_on_track,
+                                "qb_concern": event.qb_concern,
                                 "error": event.error,
                                 "timestamp_ms": event.timestamp_ms,
                             })

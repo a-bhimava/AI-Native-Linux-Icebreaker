@@ -227,6 +227,64 @@ class CompanionPanel(Static):
         container.mount(card)
         container.scroll_end(animate=False)
 
+    def handle_rpa(self, params: dict) -> None:
+        """Render an RPA Bridge automation event card."""
+        self._mode = "cot"
+        container = self.query_one("#cot-container", VerticalScroll)
+
+        phase = params.get("phase", "")
+        workflow = params.get("workflow_name", "")
+        kw_idx = params.get("keyword_index", 0)
+        kw_total = params.get("keyword_total", 0)
+        current_kw = params.get("current_keyword", "")
+        kw_status = params.get("keyword_status", "")
+        timeout_ms = params.get("timeout_remaining_ms", 0)
+        screenshot_hash = params.get("screenshot_hash", "")
+        qb_on_track = params.get("qb_on_track", True)
+        qb_concern = params.get("qb_concern", "")
+        error = params.get("error", "")
+
+        _PHASE_GLYPHS = {
+            "preview": "○", "executing": "◉", "step": "▸",
+            "paused": "⏸", "complete": "✓",
+        }
+        _PHASE_STYLES = {
+            "preview": "s-pending", "executing": "s-active",
+            "step": "s-active", "paused": "s-pending", "complete": "s-done",
+        }
+        glyph = _PHASE_GLYPHS.get(phase, "?")
+        css_class = _PHASE_STYLES.get(phase, "s-pending")
+
+        heading = f"{glyph} RPA: {workflow}"
+        if kw_total:
+            heading += f" [{kw_idx}/{kw_total}]"
+
+        parts = []
+        if current_kw:
+            status_str = f" → {kw_status}" if kw_status else ""
+            parts.append(f"Keyword: {current_kw}{status_str}")
+        if timeout_ms > 0:
+            parts.append(f"Timeout: {timeout_ms / 1000:.0f}s remaining")
+        if screenshot_hash:
+            parts.append(f"Screenshot: {screenshot_hash[:12]}...")
+        if qb_on_track:
+            parts.append("QB: ✓ On track")
+        elif qb_concern:
+            parts.append(f"QB: ⚠ {qb_concern}")
+        if error:
+            parts.append(f"Error: {error}")
+
+        body_text = "\n".join(parts)
+
+        content = Text()
+        content.append(heading + "\n", style="bold #e78952")
+        if body_text:
+            content.append(body_text, style="#c0c0c0")
+
+        card = Static(content, classes=f"cot-card {css_class}")
+        container.mount(card)
+        container.scroll_end(animate=False)
+
     def clear(self) -> None:
         """Reset for a new turn."""
         self._cards.clear()

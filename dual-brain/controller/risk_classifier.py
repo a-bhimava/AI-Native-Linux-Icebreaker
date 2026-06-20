@@ -33,6 +33,8 @@ from ._mcpd_tools import (
     DESTRUCTIVE_TOOLS,
     GUI_READONLY_TOOLS,
     GUI_WRITE_TOOLS,
+    RPA_READONLY_TOOLS,
+    RPA_WRITE_TOOLS,
     SYSTEM_WRITE_TOOLS,
     TIER0_TOOLS,
 )
@@ -181,6 +183,22 @@ def classify(intent: dict) -> ClassificationResult:
             tier=Tier.MEDIUM,
             reason=f"{action} is a GUI write operation on system UI",
             reversible=True,
+        )
+
+    # RPA read-only tools — Tier 0
+    if action in RPA_READONLY_TOOLS:
+        return ClassificationResult(
+            tier=Tier.READ_ONLY,
+            reason=f"{action} is a read-only RPA operation",
+            reversible=True,
+        )
+
+    # RPA write tools — always Tier 3 (ADR-13: HITL for every workflow)
+    if action in RPA_WRITE_TOOLS:
+        return ClassificationResult(
+            tier=Tier.HIGH,
+            reason=f"{action} requires explicit user approval — RPA workflows are always Tier 3",
+            reversible=False,
         )
 
     # Unclassified action: defensive medium tier (audit + notify; do not auto-block,

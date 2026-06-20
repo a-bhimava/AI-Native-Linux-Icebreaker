@@ -137,6 +137,7 @@ class Controller:
         )
         vcfg = getattr(cfg, "verifier", None) or VerifierConfig()
         self._verifier: VerifierStrategy = make_verifier(vcfg)
+        self._rpa_step_events: list = []
 
     def backend_name(self) -> str:
         return self._cfg.qb.name
@@ -175,6 +176,7 @@ class Controller:
             InfoEvent,
             ProgressEvent,
             ResultEvent,
+            RpaEvent,
             TokenEvent,
         )
 
@@ -519,9 +521,10 @@ class Controller:
                         votes_cast=vresult.votes_cast,
                         verified_count=vresult.verified_count)
 
-            # Step 9: tool dispatch (mcpd or GUI Agent)
+            # Step 9: tool dispatch (mcpd, GUI Agent, or RPA Bridge)
             tool_name = tool_call.get("tool", "")
             is_gui = tool_name.startswith("gui.")
+            is_rpa = tool_name.startswith("rpa.")
 
             yield _progress("mcpd_dispatch")
             if is_gui:
@@ -612,43 +615,253 @@ class Controller:
 
                 gui_error = gui_result.get("error")
                 gui_success = gui_result.get("success", True) if gui_error is None else False
-                gui_outcome = Outcome.GUI_EXECUTED if gui_success else Outcome.GUI_ERROR
+                gui_reason = gui_result.get("reason", "")
 
-                from .audit import sanitize_gui_field
-                extra_fields: dict[str, Any] = {
-                    "execution_tier": "gui",
-                    "element_role": sanitize_gui_field(
-                        tool_call.get("params", {}).get("role", ""),
-                    ),
-                    "element_name": sanitize_gui_field(
-                        tool_call.get("params", {}).get("name", ""),
-                    ),
-                    "window_title": sanitize_gui_field(
-                        tool_call.get("params", {}).get("window", ""),
-                    ),
-                }
-                sha = gui_result.get("sha256", "")
-                if sha:
-                    extra_fields["screenshot_before_hash"] = sha
+                # ── GUI→RPA escalation check ──
+                _ESCALATABLE_REASONS = frozenset({
+                    "no_a11y_tree", "atspi_unavailable", "element_too_small",
+                })
+                rpa_cfg = getattr(self._cfg, "rpa", None)
+                if (
+                    not gui_success
+                    and gui_reason in _ESCALATABLE_REASONS
+                    and rpa_cfg
+                    and rpa_cfg.enabled
+                ):
+                    yield _cot("mcpd_dispatch", "active",
+                                body=f"GUI failed ({gui_reason}) — escalating to RPA Bridge",
+                                execution_tier="rpa", gui_reason=gui_reason)
 
-                yield GuiEvent(
-                    phase="complete",
-                    action=tool_name,
-                    window_title=tool_call.get("params", {}).get("window", ""),
-                    element_role=tool_call.get("params", {}).get("role", ""),
-                    element_name=tool_call.get("params", {}).get("name", ""),
-                    screenshot_before_hash=sha,
-                    error=gui_error or "",
+                    rpa_keywords = self._gui_action_to_rpa_keywords(
+                        tool_name, tool_call.get("params", {}),
+                    )
+                    rpa_workflow_name = f"escalation_{tool_name}"
+                    rpa_timeout = rpa_cfg.timeout_seconds
+
+                    keyword_preview = tuple(
+                        f"{kw.get('name', '?')}  {' '.join(kw.get('args', []))}"
+                        for kw in rpa_keywords
+                    )
+
+                    yield RpaEvent(
+                        phase="preview",
+                        workflow_name=rpa_workflow_name,
+                        keyword_total=len(rpa_keywords),
+                        timeout_remaining_ms=rpa_timeout * 1000,
+                        timestamp_ms=(time.monotonic() - t0) * 1000,
+                    )
+
+                    rpa_result = self._execute_rpa_workflow(
+                        rpa_workflow_name, rpa_keywords, rpa_timeout,
+                        session, intent, t0,
+                    )
+
+                    # Drain per-keyword step events collected during execution
+                    for step_event in self._rpa_step_events:
+                        yield step_event
+                    self._rpa_step_events.clear()
+
+                    rpa_success = rpa_result.get("success", False)
+                    rpa_error = rpa_result.get("error", "")
+                    rpa_timed_out = rpa_result.get("timed_out", False)
+
+                    if rpa_timed_out:
+                        rpa_outcome = Outcome.RPA_TIMEOUT
+                    elif rpa_success:
+                        rpa_outcome = Outcome.RPA_EXECUTED
+                    elif rpa_result.get("qb_paused_at_keyword") is not None:
+                        rpa_outcome = Outcome.RPA_QB_PAUSED
+                    else:
+                        rpa_outcome = Outcome.RPA_ERROR
+
+                    from .audit import sanitize_gui_field
+                    rpa_extra: dict[str, Any] = {
+                        "execution_tier": "rpa_fallback",
+                        "rpa_fallback_reason": gui_reason,
+                        "rpa_keywords_executed": rpa_result.get("keywords_executed", 0),
+                        "rpa_timeout_ms": rpa_timeout * 1000,
+                        "rpa_elapsed_ms": rpa_result.get("elapsed_ms", 0),
+                        "rpa_screenshot_hashes": rpa_result.get("screenshot_hashes", []),
+                    }
+
+                    yield RpaEvent(
+                        phase="complete",
+                        workflow_name=rpa_workflow_name,
+                        keyword_index=rpa_result.get("keywords_executed", 0),
+                        keyword_total=len(rpa_keywords),
+                        error=rpa_error,
+                        timestamp_ms=(time.monotonic() - t0) * 1000,
+                    )
+
+                    duration = (time.monotonic() - t0) * 1000
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id, turn_index=session.turn_index,
+                        intent_id=intent_id, action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"], risk_level=intent["risk_level"],
+                        outcome=rpa_outcome, duration_ms=duration,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                        cost_estimate_usd=total_cost,
+                        extra=rpa_extra,
+                    ))
+
+                    from .mcpd_client import ToolResult
+                    tool_result = ToolResult(result=rpa_result, request_id=0)
+                    yield _cot("mcpd_dispatch", "done",
+                                body=f"RPA fallback {'complete' if rpa_success else 'failed'}",
+                                execution_tier="rpa_fallback",
+                                requires_cow=False)
+                else:
+                    # Normal GUI result (success or non-escalatable error)
+                    gui_outcome = Outcome.GUI_EXECUTED if gui_success else Outcome.GUI_ERROR
+
+                    from .audit import sanitize_gui_field
+                    extra_fields: dict[str, Any] = {
+                        "execution_tier": "gui",
+                        "element_role": sanitize_gui_field(
+                            tool_call.get("params", {}).get("role", ""),
+                        ),
+                        "element_name": sanitize_gui_field(
+                            tool_call.get("params", {}).get("name", ""),
+                        ),
+                        "window_title": sanitize_gui_field(
+                            tool_call.get("params", {}).get("window", ""),
+                        ),
+                    }
+                    sha = gui_result.get("sha256", "")
+                    if sha:
+                        extra_fields["screenshot_before_hash"] = sha
+
+                    yield GuiEvent(
+                        phase="complete",
+                        action=tool_name,
+                        window_title=tool_call.get("params", {}).get("window", ""),
+                        element_role=tool_call.get("params", {}).get("role", ""),
+                        element_name=tool_call.get("params", {}).get("name", ""),
+                        screenshot_before_hash=sha,
+                        error=gui_error or "",
+                        timestamp_ms=(time.monotonic() - t0) * 1000,
+                    )
+
+                    from .mcpd_client import ToolResult
+                    tool_result = ToolResult(
+                        result=gui_result, request_id=0,
+                    )
+                    yield _cot("mcpd_dispatch", "done",
+                                body=f"GUI execution {'complete' if gui_success else 'failed'}",
+                                execution_tier="gui",
+                                requires_cow=False)
+            elif is_rpa:
+                yield _cot("mcpd_dispatch", "active",
+                            body=f"Executing {tool_name} via RPA Bridge",
+                            tool=tool_name, execution_tier="rpa")
+
+                rpa_cfg = getattr(self._cfg, "rpa", None)
+                if rpa_cfg and not rpa_cfg.enabled:
+                    yield _cot("mcpd_dispatch", "failed",
+                                body="RPA Bridge disabled in config")
+                    duration = (time.monotonic() - t0) * 1000
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id, turn_index=session.turn_index,
+                        intent_id=intent_id, action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"], risk_level=intent["risk_level"],
+                        outcome=Outcome.RPA_DENIED, duration_ms=duration,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                        cost_estimate_usd=total_cost,
+                        extra={"execution_tier": "rpa"},
+                    ))
+                    yield ResultEvent(result=TurnResult(
+                        success=False,
+                        output="RPA automation is disabled. Enable with [rpa] enabled = true.",
+                        outcome=Outcome.RPA_DENIED, tier=int(cls_result.tier),
+                        backend=session.backend, duration_ms=duration,
+                        cost_usd=total_cost if total_cost > 0 else None,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    ))
+                    return
+
+                rpa_params = tool_call.get("params", {})
+                rpa_keywords = rpa_params.get("keywords", [])
+                rpa_workflow_name = rpa_params.get("workflow_name", "workflow")
+                rpa_timeout = rpa_cfg.timeout_seconds if rpa_cfg else 30
+
+                keyword_preview = tuple(
+                    f"{kw.get('name', '?')}  {' '.join(kw.get('args', []))}"
+                    for kw in rpa_keywords
+                )
+
+                yield RpaEvent(
+                    phase="preview",
+                    workflow_name=rpa_workflow_name,
+                    keyword_total=len(rpa_keywords),
+                    timeout_remaining_ms=rpa_timeout * 1000,
                     timestamp_ms=(time.monotonic() - t0) * 1000,
                 )
 
-                from .mcpd_client import ToolResult
-                tool_result = ToolResult(
-                    result=gui_result, request_id=0,
+                rpa_result = self._execute_rpa_workflow(
+                    rpa_workflow_name, rpa_keywords, rpa_timeout,
+                    session, intent, t0,
                 )
+
+                for step_event in self._rpa_step_events:
+                    yield step_event
+                self._rpa_step_events.clear()
+
+                rpa_success = rpa_result.get("success", False)
+                rpa_error = rpa_result.get("error", "")
+                rpa_timed_out = rpa_result.get("timed_out", False)
+
+                if rpa_timed_out:
+                    rpa_outcome = Outcome.RPA_TIMEOUT
+                elif rpa_success:
+                    rpa_outcome = Outcome.RPA_EXECUTED
+                elif rpa_result.get("qb_paused_at_keyword") is not None:
+                    rpa_outcome = Outcome.RPA_QB_PAUSED
+                else:
+                    rpa_outcome = Outcome.RPA_ERROR
+
+                from .audit import sanitize_gui_field
+                rpa_extra: dict[str, Any] = {
+                    "execution_tier": "rpa",
+                    "rpa_keywords_executed": rpa_result.get("keywords_executed", 0),
+                    "rpa_timeout_ms": rpa_timeout * 1000,
+                    "rpa_elapsed_ms": rpa_result.get("elapsed_ms", 0),
+                    "rpa_screenshot_hashes": rpa_result.get("screenshot_hashes", []),
+                    "rpa_fallback_reason": sanitize_gui_field(
+                        rpa_params.get("fallback_reason", "")
+                    ),
+                }
+
+                yield RpaEvent(
+                    phase="complete",
+                    workflow_name=rpa_workflow_name,
+                    keyword_index=rpa_result.get("keywords_executed", 0),
+                    keyword_total=len(rpa_keywords),
+                    error=rpa_error,
+                    timestamp_ms=(time.monotonic() - t0) * 1000,
+                )
+
+                duration = (time.monotonic() - t0) * 1000
+                self._audit.write_fields(AuditFields(
+                    session_id=session.session_id, turn_index=session.turn_index,
+                    intent_id=intent_id, action=intent["action"],
+                    target=intent["target"], tier=int(cls_result.tier),
+                    reason=intent["reason"], risk_level=intent["risk_level"],
+                    outcome=rpa_outcome, duration_ms=duration,
+                    backend=session.backend, model=self._cfg.qb.model,
+                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    cost_estimate_usd=total_cost,
+                    extra=rpa_extra,
+                ))
+
+                from .mcpd_client import ToolResult
+                tool_result = ToolResult(result=rpa_result, request_id=0)
                 yield _cot("mcpd_dispatch", "done",
-                            body=f"GUI execution {'complete' if gui_success else 'failed'}",
-                            execution_tier="gui",
+                            body=f"RPA execution {'complete' if rpa_success else 'failed'}",
+                            execution_tier="rpa",
                             requires_cow=False)
             else:
                 yield _cot("mcpd_dispatch", "active",
@@ -1325,6 +1538,292 @@ class Controller:
             return make_presenter(presenter_name, keymap=keymap)
         except ValueError:
             return TerminalPresenter(keymap=keymap)
+
+    def _execute_rpa_workflow(
+        self,
+        workflow_name: str,
+        keywords: list[dict],
+        timeout_seconds: int,
+        session: Any,
+        intent: dict,
+        t0: float,
+    ) -> dict:
+        """Spawn RPA Bridge subprocess, stream progress, and QB-monitor each step.
+
+        Reads stdout line-by-line to capture ``rpa.keyword_progress``
+        notifications as they arrive. After each keyword, builds a text
+        state summary and sends it to QB for on-track/off-track assessment.
+        If QB flags off-track, kills the subprocess and returns partial
+        results with ``qb_paused_at_keyword``.
+        """
+        import json as _json
+        import select as _select
+        import subprocess
+        import sys
+        import threading
+
+        from .turn_events import RpaEvent
+
+        rpa_request = {
+            "jsonrpc": "2.0",
+            "method": "rpa.execute_workflow",
+            "id": 1,
+            "params": {
+                "workflow_name": workflow_name,
+                "keywords": keywords,
+            },
+        }
+
+        effective_timeout = timeout_seconds + 5
+
+        _EMPTY_RESULT: dict = {
+            "success": False,
+            "timed_out": False,
+            "keywords_executed": 0,
+            "keywords_total": len(keywords),
+            "elapsed_ms": 0,
+            "keyword_results": [],
+            "error": "",
+            "screenshot_hashes": [],
+        }
+
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "rpa_bridge"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=self._scrubbed_rpa_env(),
+            )
+        except (FileNotFoundError, OSError) as exc:
+            return {**_EMPTY_RESULT, "error": f"Failed to start RPA Bridge: {exc}"}
+
+        # Send request and close stdin so the Bridge knows input is complete
+        try:
+            proc.stdin.write((_json.dumps(rpa_request) + "\n").encode())
+            proc.stdin.flush()
+            proc.stdin.close()
+        except OSError as exc:
+            proc.kill()
+            proc.wait()
+            return {**_EMPTY_RESULT, "error": f"Failed to write to RPA Bridge: {exc}"}
+
+        # SIGKILL watchdog in a background thread (defense-in-depth)
+        killed_by_watchdog = threading.Event()
+
+        def _watchdog() -> None:
+            if not killed_by_watchdog.wait(effective_timeout):
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+                killed_by_watchdog.set()
+
+        watchdog_thread = threading.Thread(target=_watchdog, daemon=True)
+        watchdog_thread.start()
+
+        rpa_result: dict = dict(_EMPTY_RESULT)
+        screenshot_hashes: list[str] = []
+        keyword_results: list[dict] = []
+        qb_paused_at: int | None = None
+
+        try:
+            for raw_line in proc.stdout:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    msg = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+
+                # JSON-RPC notification: per-keyword progress
+                if msg.get("method") == "rpa.keyword_progress":
+                    p = msg.get("params", {})
+                    kw_name = p.get("keyword_name", "")
+                    kw_idx = p.get("keyword_index", 0)
+                    kw_total = p.get("keyword_total", len(keywords))
+                    kw_status = p.get("status", "")
+                    elapsed = p.get("elapsed_ms", 0)
+                    remaining = p.get("timeout_remaining_ms", 0)
+                    sh = p.get("screenshot_hash", "")
+                    if sh:
+                        screenshot_hashes.append(sh)
+
+                    keyword_results.append({
+                        "index": kw_idx, "name": kw_name,
+                        "status": kw_status, "elapsed_ms": elapsed,
+                        "screenshot_hash": sh,
+                    })
+
+                    # QB progress monitor
+                    on_track, concern = self._check_rpa_progress(
+                        session, kw_name, kw_status, kw_idx, kw_total, intent,
+                    )
+
+                    # Emit step event (consumed by daemon→client→companion)
+                    self._rpa_step_events.append(RpaEvent(
+                        phase="step",
+                        workflow_name=workflow_name,
+                        keyword_index=kw_idx + 1,
+                        keyword_total=kw_total,
+                        current_keyword=kw_name,
+                        keyword_status=kw_status,
+                        timeout_remaining_ms=remaining,
+                        screenshot_hash=sh,
+                        qb_on_track=on_track,
+                        qb_concern=concern,
+                        timestamp_ms=(time.monotonic() - t0) * 1000,
+                    ))
+
+                    if not on_track:
+                        qb_paused_at = kw_idx
+                        self._rpa_step_events.append(RpaEvent(
+                            phase="paused",
+                            workflow_name=workflow_name,
+                            keyword_index=kw_idx + 1,
+                            keyword_total=kw_total,
+                            current_keyword=kw_name,
+                            qb_on_track=False,
+                            qb_concern=concern,
+                            timestamp_ms=(time.monotonic() - t0) * 1000,
+                        ))
+                        proc.kill()
+                        break
+
+                # JSON-RPC response: final result
+                elif "result" in msg:
+                    rpa_result.update(msg["result"])
+                elif "error" in msg:
+                    err = msg["error"]
+                    rpa_result["error"] = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                    rpa_result["success"] = False
+        except Exception:
+            pass
+
+        # Wait for process to exit
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+        # Cancel watchdog
+        killed_by_watchdog.set()
+
+        if killed_by_watchdog.is_set() and proc.returncode == -9:
+            rpa_result["timed_out"] = True
+            rpa_result["error"] = rpa_result.get("error") or "RPA Bridge process timed out (SIGKILL)"
+
+        rpa_result["keyword_results"] = keyword_results
+        rpa_result["screenshot_hashes"] = screenshot_hashes
+        rpa_result["keywords_executed"] = len(keyword_results)
+        if qb_paused_at is not None:
+            rpa_result["qb_paused_at_keyword"] = qb_paused_at
+            rpa_result["success"] = False
+            rpa_result["error"] = rpa_result.get("error") or f"QB flagged off-track at keyword {qb_paused_at}"
+
+        return rpa_result
+
+    def _check_rpa_progress(
+        self,
+        session: Any,
+        keyword_name: str,
+        keyword_status: str,
+        keyword_index: int,
+        keyword_total: int,
+        intent: dict,
+    ) -> tuple[bool, str]:
+        """Ask QB if RPA workflow is on track. Returns (on_track, concern).
+
+        QB receives a sanitized text summary only (INV-1: no raw pixels).
+        Fails safe: if QB is unreachable or returns garbage, assume on-track
+        to avoid blocking the workflow on a monitoring failure.
+        """
+        state_summary = (
+            f"Keyword {keyword_index + 1}/{keyword_total}: "
+            f"{keyword_name} → {keyword_status}. "
+            f"Original intent: {intent.get('action', '')} on {intent.get('target', '')}"
+        )
+        _PROGRESS_SCHEMA = {
+            "type": "object",
+            "properties": {
+                "on_track": {"type": "boolean"},
+                "concern": {"type": "string"},
+            },
+            "required": ["on_track"],
+        }
+        try:
+            response = self._qb.generate(
+                f"Is this RPA workflow progressing correctly? {state_summary}",
+                session,
+                response_schema=_PROGRESS_SCHEMA,
+            )
+            if isinstance(response, dict):
+                return response.get("on_track", True), response.get("concern", "")
+            return True, ""
+        except Exception:
+            return True, ""
+
+    @staticmethod
+    def _gui_action_to_rpa_keywords(tool_name: str, params: dict) -> list[dict]:
+        """Translate a failed GUI action into RPA Bridge keywords.
+
+        Maps gui.click/gui.type/gui.select to their Robot Framework
+        equivalents. Uses the element name as a locator since AT-SPI
+        identifiers often map to accessible names that Selenium/RPA can find.
+        """
+        window = params.get("window", "")
+        role = params.get("role", "")
+        name = params.get("name", "")
+
+        # Build a CSS-like locator from the AT-SPI identity
+        if name:
+            locator = f"name={name}"
+        elif role:
+            locator = f"role={role}"
+        else:
+            locator = "xpath=//body"
+
+        keywords: list[dict] = []
+
+        # Navigate to window if specified
+        if window:
+            keywords.append({
+                "name": "Wait Until Page Contains Element",
+                "args": [locator, "10"],
+            })
+
+        if tool_name == "gui.click":
+            keywords.append({"name": "Click Element", "args": [locator]})
+
+        elif tool_name == "gui.type":
+            text = params.get("text", "")
+            keywords.append({"name": "Click Element", "args": [locator]})
+            keywords.append({"name": "Input Text", "args": [locator, text]})
+
+        elif tool_name == "gui.select":
+            value = params.get("value", "")
+            keywords.append({
+                "name": "Select From List By Value",
+                "args": [locator, value],
+            })
+
+        else:
+            keywords.append({"name": "Click Element", "args": [locator]})
+
+        return keywords
+
+    @staticmethod
+    def _scrubbed_rpa_env() -> dict[str, str]:
+        """Build a minimal environment for the RPA Bridge subprocess (BP-8)."""
+        safe = {
+            "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE",
+            "TERM", "TZ", "TMPDIR",
+            "DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS",
+            "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE",
+        }
+        return {k: v for k, v in os.environ.items() if k in safe}
 
     def _denied(
         self, session: Any, intent: dict, cls_result: Any, decision: Decision,

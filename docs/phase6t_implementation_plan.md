@@ -284,29 +284,61 @@ PR #24 (Input router + NL mode + HITL)
 
 ---
 
-### PR #29 — Escalation + RPA HITL + timeout (`feature/phase6t-escalation`)
+### PR #29 — Escalation + QB-monitored RPA execution (`feature/phase6t-escalation`)
 
-**Module:** `dual-brain/controller/` | ~300 lines production + ~100 lines test
+**Module:** `dual-brain/controller/` | ~400 lines production + ~120 lines test
+
+**UX Model — QB-as-Monitor (replaces per-keyword HITL):**
+
+The original design required HITL approval for every RPA operation with a 3-second
+lockout per gate. This made multi-step workflows unusably slow (a 5-step workflow
+would take 15+ seconds in approval overhead alone).
+
+The revised architecture uses the Quarantined Brain as an automated progress monitor:
+
+1. **Single workflow-level HITL gate** — when escalation triggers, the user sees the
+   full keyword sequence ("This will: Click Element #submit, Input Text #name 'Alice',
+   Click Element #save"). One approval, one 3-second lockout, then execution streams.
+2. **QB monitors progress via text state** — after each keyword, the Controller builds
+   a text summary of UI state (window title, element names, keyword pass/fail) and
+   sends it to QB. QB compares progress against the original user intent. QB never
+   sees raw screenshot pixels (INV-1); only sanitized text descriptions of UI state.
+3. **Auto-continue if on track** — if QB returns `{on_track: true}`, the next keyword
+   fires immediately with no human interaction.
+4. **Auto-pause if off track** — if QB returns `{on_track: false, reason: "..."}`,
+   execution pauses and the human is shown the current state + QB's concern. Human
+   decides: resume, abort, or modify.
+5. **Human override always available** — Esc aborts the workflow at any time,
+   regardless of QB's assessment.
+6. **Hard timeout as safety net** — SIGALRM + SIGKILL if the workflow (including QB
+   check time) exceeds the deadline.
+
+Security: QB acts as a read-only advisor. It cannot modify keywords, execute tools,
+or change the workflow. It can only say "on track" or "pause." The keyword allowlist,
+sandbox, and timeout remain the hard security boundaries.
 
 | Action | File | Change |
 |---|---|---|
-| MOD | `controller/turn_events.py` | Add `RpaEvent` dataclass: `phase` (preview/executing/step/complete), `workflow_name`, `keyword_index`, `keyword_total`, `current_keyword`, `timeout_remaining_ms`, `screenshot_path`, `screenshot_hash` |
-| MOD | `controller/main.py` | Add escalation logic: if GUI Agent returns `element_not_found` with `reason: "no_a11y_tree"`, check `[rpa] enabled`. If enabled, escalate to RPA Bridge. If disabled, return error with guidance. Emit `RpaEvent` at each step. Enforce hard timeout. HITL gate for every RPA operation (no bypass, no trust grant). |
+| MOD | `controller/turn_events.py` | Add `RpaEvent` dataclass: `phase` (preview/executing/step/complete), `workflow_name`, `keyword_index`, `keyword_total`, `current_keyword`, `timeout_remaining_ms`, `screenshot_hash`, `qb_on_track`, `qb_concern` |
+| MOD | `controller/main.py` | Add escalation logic: if GUI Agent returns `element_not_found` with `reason: "no_a11y_tree"`, check `[rpa] enabled`. If enabled, present full keyword list to HITL for single workflow-level approval. On approval, execute keywords streaming with QB progress monitoring. After each keyword, build text state summary → QB check → auto-continue or auto-pause. Emit `RpaEvent` at each step. Enforce hard timeout. |
 | MOD | `controller/daemon.py` | Handle `RpaEvent` → send `turn.rpa` notification |
 | MOD | `controller/client.py` | Handle `turn.rpa` in reader loop, add `_on_rpa()` callback |
-| MOD | `controller/risk_classifier.py` | Add `RPA_TOOLS = {"rpa.execute_workflow", "rpa.record_macro"}`. Any `rpa.*` action → `Tier.HIGH` unconditionally (hard floor, no conditional logic). Add `rpa.find_by_image` and `rpa.list_workflows` to `TIER0_TOOLS`. |
-| MOD | `controller/trust_store.py` | Add explicit check: if `action.startswith("rpa.")` and `tier >= Tier.HIGH`, return `None` (never grantable). This is defense-in-depth — the hard floor in risk_classifier already blocks it, but the trust store double-checks. |
-| MOD | `controller/audit.py` | Add RPA extra fields: `execution_tier: "rpa_fallback"`, `rpa_keywords_executed`, `rpa_timeout_ms`, `rpa_elapsed_ms`, `rpa_screenshot_hashes: list[str]`, `rpa_fallback_reason`. |
-| MOD | `controller/hitl.py` | Extend `HitlDisplayData` with optional `screenshot_path` and `crosshair_coords: tuple[int, int]` for RPA visual preview. `TerminalPresenter` renders crosshair description. `AiTerminalPresenter` shows screenshot thumbnail in right panel with crosshair overlay. |
+| MOD | `controller/risk_classifier.py` | Add `RPA_TOOLS = {"rpa.execute_workflow"}`. Any `rpa.*` write action → `Tier.HIGH` unconditionally (hard floor, no conditional logic). Add `rpa.find_by_image` and `rpa.list_workflows` to `TIER0_TOOLS`. |
+| MOD | `controller/trust_store.py` | Add explicit check: if `action.startswith("rpa.")` and `tier >= Tier.HIGH`, return `None` (never grantable — user must approve each workflow). This is defense-in-depth — the hard floor in risk_classifier already blocks it, but the trust store double-checks. |
+| MOD | `controller/audit.py` | Add RPA audit fields: `execution_tier: "rpa_fallback"`, `rpa_keywords_executed`, `rpa_timeout_ms`, `rpa_elapsed_ms`, `rpa_screenshot_hashes: list[str]`, `rpa_fallback_reason`, `qb_paused_at_keyword` (if QB triggered a pause). |
+| MOD | `controller/_mcpd_tools.py` | Add `RPA_READONLY_TOOLS`, `RPA_WRITE_TOOLS`, `ALL_RPA_TOOLS` frozensets. |
+| MOD | `controller/hitl.py` | Extend `HitlDisplayData` with optional `rpa_keyword_preview: list[str]` for workflow-level approval display. |
 | MOD | `controller/config.py` | Add `[rpa]` config section: `enabled = false`, `timeout_seconds = 30`, `max_keywords_per_workflow = 20`, `screenshot_every_step = true`. |
-| MOD | `terminal/companion.py` | Render `RpaEvent` in explanation panel: show workflow name, keyword progress, timeout countdown, per-step screenshots, red border for RPA indicator. |
+| MOD | `terminal/companion.py` | Render `RpaEvent` in explanation panel: show workflow name, keyword progress bar, timeout countdown, QB on-track/concern status, per-step results. |
+| MOD | `controller/schemas/controller_config.json` | Add `rpa` section to JSON Schema. |
 
-**Tests (~14):**
+**Tests (~16):**
 - Unit: escalation — GUI `element_not_found` + RPA enabled → escalate (~2)
 - Unit: escalation — GUI `element_not_found` + RPA disabled → error with guidance (~2)
 - Unit: RPA always Tier 3, trust store rejects RPA grants (~3)
-- Unit: RPA timeout — workflow exceeding limit → SIGKILL + audit `TOOL_TIMEOUT` (~2)
-- Unit: HITL display data includes crosshair coords for RPA preview (~1)
+- Unit: RPA timeout — workflow exceeding limit → audit `RPA_TIMEOUT` (~2)
+- Unit: QB monitor — on_track=true continues, on_track=false pauses (~2)
+- Unit: RPA config defaults — enabled=false, timeout=30, max_keywords=20 (~1)
 - Integration: full escalation path — NL → GUI fail → RPA → HITL → execute → audit (~2)
 - Regression: CLI and GUI paths unaffected by RPA additions (~2)
 

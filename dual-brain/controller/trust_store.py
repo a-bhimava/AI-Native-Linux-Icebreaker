@@ -53,6 +53,13 @@ class TrustStore:
         session_id: str,
         ttl_seconds: float,
     ) -> TrustGrant:
+        if action.startswith("rpa.") and action not in {
+            "rpa.ping", "rpa.find_by_image", "rpa.list_workflows",
+        }:
+            raise ValueError(
+                f"Cannot grant trust for RPA write operation {action!r} — "
+                "RPA workflows require explicit approval each time"
+            )
         if max_tier >= Tier.HIGH:
             raise ValueError(
                 f"Cannot grant trust for Tier {max_tier.name} operations "
