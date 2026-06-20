@@ -224,6 +224,14 @@ class GuiConfig:
 
 
 @dataclass(frozen=True)
+class RpaConfig:
+    enabled: bool = False
+    timeout_seconds: int = 30
+    max_keywords_per_workflow: int = 20
+    screenshot_every_step: bool = True
+
+
+@dataclass(frozen=True)
 class TerminalConfig:
     split_ratio: float = 0.6
     explanation_verbosity: str = "normal"
@@ -254,6 +262,7 @@ class ControllerConfig:
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
     terminal: TerminalConfig = field(default_factory=TerminalConfig)
     gui: GuiConfig = field(default_factory=GuiConfig)
+    rpa: RpaConfig = field(default_factory=RpaConfig)
 
 
 def _default_config_path() -> Path:
@@ -553,6 +562,16 @@ def _build_gui_config(raw: dict) -> GuiConfig:
     )
 
 
+def _build_rpa_config(raw: dict) -> RpaConfig:
+    section = raw.get("rpa", {})
+    return RpaConfig(
+        enabled=section.get("enabled", False),
+        timeout_seconds=section.get("timeout_seconds", 30),
+        max_keywords_per_workflow=section.get("max_keywords_per_workflow", 20),
+        screenshot_every_step=section.get("screenshot_every_step", True),
+    )
+
+
 def _build_terminal_config(raw: dict) -> TerminalConfig:
     section = raw.get("terminal", {})
     appearance = section.get("appearance", {})
@@ -597,6 +616,7 @@ def _build_config(raw: dict, config_path: Path) -> ControllerConfig:
         daemon=_build_daemon_config(raw),
         terminal=_build_terminal_config(raw),
         gui=_build_gui_config(raw),
+        rpa=_build_rpa_config(raw),
     )
 
 

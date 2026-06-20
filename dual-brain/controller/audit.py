@@ -117,6 +117,13 @@ class Outcome(str, Enum):
     GUI_DENIED              = "gui_denied"                # GUI action denied at HITL
     GUI_ERROR               = "gui_error"                 # GUI Agent returned error
 
+    # RPA Bridge outcomes (Phase 6T)
+    RPA_EXECUTED            = "rpa_executed"              # RPA workflow completed
+    RPA_DENIED              = "rpa_denied"                # RPA workflow denied at HITL
+    RPA_ERROR               = "rpa_error"                 # RPA Bridge returned error
+    RPA_TIMEOUT             = "rpa_timeout"               # RPA workflow exceeded timeout
+    RPA_QB_PAUSED           = "rpa_qb_paused"             # QB flagged workflow off-track
+
 
 # ── Required entry fields ──────────────────────────────────────────────────
 

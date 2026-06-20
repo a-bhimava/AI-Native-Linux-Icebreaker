@@ -114,7 +114,40 @@ class GuiEvent:
             )
 
 
+_RPA_PHASES = frozenset({"preview", "executing", "step", "paused", "complete"})
+
+
+@dataclass(frozen=True)
+class RpaEvent:
+    """RPA Bridge automation event for the companion panel.
+
+    Emitted during RPA escalation: preview (keyword list shown), executing
+    (workflow started), step (after each keyword), paused (QB flagged
+    off-track), complete (workflow finished).
+    """
+
+    phase: str
+    workflow_name: str
+    keyword_index: int = 0
+    keyword_total: int = 0
+    current_keyword: str = ""
+    keyword_status: str = ""
+    timeout_remaining_ms: float = 0.0
+    screenshot_hash: str = ""
+    qb_on_track: bool = True
+    qb_concern: str = ""
+    error: str = ""
+    timestamp_ms: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.phase not in _RPA_PHASES:
+            raise ValueError(
+                f"phase must be one of {sorted(_RPA_PHASES)}, "
+                f"got {self.phase!r}"
+            )
+
+
 TurnEvent = Union[
     ProgressEvent, TokenEvent, ResultEvent, ErrorEvent, InfoEvent,
-    CotEvent, GuiEvent,
+    CotEvent, GuiEvent, RpaEvent,
 ]

@@ -90,3 +90,18 @@ GUI_WRITE_TOOLS = frozenset({
 })
 
 ALL_GUI_TOOLS = GUI_READONLY_TOOLS | GUI_WRITE_TOOLS
+
+
+# ── RPA Bridge tools (not in mcpd — manually maintained) ────────────────
+
+RPA_READONLY_TOOLS = frozenset({
+    "rpa.ping",
+    "rpa.find_by_image",
+    "rpa.list_workflows",
+})
+
+RPA_WRITE_TOOLS = frozenset({
+    "rpa.execute_workflow",
+})
+
+ALL_RPA_TOOLS = RPA_READONLY_TOOLS | RPA_WRITE_TOOLS

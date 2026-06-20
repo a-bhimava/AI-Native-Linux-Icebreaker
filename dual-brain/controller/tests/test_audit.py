@@ -251,6 +251,7 @@ def test_all_outcome_enum_values_present():
         "cancelled",
         "undo_requested", "undo_unavailable", "undone",
         "gui_executed", "gui_denied", "gui_error",
+        "rpa_executed", "rpa_denied", "rpa_error", "rpa_timeout", "rpa_qb_paused",
     }
     actual = {o.value for o in Outcome}
     assert actual == expected, f"Outcome enum drifted: {actual.symmetric_difference(expected)}"

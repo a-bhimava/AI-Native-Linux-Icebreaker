@@ -158,6 +158,7 @@ class DaemonClient:
             "turn.info": self._on_info,
             "turn.cot": self._on_cot,
             "turn.gui": self._on_gui,
+            "turn.rpa": self._on_rpa,
             "hitl.prompt": self._on_hitl_prompt,
             "hitl.lockout": self._on_hitl_lockout,
         }
@@ -180,6 +181,9 @@ class DaemonClient:
         pass
 
     def _on_gui(self, params: dict) -> None:
+        pass
+
+    def _on_rpa(self, params: dict) -> None:
         pass
 
     def _on_hitl_prompt(self, params: dict) -> None:
@@ -239,6 +243,35 @@ class ClientRepl(DaemonClient):
             parts.append(f"on {element!r}")
         if error:
             parts.append(f"— {error}")
+        sys.stderr.write(f"  {'  '.join(parts)}\n")
+        sys.stderr.flush()
+
+    def _on_rpa(self, params: dict) -> None:
+        phase = params.get("phase", "")
+        workflow = params.get("workflow_name", "")
+        kw_idx = params.get("keyword_index", 0)
+        kw_total = params.get("keyword_total", 0)
+        current_kw = params.get("current_keyword", "")
+        kw_status = params.get("keyword_status", "")
+        qb_on_track = params.get("qb_on_track", True)
+        qb_concern = params.get("qb_concern", "")
+        error = params.get("error", "")
+        _PHASE_GLYPHS = {
+            "preview": "?", "executing": ">", "step": ".",
+            "paused": "!", "complete": "+",
+        }
+        glyph = _PHASE_GLYPHS.get(phase, "~")
+        parts = [f"[{glyph}] RPA {workflow}"]
+        if kw_total:
+            parts.append(f"[{kw_idx}/{kw_total}]")
+        if current_kw:
+            parts.append(current_kw)
+        if kw_status:
+            parts.append(f"-> {kw_status}")
+        if not qb_on_track and qb_concern:
+            parts.append(f"QB: {qb_concern}")
+        if error:
+            parts.append(f"-- {error}")
         sys.stderr.write(f"  {'  '.join(parts)}\n")
         sys.stderr.flush()
 
