@@ -2,14 +2,11 @@
 # User overrides: ~/.config/icebreaker/controller.toml (load_layered, ADR-8).
 
 [qb]
-backend = "local"
+backend = "gemini"
 
-[qb.local]
-model_id        = "qwen-2.5-1.5b-instruct-q4_k_m"
-draft_model_id  = "qwen-2.5-coder-0.5b-instruct-q4_k_m"
-endpoint        = "unix:///run/icebreaker/qbd.sock"
-transport       = "unix"
-grammar_path    = "/usr/share/icebreaker/grammars/qb_intent.gbnf"
+[qb.gemini]
+model           = "gemini-2.5-flash"
+api_key_env     = "GEMINI_API_KEY"
 max_tokens      = 512
 timeout_seconds = 30
 
