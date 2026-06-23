@@ -18,7 +18,7 @@
 #   2  llama-server — clone + build llama.cpp at pinned commit
 #   3  venv         — create Python venv, pip install dual-brain/
 #   4  chroot       — assemble config/includes.chroot/ tree
-#   5  iso          — debootstrap + mksquashfs + xorriso (manual assembly)
+#   5  iso          — debootstrap + mksquashfs + xorriso (hybrid BIOS+EFI)
 #
 # SECURITY: This file is listed in CLAUDE.md Security-Critical Files.
 # Any change requires human review from the module owner.
@@ -470,6 +470,57 @@ LABEL live-safe
   APPEND initrd=/live/initrd boot=live toram single nomodeset
 BOOTMENU
 
+    # ── 5f2: Set up GRUB EFI bootloader ──────────────────────────────────
+    # The isolinux setup above (5f) handles BIOS boot. This sub-stage adds
+    # EFI boot support so the ISO works on UEFI firmware (VirtualBox on
+    # macOS, OVMF/QEMU, post-2012 hardware). Both paths load the same
+    # kernel with the same parameters.
+    info "Setting up GRUB EFI bootloader..."
+
+    command -v grub-mkstandalone >/dev/null 2>&1 || \
+        die "grub-mkstandalone not found — install grub-efi-amd64-bin"
+
+    GRUB_CFG_DIR="${ISO_WORK}/grub-embed"
+    mkdir -p "${GRUB_CFG_DIR}"
+
+    cat > "${GRUB_CFG_DIR}/grub.cfg" <<'GRUBCFG'
+search --no-floppy --set=root --label ICEBREAKER
+
+set default=0
+set timeout=5
+
+menuentry "Icebreaker AI-Native OS (Live)" {
+    linux /live/vmlinuz boot=live toram quiet splash
+    initrd /live/initrd
+}
+
+menuentry "Safe Mode" {
+    linux /live/vmlinuz boot=live toram single nomodeset
+    initrd /live/initrd
+}
+GRUBCFG
+
+    mkdir -p "${ISO_STAGING}/boot/grub"
+    grub-mkstandalone \
+        --format=x86_64-efi \
+        --output="${ISO_STAGING}/boot/grub/BOOTX64.EFI" \
+        --modules="part_gpt part_msdos fat iso9660 search search_label linux normal all_video test" \
+        "boot/grub/grub.cfg=${GRUB_CFG_DIR}/grub.cfg"
+    [ -f "${ISO_STAGING}/boot/grub/BOOTX64.EFI" ] || \
+        die "grub-mkstandalone failed to produce BOOTX64.EFI"
+    info "GRUB EFI binary: $(du -h "${ISO_STAGING}/boot/grub/BOOTX64.EFI" | awk '{print $1}')"
+
+    EFI_IMG="${ISO_STAGING}/boot/grub/efi.img"
+    EFI_IMG_SIZE_KB=3584  # 3.5 MB — fits the ~2.5 MB standalone GRUB binary
+
+    dd if=/dev/zero of="${EFI_IMG}" bs=1K count="${EFI_IMG_SIZE_KB}" 2>/dev/null
+    mkfs.fat -F 12 "${EFI_IMG}" >/dev/null
+    mmd -i "${EFI_IMG}" ::EFI
+    mmd -i "${EFI_IMG}" ::EFI/BOOT
+    mcopy -i "${EFI_IMG}" "${ISO_STAGING}/boot/grub/BOOTX64.EFI" ::EFI/BOOT/BOOTX64.EFI
+
+    info "EFI image: $(du -h "${EFI_IMG}" | awk '{print $1}')"
+
     # ── 5g: Assemble ISO with xorriso ──────────────────────────────────
     info "Creating ISO image..."
     xorriso -as mkisofs \
@@ -479,6 +530,10 @@ BOOTMENU
         -no-emul-boot \
         -boot-load-size 4 \
         -boot-info-table \
+        -eltorito-alt-boot \
+        -e boot/grub/efi.img \
+        -no-emul-boot \
+        -isohybrid-gpt-basdat \
         -V "ICEBREAKER" \
         -o "${ISO_FILE}" \
         "${ISO_STAGING}/" 2>&1 | tail -5
