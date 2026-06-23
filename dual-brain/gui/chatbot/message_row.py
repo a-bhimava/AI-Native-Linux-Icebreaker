@@ -46,21 +46,18 @@ class MessageRow(Gtk.Box):
         self.set_halign(Gtk.Align.END)
 
         bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        bubble.add_css_class("ib-elevated")
         bubble.add_css_class("ib-primary")
         bubble.add_css_class("ib-primary-foreground")
-        bubble.set_margin_start(4)
-        bubble.set_margin_end(4)
-        bubble.set_margin_top(8)
-        bubble.set_margin_bottom(8)
 
         label = Gtk.Label(label=_sanitize(text))
         label.set_xalign(0)
         label.set_wrap(True)
         label.set_max_width_chars(60)
-        label.set_margin_start(12)
-        label.set_margin_end(12)
-        label.set_margin_top(8)
-        label.set_margin_bottom(8)
+        label.set_margin_start(14)
+        label.set_margin_end(14)
+        label.set_margin_top(10)
+        label.set_margin_bottom(10)
         bubble.append(label)
         self.append(bubble)
 
@@ -75,7 +72,7 @@ class MessageRow(Gtk.Box):
         container.append(self._cot)
 
         bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        bubble.add_css_class("ib-card")
+        bubble.add_css_class("ib-elevated")
         bubble.set_margin_top(4)
         bubble.set_margin_bottom(4)
 

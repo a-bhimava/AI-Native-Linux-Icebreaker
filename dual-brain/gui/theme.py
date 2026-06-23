@@ -132,6 +132,62 @@ def _generate_css(tokens: dict[str, str], fonts: dict[str, str], radius: str) ->
     lines.append(f".ib-mono {{ font-family: {fonts['mono']}; }}")
     lines.append("")
 
+    lines.append(".ib-elevated {")
+    lines.append(f"  background-color: {tokens['card']};")
+    lines.append(f"  border-radius: {radius};")
+    lines.append(f"  border: 1px solid {tokens['border']};")
+    lines.append("  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);")
+    lines.append("}")
+    lines.append("")
+
+    lines.append(".ib-elevated-input {")
+    lines.append(f"  background-color: {tokens['muted']};")
+    lines.append(f"  border-radius: {radius};")
+    lines.append(f"  border: 1px solid {tokens['border']};")
+    lines.append("  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.25);")
+    lines.append("}")
+    lines.append("")
+
+    lines.append(".ib-chip {")
+    lines.append(f"  border-radius: 20px;")
+    lines.append(f"  border: 1px solid {tokens['border']};")
+    lines.append(f"  padding: 6px 16px;")
+    lines.append(f"  background-color: transparent;")
+    lines.append(f"  color: {tokens['muted_foreground']};")
+    lines.append("}")
+    lines.append("")
+
+    lines.append(".ib-chip:hover {")
+    lines.append(f"  background-color: {tokens['accent']};")
+    lines.append(f"  color: {tokens['foreground']};")
+    lines.append("}")
+    lines.append("")
+
+    lines.append(".ib-greeting {")
+    lines.append(f"  font-size: 28px;")
+    lines.append(f"  font-weight: 300;")
+    lines.append(f"  color: {tokens['foreground']};")
+    lines.append("}")
+    lines.append("")
+
+    lines.append(".ib-sidebar {")
+    lines.append(f"  background-color: {tokens['background']};")
+    lines.append(f"  border-right: 1px solid {tokens['border']};")
+    lines.append("}")
+    lines.append("")
+
+    lines.append(".ib-sidebar button {")
+    lines.append(f"  border-radius: 8px;")
+    lines.append(f"  min-width: 40px;")
+    lines.append(f"  min-height: 40px;")
+    lines.append("}")
+    lines.append("")
+
+    lines.append(".ib-sidebar button:hover {")
+    lines.append(f"  background-color: {tokens['accent']};")
+    lines.append("}")
+    lines.append("")
+
     return "\n".join(lines) + "\n"
 
 
