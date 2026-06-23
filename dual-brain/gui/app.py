@@ -76,36 +76,9 @@ class IcebreakerApp(Adw.Application):
             win.present()
             return
 
-        self._window = Adw.ApplicationWindow(application=self)
-        self._window.set_title("Icebreaker")
-        self._window.set_default_size(800, 600)
-        self._window.add_css_class("ib-window")
-
-        from .widgets import StatusDot
-
-        header = Adw.HeaderBar()
-        self._status_dot = StatusDot(connected=self._client is not None)
-        header.pack_end(self._status_dot)
-
-        settings_btn = Gtk.Button(icon_name="emblem-system-symbolic")
-        settings_btn.set_tooltip_text("Settings")
-        settings_btn.connect("clicked", self._on_open_settings)
-        header.pack_end(settings_btn)
-
-        content = Adw.ToolbarView()
-        content.add_top_bar(header)
-
-        placeholder = Gtk.Label(label="Icebreaker Desktop")
-        placeholder.add_css_class("ib-muted-text")
-        content.set_content(placeholder)
-
-        self._window.set_content(content)
+        from .chatbot.window import ChatbotWindow
+        self._window = ChatbotWindow(app=self, client=self._client)
         self._window.present()
-
-    def _on_open_settings(self, _btn: Gtk.Button) -> None:
-        from .settings.window import SettingsWindow
-        win = SettingsWindow(app=self)
-        win.present()
 
     def do_shutdown(self) -> None:
         if self._client is not None:
