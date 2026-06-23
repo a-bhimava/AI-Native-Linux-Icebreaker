@@ -269,6 +269,61 @@ def _run_terminal(config_path: Path | None) -> int:
             mcpd.close()
 
 
+def _run_gui(mode: str, config_path: Path | None) -> int:
+    """Start daemon in background, launch a GTK4 desktop window."""
+    from .daemon import Daemon
+    from gui.app import IcebreakerApp
+
+    mcpd: McpdClient | None = None
+    try:
+        cfg = load(config_path)
+        audit = AuditLog(Path(cfg.run.audit_log).expanduser())
+        qb = _build_qb(cfg)
+        pb = _build_pb(cfg)
+        mcpd = McpdClient.spawn(
+            Path(cfg.run.mcpd_binary).expanduser(),
+            default_timeout=cfg.run.mcpd_timeout_seconds,
+        )
+        store = IntentStore()
+        prompts = PromptLoader(cfg.prompts)
+
+        controller = Controller(
+            cfg,
+            qb_backend=qb,
+            pb_backend=pb,
+            mcpd_client=mcpd,
+            audit_log=audit,
+            store=store,
+            prompt_loader=prompts,
+        )
+        daemon = Daemon(cfg.daemon, controller, cfg, audit)
+
+        daemon_thread = threading.Thread(
+            target=daemon.start, daemon=True, name="gui-daemon",
+        )
+        daemon_thread.start()
+
+        import time
+        sock_path = str(Path(cfg.daemon.socket_path).expanduser())
+        for _ in range(20):
+            if Path(sock_path).exists():
+                break
+            time.sleep(0.1)
+
+        app = IcebreakerApp(
+            sock_path=sock_path,
+            dark=cfg.desktop.dark,
+        )
+        app.run(None)
+        return 0
+    except Exception as exc:
+        print(f"Fatal: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        if mcpd is not None:
+            mcpd.close()
+
+
 def _run_connect(socket_path: str, config_path: Path | None) -> int:
     from .client import ClientRepl
 
@@ -340,23 +395,49 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Launch the split-pane AI Terminal (Phase 6T).",
     )
+    parser.add_argument(
+        "--chatbot",
+        action="store_true",
+        help="Launch the GTK4 desktop chatbot (Phase 6UI).",
+    )
+    parser.add_argument(
+        "--settings",
+        action="store_true",
+        help="Launch the GTK4 settings panel (Phase 6UI).",
+    )
+    parser.add_argument(
+        "--wizard",
+        action="store_true",
+        help="Launch the first-boot setup wizard (Phase 6UI).",
+    )
+    parser.add_argument(
+        "--audit",
+        action="store_true",
+        help="Launch the GTK4 audit log viewer (Phase 6UI).",
+    )
     args = parser.parse_args(argv)
 
     if args.check_isolation:
         return 0 if _check_isolation() else 1
 
-    # Mutual exclusion: --daemon, --connect, --safe-mode, --terminal, --repl, COMMAND
+    # Mutual exclusion: --daemon, --connect, --safe-mode, --terminal, --chatbot,
+    # --settings, --wizard, --audit, --repl, COMMAND
     modes = sum([
         bool(args.daemon),
         args.connect is not None,
         bool(args.safe_mode),
         bool(args.terminal),
+        bool(args.chatbot),
+        bool(args.settings),
+        bool(args.wizard),
+        bool(args.audit),
         bool(args.repl),
         bool(args.command),
     ])
     if modes > 1:
         print(
-            "Error: --daemon, --connect, --safe-mode, --terminal, --repl, "
+            "Error: --daemon, --connect, --safe-mode, --terminal, --chatbot, "
+            "--settings, --wizard, --audit, --repl, "
             "and COMMAND are mutually exclusive.",
             file=sys.stderr,
         )
@@ -364,6 +445,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.terminal:
         return _run_terminal(Path(args.config).expanduser() if args.config else None)
+
+    if args.chatbot or args.settings or args.wizard or args.audit:
+        return _run_gui(
+            mode="chatbot" if args.chatbot else
+                 "settings" if args.settings else
+                 "wizard" if args.wizard else "audit",
+            config_path=Path(args.config).expanduser() if args.config else None,
+        )
 
     if args.daemon:
         return _run_daemon(Path(args.config).expanduser() if args.config else None)

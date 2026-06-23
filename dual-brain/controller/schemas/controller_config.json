@@ -342,6 +342,30 @@
         }
       }
     },
+    "desktop": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Desktop GUI configuration (Phase 6UI). Controls GTK4 window behavior.",
+      "properties": {
+        "start_tray": {
+          "type": "boolean",
+          "description": "Start minimized to system tray. BP-2: off by default."
+        },
+        "chatbot_on_tray": {
+          "type": "boolean",
+          "description": "Open chatbot window when tray icon is clicked."
+        },
+        "default_window": {
+          "type": "string",
+          "enum": ["chatbot", "settings", "audit"],
+          "description": "Default window to open. Default: chatbot."
+        },
+        "dark": {
+          "type": "boolean",
+          "description": "Use dark color scheme (default: true)."
+        }
+      }
+    },
     "gui": {
       "type": "object",
       "additionalProperties": false,
