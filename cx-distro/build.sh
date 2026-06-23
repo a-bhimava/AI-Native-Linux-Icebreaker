@@ -18,7 +18,7 @@
 #   2  llama-server — clone + build llama.cpp at pinned commit
 #   3  venv         — create Python venv, pip install dual-brain/
 #   4  chroot       — assemble config/includes.chroot/ tree
-#   5  iso          — lb config && lb build
+#   5  iso          — debootstrap + mksquashfs + xorriso (manual assembly)
 #
 # SECURITY: This file is listed in CLAUDE.md Security-Critical Files.
 # Any change requires human review from the module owner.
@@ -336,30 +336,154 @@ if [ "$SKIP_TO" -le 4 ]; then
 fi
 
 # ── Stage 5: Build ISO ─────────────────────────────────────────────────
+# Uses debootstrap + mksquashfs + xorriso directly.
+# live-build (lb) 3.0 on Noble is broken: its grub and syslinux bootloader
+# paths reference packages removed from Ubuntu years ago (grub-legacy,
+# syslinux-themes-ubuntu-oneiric). Manual assembly avoids that entirely.
 
 if [ "$SKIP_TO" -le 5 ]; then
     stage_banner 5 "Build ISO"
 
     cd "${SCRIPT_DIR}"
     UBUNTU_BASE=$(cat "${SCRIPT_DIR}/UBUNTU_BASE" | tr -d '[:space:]')
+    ISO_WORK="${BUILD_DIR}/iso-work"
+    ISO_CHROOT="${ISO_WORK}/chroot"
+    ISO_STAGING="${ISO_WORK}/staging"
+    ISO_FILE="${SCRIPT_DIR}/icebreaker.iso"
 
-    info "Configuring live-build (${UBUNTU_BASE})..."
-    lb config \
-        --distribution "${UBUNTU_BASE}" \
-        --archive-areas "main restricted universe" \
-        --bootloaders grub-efi \
-        --binary-images iso-hybrid \
-        --iso-application "Icebreaker AI-Native OS" \
-        --iso-volume "ICEBREAKER" \
-        2>&1 | tail -3
+    rm -rf "${ISO_WORK}"
+    mkdir -p "${ISO_CHROOT}" "${ISO_STAGING}/live" "${ISO_STAGING}/isolinux"
 
-    info "Building ISO (this may take several minutes)..."
-    lb build 2>&1 | tee "${BUILD_DIR}/lb-build.log" | tail -20
+    # ── 5a: Debootstrap base system ────────────────────────────────────
+    info "Debootstrapping ${UBUNTU_BASE}..."
+    debootstrap --variant=minbase "${UBUNTU_BASE}" "${ISO_CHROOT}" \
+        http://archive.ubuntu.com/ubuntu
 
-    ISO_FILE=$(ls -1 live-image-*.iso 2>/dev/null | head -1)
-    if [ -z "$ISO_FILE" ]; then
-        die "ISO file not found after lb build"
-    fi
+    cat > "${ISO_CHROOT}/etc/apt/sources.list" <<SOURCES
+deb http://archive.ubuntu.com/ubuntu ${UBUNTU_BASE} main restricted universe
+deb http://archive.ubuntu.com/ubuntu ${UBUNTU_BASE}-updates main restricted universe
+deb http://security.ubuntu.com/ubuntu ${UBUNTU_BASE}-security main restricted universe
+SOURCES
+
+    # ── 5b: Install kernel + live-boot inside chroot ───────────────────
+    info "Installing kernel and live-boot packages..."
+    mount --bind /dev  "${ISO_CHROOT}/dev"
+    mount --bind /proc "${ISO_CHROOT}/proc"
+    mount --bind /sys  "${ISO_CHROOT}/sys"
+    mount -t devpts devpts "${ISO_CHROOT}/dev/pts"
+
+    chroot "${ISO_CHROOT}" bash -c "
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -qq
+        apt-get install -y --no-install-recommends \
+            linux-generic \
+            live-boot \
+            systemd-sysv \
+            sudo bash coreutils python3 \
+            curl ca-certificates \
+            net-tools iproute2 iputils-ping \
+            openssh-client less vim-tiny locales
+
+        locale-gen en_US.UTF-8
+
+        useradd -m -s /bin/bash -G sudo icebreaker
+        echo 'icebreaker:icebreaker' | chpasswd
+        echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
+
+        apt-get clean
+        rm -rf /var/lib/apt/lists/*
+    "
+    echo "icebreaker" > "${ISO_CHROOT}/etc/hostname"
+
+    # ── 5c: Overlay Icebreaker artifacts from Stage 4 ──────────────────
+    info "Overlaying Icebreaker artifacts..."
+    [ -d "${CHROOT}" ] || die "includes.chroot not found — run Stage 4 first"
+    cp -a "${CHROOT}"/* "${ISO_CHROOT}/"
+
+    # ── 5d: Extract kernel + initrd ────────────────────────────────────
+    info "Extracting kernel and initrd..."
+    VMLINUZ=$(ls "${ISO_CHROOT}/boot/vmlinuz-"* 2>/dev/null | sort -V | tail -1)
+    INITRD=$(ls "${ISO_CHROOT}/boot/initrd.img-"* 2>/dev/null | sort -V | tail -1)
+    [ -n "$VMLINUZ" ] || die "no vmlinuz found in chroot"
+    [ -n "$INITRD" ]  || die "no initrd found in chroot"
+    cp "$VMLINUZ" "${ISO_STAGING}/live/vmlinuz"
+    cp "$INITRD"  "${ISO_STAGING}/live/initrd"
+    info "Kernel: $(basename "$VMLINUZ")"
+
+    # ── 5e: Unmount + create squashfs ──────────────────────────────────
+    info "Unmounting chroot filesystems..."
+    umount "${ISO_CHROOT}/dev/pts" 2>/dev/null || true
+    umount "${ISO_CHROOT}/dev"     2>/dev/null || true
+    umount "${ISO_CHROOT}/proc"    2>/dev/null || true
+    umount "${ISO_CHROOT}/sys"     2>/dev/null || true
+
+    info "Creating squashfs (this takes several minutes)..."
+    mksquashfs "${ISO_CHROOT}" "${ISO_STAGING}/live/filesystem.squashfs" \
+        -comp xz -Xbcj x86 -b 1M -no-duplicates \
+        -e boot/vmlinuz-\* boot/initrd.img-\* \
+        2>&1 | tail -5
+    info "Squashfs: $(du -h "${ISO_STAGING}/live/filesystem.squashfs" | awk '{print $1}')"
+
+    # ── 5f: Set up isolinux bootloader ─────────────────────────────────
+    info "Setting up isolinux bootloader..."
+
+    ISOLINUX_BIN=""
+    for p in /usr/lib/ISOLINUX/isolinux.bin /usr/lib/syslinux/isolinux.bin; do
+        [ -f "$p" ] && ISOLINUX_BIN="$p" && break
+    done
+    [ -n "$ISOLINUX_BIN" ] || die "isolinux.bin not found — install isolinux package"
+    cp "$ISOLINUX_BIN" "${ISO_STAGING}/isolinux/"
+
+    SYSLINUX_MOD=""
+    for p in /usr/lib/syslinux/modules/bios /usr/lib/syslinux; do
+        [ -f "${p}/ldlinux.c32" ] && SYSLINUX_MOD="$p" && break
+    done
+    [ -n "$SYSLINUX_MOD" ] || die "syslinux modules not found — install syslinux-common"
+    for mod in ldlinux.c32 libcom32.c32 vesamenu.c32 libutil.c32; do
+        [ -f "${SYSLINUX_MOD}/${mod}" ] && cp "${SYSLINUX_MOD}/${mod}" "${ISO_STAGING}/isolinux/"
+    done
+
+    ISOHDPFX=""
+    for p in /usr/lib/ISOLINUX/isohdpfx.bin /usr/lib/syslinux/isohdpfx.bin \
+             /usr/lib/syslinux/mbr/isohdpfx.bin; do
+        [ -f "$p" ] && ISOHDPFX="$p" && break
+    done
+    [ -n "$ISOHDPFX" ] || die "isohdpfx.bin not found — install isolinux package"
+
+    cat > "${ISO_STAGING}/isolinux/isolinux.cfg" <<'BOOTMENU'
+UI vesamenu.c32
+PROMPT 0
+TIMEOUT 50
+
+MENU TITLE Icebreaker AI-Native OS
+
+DEFAULT live
+
+LABEL live
+  MENU LABEL ^Icebreaker AI-Native OS (Live)
+  KERNEL /live/vmlinuz
+  APPEND initrd=/live/initrd boot=live toram quiet splash
+
+LABEL live-safe
+  MENU LABEL ^Safe Mode
+  KERNEL /live/vmlinuz
+  APPEND initrd=/live/initrd boot=live toram single nomodeset
+BOOTMENU
+
+    # ── 5g: Assemble ISO with xorriso ──────────────────────────────────
+    info "Creating ISO image..."
+    xorriso -as mkisofs \
+        -isohybrid-mbr "$ISOHDPFX" \
+        -c isolinux/boot.cat \
+        -b isolinux/isolinux.bin \
+        -no-emul-boot \
+        -boot-load-size 4 \
+        -boot-info-table \
+        -V "ICEBREAKER" \
+        -o "${ISO_FILE}" \
+        "${ISO_STAGING}/" 2>&1 | tail -5
+
+    [ -f "${ISO_FILE}" ] || die "ISO file not created"
 
     sha256sum "$ISO_FILE" > "${BUILD_DIR}/iso.sha256"
     ISO_SIZE=$(du -h "$ISO_FILE" | awk '{print $1}')

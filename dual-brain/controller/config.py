@@ -232,6 +232,14 @@ class RpaConfig:
 
 
 @dataclass(frozen=True)
+class DesktopConfig:
+    start_tray: bool = False        # BP-2: tray icon off by default
+    chatbot_on_tray: bool = True    # open chatbot when tray icon clicked
+    default_window: str = "chatbot" # "chatbot" | "settings" | "audit"
+    dark: bool = True               # True = dark palette; False = light
+
+
+@dataclass(frozen=True)
 class TerminalConfig:
     split_ratio: float = 0.6
     explanation_verbosity: str = "normal"
@@ -261,6 +269,7 @@ class ControllerConfig:
     verifier: VerifierConfig = field(default_factory=VerifierConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
     terminal: TerminalConfig = field(default_factory=TerminalConfig)
+    desktop: DesktopConfig = field(default_factory=DesktopConfig)
     gui: GuiConfig = field(default_factory=GuiConfig)
     rpa: RpaConfig = field(default_factory=RpaConfig)
 
@@ -572,6 +581,16 @@ def _build_rpa_config(raw: dict) -> RpaConfig:
     )
 
 
+def _build_desktop_config(raw: dict) -> DesktopConfig:
+    section = raw.get("desktop", {})
+    return DesktopConfig(
+        start_tray=section.get("start_tray", False),
+        chatbot_on_tray=section.get("chatbot_on_tray", True),
+        default_window=section.get("default_window", "chatbot"),
+        dark=section.get("dark", True),
+    )
+
+
 def _build_terminal_config(raw: dict) -> TerminalConfig:
     section = raw.get("terminal", {})
     appearance = section.get("appearance", {})
@@ -615,6 +634,7 @@ def _build_config(raw: dict, config_path: Path) -> ControllerConfig:
         verifier=_build_verifier_config(raw),
         daemon=_build_daemon_config(raw),
         terminal=_build_terminal_config(raw),
+        desktop=_build_desktop_config(raw),
         gui=_build_gui_config(raw),
         rpa=_build_rpa_config(raw),
     )

@@ -1,8 +1,9 @@
 FROM ubuntu:noble
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    live-build debootstrap squashfs-tools xorriso \
-    grub-pc-bin grub-efi-amd64-bin mtools dosfstools \
+    debootstrap squashfs-tools xorriso \
+    isolinux syslinux-common \
+    mtools dosfstools \
     build-essential cmake git ca-certificates curl \
     python3 python3-venv python3-pip \
     && rm -rf /var/lib/apt/lists/*

@@ -22,7 +22,7 @@ dependencies = [
 icebreaker = "controller.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["controller*", "terminal*", "gui_agent*", "rpa_bridge*"]
+include = ["controller*", "terminal*", "gui*", "gui_agent*", "rpa_bridge*"]
 
 [project.optional-dependencies]
 gui = [
