@@ -511,10 +511,11 @@ GRUBCFG
     info "GRUB EFI binary: $(du -h "${ISO_STAGING}/boot/grub/BOOTX64.EFI" | awk '{print $1}')"
 
     EFI_IMG="${ISO_STAGING}/boot/grub/efi.img"
-    EFI_IMG_SIZE_KB=3584  # 3.5 MB — fits the ~2.5 MB standalone GRUB binary
+    GRUB_SIZE_KB=$(( $(stat -c%s "${ISO_STAGING}/boot/grub/BOOTX64.EFI" 2>/dev/null || stat -f%z "${ISO_STAGING}/boot/grub/BOOTX64.EFI") / 1024 ))
+    EFI_IMG_SIZE_KB=$(( GRUB_SIZE_KB + 1024 ))  # GRUB binary + 1 MB headroom for FAT metadata
 
     dd if=/dev/zero of="${EFI_IMG}" bs=1K count="${EFI_IMG_SIZE_KB}" 2>/dev/null
-    mkfs.fat -F 12 "${EFI_IMG}" >/dev/null
+    mkfs.fat "${EFI_IMG}" >/dev/null
     mmd -i "${EFI_IMG}" ::EFI
     mmd -i "${EFI_IMG}" ::EFI/BOOT
     mcopy -i "${EFI_IMG}" "${ISO_STAGING}/boot/grub/BOOTX64.EFI" ::EFI/BOOT/BOOTX64.EFI

@@ -32,6 +32,7 @@ class IcebreakerApp(Adw.Application):
         application_id: str = "org.icebreaker.desktop",
         sock_path: str = "",
         dark: bool = True,
+        window_mode: str = "chatbot",
     ) -> None:
         super().__init__(
             application_id=application_id,
@@ -39,6 +40,7 @@ class IcebreakerApp(Adw.Application):
         )
         self._sock_path = sock_path
         self._theme = IcebreakerTheme(dark=dark)
+        self._window_mode = window_mode
         self._client: Optional[GtkDaemonClient] = None
         self._window: Optional[Adw.ApplicationWindow] = None
 
@@ -66,17 +68,29 @@ class IcebreakerApp(Adw.Application):
             except Exception:
                 self._client = None
 
+        _load_widget_classes()
+
+        if self._window_mode == "settings":
+            from .settings.window import SettingsWindow
+            win = SettingsWindow(app=self)
+            win.present()
+            return
+
         self._window = Adw.ApplicationWindow(application=self)
         self._window.set_title("Icebreaker")
         self._window.set_default_size(800, 600)
         self._window.add_css_class("ib-window")
 
-        _load_widget_classes()
         from .widgets import StatusDot
 
         header = Adw.HeaderBar()
         self._status_dot = StatusDot(connected=self._client is not None)
         header.pack_end(self._status_dot)
+
+        settings_btn = Gtk.Button(icon_name="emblem-system-symbolic")
+        settings_btn.set_tooltip_text("Settings")
+        settings_btn.connect("clicked", self._on_open_settings)
+        header.pack_end(settings_btn)
 
         content = Adw.ToolbarView()
         content.add_top_bar(header)
@@ -87,6 +101,11 @@ class IcebreakerApp(Adw.Application):
 
         self._window.set_content(content)
         self._window.present()
+
+    def _on_open_settings(self, _btn: Gtk.Button) -> None:
+        from .settings.window import SettingsWindow
+        win = SettingsWindow(app=self)
+        win.present()
 
     def do_shutdown(self) -> None:
         if self._client is not None:

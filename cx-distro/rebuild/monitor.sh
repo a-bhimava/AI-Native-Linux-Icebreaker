@@ -32,8 +32,12 @@ esac
 if [ "$MODE" = "status" ]; then
     echo "=== Build Status ==="
     ${SSH_CMD} --command="
-        echo '--- Docker containers ---'
-        sudo docker ps --filter ancestor=icebreaker-build --format 'ID={{.ID}} Status={{.Status}} Created={{.CreatedAt}}' 2>/dev/null || echo '(none running)'
+        echo '--- Build process ---'
+        if ps aux | grep 'build.sh' | grep -v grep | head -1; then
+            echo 'STATUS: RUNNING'
+        else
+            echo 'STATUS: NOT RUNNING'
+        fi
         echo ''
         echo '--- Last 20 lines of build log ---'
         if [ -f ${BUILD_LOG} ]; then
