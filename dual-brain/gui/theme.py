@@ -188,6 +188,30 @@ def _generate_css(tokens: dict[str, str], fonts: dict[str, str], radius: str) ->
     lines.append("}")
     lines.append("")
 
+    lines.append(".ib-badge {")
+    lines.append("  padding: 2px 8px;")
+    lines.append("  border-radius: 8px;")
+    lines.append("  font-weight: 600;")
+    lines.append("  font-size: 12px;")
+    lines.append("}")
+    lines.append("")
+
+    lines.append(f".ib-tier-0 {{ background-color: {tokens['secondary']}; color: {tokens['secondary_foreground']}; }}")
+    lines.append(f".ib-tier-1 {{ background-color: {tokens['foreground']}; color: {tokens['background']}; }}")
+    lines.append(".ib-tier-2 { background-color: #fbbf24; color: #111112; }")
+    lines.append(".ib-tier-3 { background-color: #f87171; color: #111112; }")
+    lines.append("")
+
+    lines.append(f".ib-secondary {{ color: {tokens['secondary']}; }}")
+    lines.append(f".ib-destructive {{ color: #f87171; }}")
+    lines.append("")
+
+    lines.append(".ib-window {")
+    lines.append(f"  background-color: {tokens['background']};")
+    lines.append(f"  color: {tokens['foreground']};")
+    lines.append("}")
+    lines.append("")
+
     return "\n".join(lines) + "\n"
 
 

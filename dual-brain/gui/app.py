@@ -69,10 +69,23 @@ class IcebreakerApp(Adw.Application):
                 self._client = None
 
         _load_widget_classes()
+        self._register_actions()
 
         if self._window_mode == "settings":
             from .settings.window import SettingsWindow
             win = SettingsWindow(app=self)
+            win.present()
+            return
+
+        if self._window_mode == "wizard":
+            from .wizard.window import WizardWindow
+            win = WizardWindow(app=self, client=self._client)
+            win.present()
+            return
+
+        if self._window_mode == "audit":
+            from .audit.window import AuditWindow
+            win = AuditWindow(app=self)
             win.present()
             return
 
@@ -84,6 +97,32 @@ class IcebreakerApp(Adw.Application):
         if self._client is not None:
             self._client.close()
         Adw.Application.do_shutdown(self)
+
+    def _register_actions(self) -> None:
+        for name, handler in [
+            ("open-chatbot", self._action_open_chatbot),
+            ("open-settings", self._action_open_settings),
+            ("open-audit", self._action_open_audit),
+            ("quit", lambda *_: self.quit()),
+        ]:
+            action = Gio.SimpleAction(name=name)
+            action.connect("activate", handler)
+            self.add_action(action)
+
+    def _action_open_chatbot(self, *_args: object) -> None:
+        from .chatbot.window import ChatbotWindow
+        win = ChatbotWindow(app=self, client=self._client)
+        win.present()
+
+    def _action_open_settings(self, *_args: object) -> None:
+        from .settings.window import SettingsWindow
+        win = SettingsWindow(app=self)
+        win.present()
+
+    def _action_open_audit(self, *_args: object) -> None:
+        from .audit.window import AuditWindow
+        win = AuditWindow(app=self)
+        win.present()
 
     def set_window_content(self, widget: Gtk.Widget) -> None:
         """Replace the main content area of the window."""
