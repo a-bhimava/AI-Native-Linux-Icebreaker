@@ -8,6 +8,9 @@
 #   cd cx-distro && sudo bash build.sh [OPTIONS]
 #
 # Options:
+#   --profile=NAME  Build profile: vm (default) or desktop
+#                     vm      — XFCE, LightDM, nomodeset, no toram (low RAM, emulation)
+#                     desktop — GNOME, GDM, toram, full GPU (bare-metal / native virt)
 #   --skip-to=N     Skip stages 0..N-1 (e.g. --skip-to=4 to skip binary builds)
 #   --force         Allow running outside Docker
 #   --no-models     Skip GGUF model embedding (fast ISO for testing boot flow)
@@ -59,9 +62,16 @@ stage_banner() {
 SKIP_TO=0
 FORCE=0
 NO_MODELS=0
+PROFILE="vm"
 
 for arg in "$@"; do
     case "$arg" in
+        --profile=*)
+            PROFILE="${arg#--profile=}"
+            if [[ "$PROFILE" != "vm" && "$PROFILE" != "desktop" ]]; then
+                die "--profile must be 'vm' or 'desktop', got: $PROFILE"
+            fi
+            ;;
         --skip-to=*)
             SKIP_TO="${arg#--skip-to=}"
             if ! [[ "$SKIP_TO" =~ ^[0-5]$ ]]; then
@@ -75,7 +85,7 @@ for arg in "$@"; do
             NO_MODELS=1
             ;;
         --help|-h)
-            head -25 "${BASH_SOURCE[0]}" | grep '^#' | sed 's/^# \?//'
+            head -28 "${BASH_SOURCE[0]}" | grep '^#' | sed 's/^# \?//'
             exit 0
             ;;
         *)
@@ -83,6 +93,8 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+info "Build profile: ${PROFILE}"
 
 # ── Stage 0: Preflight ─────────────────────────────────────────────────
 
@@ -152,7 +164,8 @@ if [ "$SKIP_TO" -le 0 ]; then
   "git_dirty": $(cd "${REPO_ROOT}" && git diff --quiet 2>/dev/null && echo false || echo true),
   "ubuntu_base": "$(cat "${SCRIPT_DIR}/UBUNTU_BASE")",
   "llama_cpp_commit": "$(cat "${SCRIPT_DIR}/LLAMA_CPP_COMMIT")",
-  "no_models": ${NO_MODELS}
+  "no_models": ${NO_MODELS},
+  "profile": "${PROFILE}"
 }
 MANIFEST
     info "Build manifest written to .build/manifest.json"
@@ -385,6 +398,13 @@ SOURCES
     mount --bind /sys  "${ISO_CHROOT}/sys"
     mount -t devpts devpts "${ISO_CHROOT}/dev/pts"
 
+    # ── Profile-specific desktop/DM setup ─────────────────────────────
+    if [ "$PROFILE" = "desktop" ]; then
+        _DESKTOP_PKGS="ubuntu-desktop-minimal gdm3 gnome-terminal gnome-text-editor nautilus"
+    else
+        _DESKTOP_PKGS="xfce4 xfce4-terminal lightdm lightdm-gtk-greeter thunar mousepad"
+    fi
+
     chroot "${ISO_CHROOT}" bash -c "
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq
@@ -400,13 +420,8 @@ SOURCES
             openssh-client less vim-tiny locales \
             dbus-x11
 
-        # XFCE desktop (lightweight — runs well under x86_64 emulation).
-        apt-get install -y --no-install-recommends \
-            xfce4 \
-            xfce4-terminal \
-            lightdm lightdm-gtk-greeter \
-            thunar \
-            mousepad
+        # Desktop environment (profile-selected).
+        apt-get install -y --no-install-recommends ${_DESKTOP_PKGS}
 
         # GTK4 + LibAdwaita for the Icebreaker GUI apps.
         apt-get install -y --no-install-recommends \
@@ -417,26 +432,46 @@ SOURCES
             adwaita-icon-theme
 
         locale-gen en_US.UTF-8
+    "
 
-        # Enable LightDM for graphical login.
-        systemctl enable lightdm || true
+    # ── Display manager enablement + auto-login ────────────────────────
+    if [ "$PROFILE" = "desktop" ]; then
+        chroot "${ISO_CHROOT}" bash -c "systemctl enable gdm || true"
 
-        useradd -m -s /bin/bash -G sudo icebreaker
-        echo 'icebreaker:icebreaker' | chpasswd
-        echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
+        chroot "${ISO_CHROOT}" bash -c "
+            useradd -m -s /bin/bash -G sudo icebreaker
+            echo 'icebreaker:icebreaker' | chpasswd
+            echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
+            mkdir -p /etc/gdm3
+            cat > /etc/gdm3/custom.conf <<'GDMCFG'
+[daemon]
+AutomaticLoginEnable=true
+AutomaticLogin=icebreaker
+WaylandEnable=false
+[security]
+[xdmcp]
+[chooser]
+[debug]
+GDMCFG
+        "
+    else
+        chroot "${ISO_CHROOT}" bash -c "systemctl enable lightdm || true"
 
-        # Auto-login for live session.
-        mkdir -p /etc/lightdm
-        cat > /etc/lightdm/lightdm.conf <<'LDMCFG'
+        chroot "${ISO_CHROOT}" bash -c "
+            useradd -m -s /bin/bash -G sudo icebreaker
+            echo 'icebreaker:icebreaker' | chpasswd
+            echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
+            mkdir -p /etc/lightdm
+            cat > /etc/lightdm/lightdm.conf <<'LDMCFG'
 [Seat:*]
 autologin-user=icebreaker
 autologin-user-timeout=0
 user-session=xfce
 LDMCFG
+        "
+    fi
 
-        apt-get clean
-        rm -rf /var/lib/apt/lists/*
-    "
+    chroot "${ISO_CHROOT}" bash -c "apt-get clean && rm -rf /var/lib/apt/lists/*"
     echo "icebreaker" > "${ISO_CHROOT}/etc/hostname"
 
     # ── 5c: Overlay Icebreaker artifacts from Stage 4 ──────────────────
@@ -512,7 +547,16 @@ LDMCFG
     done
     [ -n "$ISOHDPFX" ] || die "isohdpfx.bin not found — install isolinux package"
 
-    cat > "${ISO_STAGING}/isolinux/isolinux.cfg" <<'BOOTMENU'
+    # Boot parameters differ by profile.
+    if [ "$PROFILE" = "desktop" ]; then
+        _LIVE_APPEND="boot=live toram quiet splash"
+        _SAFE_APPEND="boot=live toram single nomodeset"
+    else
+        _LIVE_APPEND="boot=live nomodeset quiet splash"
+        _SAFE_APPEND="boot=live nomodeset"
+    fi
+
+    cat > "${ISO_STAGING}/isolinux/isolinux.cfg" <<BOOTMENU
 UI vesamenu.c32
 PROMPT 0
 TIMEOUT 50
@@ -524,12 +568,12 @@ DEFAULT live
 LABEL live
   MENU LABEL ^Icebreaker AI-Native OS (Live)
   KERNEL /live/vmlinuz
-  APPEND initrd=/live/initrd boot=live nomodeset quiet splash
+  APPEND initrd=/live/initrd ${_LIVE_APPEND}
 
 LABEL live-safe
   MENU LABEL ^Safe Mode
   KERNEL /live/vmlinuz
-  APPEND initrd=/live/initrd boot=live nomodeset
+  APPEND initrd=/live/initrd ${_SAFE_APPEND}
 BOOTMENU
 
     # ── 5f2: Set up GRUB EFI bootloader ──────────────────────────────────
@@ -545,19 +589,19 @@ BOOTMENU
     GRUB_CFG_DIR="${ISO_WORK}/grub-embed"
     mkdir -p "${GRUB_CFG_DIR}"
 
-    cat > "${GRUB_CFG_DIR}/grub.cfg" <<'GRUBCFG'
+    cat > "${GRUB_CFG_DIR}/grub.cfg" <<GRUBCFG
 search --no-floppy --set=root --label ICEBREAKER
 
 set default=0
 set timeout=5
 
 menuentry "Icebreaker AI-Native OS (Live)" {
-    linux /live/vmlinuz boot=live nomodeset quiet splash
+    linux /live/vmlinuz ${_LIVE_APPEND}
     initrd /live/initrd
 }
 
 menuentry "Safe Mode" {
-    linux /live/vmlinuz boot=live nomodeset
+    linux /live/vmlinuz ${_SAFE_APPEND}
     initrd /live/initrd
 }
 GRUBCFG
