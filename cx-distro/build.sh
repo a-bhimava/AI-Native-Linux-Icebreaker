@@ -326,6 +326,12 @@ if [ "$SKIP_TO" -le 4 ]; then
         warn "--no-models: skipping GGUF embedding"
     fi
 
+    # ── Wallpaper + GNOME defaults ─────────────────────────────────────
+    install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-wallpaper.png" \
+        "${CHROOT}/usr/share/backgrounds/icebreaker-wallpaper.png"
+    install -Dm644 "${SCRIPT_DIR}/distro/99_icebreaker.gschema.override" \
+        "${CHROOT}/usr/share/glib-2.0/schemas/99_icebreaker.gschema.override"
+
     # ── Build manifest ──────────────────────────────────────────────────
     install -Dm644 "${BUILD_DIR}/manifest.json" \
         "${CHROOT}/usr/share/icebreaker/build-manifest.json"
@@ -399,6 +405,12 @@ SOURCES
     info "Overlaying Icebreaker artifacts..."
     [ -d "${CHROOT}" ] || die "includes.chroot not found — run Stage 4 first"
     cp -a "${CHROOT}"/* "${ISO_CHROOT}/"
+
+    # ── 5c2: Compile GSettings schemas (wallpaper override) ─────────────
+    if [ -f "${ISO_CHROOT}/usr/share/glib-2.0/schemas/99_icebreaker.gschema.override" ]; then
+        chroot "${ISO_CHROOT}" glib-compile-schemas /usr/share/glib-2.0/schemas/ 2>/dev/null || true
+        info "GSettings schemas compiled (wallpaper override applied)"
+    fi
 
     # ── 5d: Extract kernel + initrd ────────────────────────────────────
     info "Extracting kernel and initrd..."
