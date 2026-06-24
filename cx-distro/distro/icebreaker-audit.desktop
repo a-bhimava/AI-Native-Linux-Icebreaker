@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Icebreaker Audit Log
+Comment=View the AI operation audit trail
+Exec=/opt/icebreaker/venv/bin/python3 -m gui --audit
+Icon=document-open-recent
+Terminal=false
+Type=Application
+Categories=System;Monitor;
+Keywords=audit;log;security;icebreaker;

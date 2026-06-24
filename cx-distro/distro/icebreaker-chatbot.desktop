@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Icebreaker
+Comment=AI-Native OS Assistant
+Exec=/opt/icebreaker/venv/bin/python3 -m gui --chatbot
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+Categories=System;Utility;
+Keywords=ai;assistant;chatbot;icebreaker;

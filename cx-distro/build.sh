@@ -229,7 +229,7 @@ if [ "$SKIP_TO" -le 3 ]; then
     VENV_DIR="${BUILD_DIR}/venv"
     rm -rf "${VENV_DIR}"
     info "Creating venv..."
-    python3 -m venv "${VENV_DIR}"
+    python3 -m venv --system-site-packages "${VENV_DIR}"
 
     info "Installing icebreaker-controller..."
     "${VENV_DIR}/bin/pip" install --no-cache-dir "${REPO_ROOT}/dual-brain/" 2>&1 | tail -5
@@ -326,6 +326,13 @@ if [ "$SKIP_TO" -le 4 ]; then
         warn "--no-models: skipping GGUF embedding"
     fi
 
+    # ── .desktop files ─────────────────────────────────────────────────
+    for desktop_file in "${SCRIPT_DIR}"/distro/*.desktop; do
+        [ -f "$desktop_file" ] || continue
+        install -Dm644 "$desktop_file" \
+            "${CHROOT}/usr/share/applications/$(basename "$desktop_file")"
+    done
+
     # ── Wallpaper + GNOME defaults ─────────────────────────────────────
     install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-wallpaper.png" \
         "${CHROOT}/usr/share/backgrounds/icebreaker-wallpaper.png"
@@ -381,20 +388,54 @@ SOURCES
     chroot "${ISO_CHROOT}" bash -c "
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq
+
+        # Core system packages.
         apt-get install -y --no-install-recommends \
             linux-generic \
             live-boot \
             systemd-sysv \
-            sudo bash coreutils python3 \
+            sudo bash coreutils python3 python3-venv python3-pip \
             curl ca-certificates \
             net-tools iproute2 iputils-ping \
-            openssh-client less vim-tiny locales
+            openssh-client less vim-tiny locales \
+            dbus-x11
+
+        # GNOME desktop (minimal) + display manager for GUI.
+        apt-get install -y --no-install-recommends \
+            ubuntu-desktop-minimal \
+            gdm3 \
+            gnome-terminal \
+            gnome-text-editor \
+            nautilus
+
+        # GTK4 + LibAdwaita for the Icebreaker GUI.
+        apt-get install -y --no-install-recommends \
+            python3-gi \
+            gir1.2-gtk-4.0 \
+            gir1.2-adw-1 \
+            libadwaita-1-0 \
+            adwaita-icon-theme
 
         locale-gen en_US.UTF-8
+
+        # Enable GDM for graphical login.
+        systemctl enable gdm || true
 
         useradd -m -s /bin/bash -G sudo icebreaker
         echo 'icebreaker:icebreaker' | chpasswd
         echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
+
+        # Auto-login for live session.
+        mkdir -p /etc/gdm3
+        cat > /etc/gdm3/custom.conf <<'GDMCFG'
+[daemon]
+AutomaticLoginEnable=true
+AutomaticLogin=icebreaker
+[security]
+[xdmcp]
+[chooser]
+[debug]
+GDMCFG
 
         apt-get clean
         rm -rf /var/lib/apt/lists/*
