@@ -2,9 +2,10 @@
 Description=Icebreaker Controller Socket
 
 [Socket]
-ListenStream=/run/user/%U/icebreaker/controller.sock
-SocketMode=0600
-DirectoryMode=0700
+ListenStream=/run/icebreaker/controller.sock
+SocketMode=0660
+SocketGroup=icebreaker-users
+DirectoryMode=2775
 
 [Install]
 WantedBy=sockets.target

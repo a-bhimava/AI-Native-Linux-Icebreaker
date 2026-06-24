@@ -7,11 +7,18 @@ This suite focuses on the tier-decision rules themselves.
 """
 
 import os
+from unittest.mock import patch
 
 import pytest
 
 from controller._mcpd_tools import ALL_TOOLS
-from controller.risk_classifier import ClassificationResult, Tier, classify
+from controller.risk_classifier import (
+    ClassificationResult,
+    Tier,
+    _get_user_home,
+    _target_is_in_user_home,
+    classify,
+)
 
 
 HOME = os.path.expanduser("~")
@@ -136,7 +143,7 @@ def test_explicit_critical_risk_level_forces_tier3():
 # ── Coverage: no tool falls into the "Unclassified" fallback ─────────────────
 
 def test_every_mcpd_tool_classifies_without_fallback():
-    fallback_msg = "Unclassified action"
+    fallback_msg = "Unclassified action"  # BP-5 escalation path
     unclassified = []
     for action in sorted(ALL_TOOLS):
         # For fs.write, supply an in-home target so it lands in Tier 1
@@ -158,3 +165,103 @@ def test_classification_result_invariants():
         assert isinstance(r, ClassificationResult)
         assert r.requires_hitl == (r.tier == Tier.HIGH)
         assert r.auto_execute != r.requires_hitl
+
+
+# ── Path traversal: prefix collision (CVE-grade, P0) ────────────────────────
+
+class TestPathTraversalPrefixCollision:
+    """Verify _target_is_in_user_home rejects paths that merely share a prefix
+    with the home dir (e.g. /home/alice-evil vs /home/alice)."""
+
+    def test_exact_home_dir_accepted(self):
+        assert _target_is_in_user_home(HOME) is True
+
+    def test_child_of_home_accepted(self):
+        assert _target_is_in_user_home(f"{HOME}/notes.md") is True
+
+    def test_deep_child_of_home_accepted(self):
+        assert _target_is_in_user_home(f"{HOME}/a/b/c/d/file") is True
+
+    def test_prefix_collision_rejected(self):
+        assert _target_is_in_user_home(f"{HOME}-evil/payload") is False
+
+    def test_prefix_collision_no_slash_rejected(self):
+        assert _target_is_in_user_home(f"{HOME}SUFFIX") is False
+
+    def test_prefix_collision_dot_rejected(self):
+        assert _target_is_in_user_home(f"{HOME}..sneaky/x") is False
+
+    def test_sibling_dir_rejected(self):
+        parent = os.path.dirname(HOME)
+        assert _target_is_in_user_home(f"{parent}/other-user/file") is False
+
+    def test_parent_dir_rejected(self):
+        parent = os.path.dirname(HOME)
+        assert _target_is_in_user_home(parent) is False
+
+    def test_root_rejected(self):
+        assert _target_is_in_user_home("/") is False
+
+    def test_empty_string_rejected(self):
+        assert _target_is_in_user_home("") is False
+
+    def test_none_like_empty_rejected(self):
+        assert _target_is_in_user_home("") is False
+
+    def test_dotdot_escape_from_home_rejected(self):
+        assert _target_is_in_user_home(f"{HOME}/../etc/shadow") is False
+
+    def test_classify_prefix_collision_is_tier3(self):
+        r = classify(_make_intent("fs.write", f"{HOME}-evil/payload"))
+        assert r.tier == Tier.HIGH
+        assert r.requires_hitl
+
+    def test_classify_dotdot_escape_is_tier3(self):
+        r = classify(_make_intent("fs.write", f"{HOME}/../../../etc/passwd"))
+        assert r.tier == Tier.HIGH
+        assert r.requires_hitl
+
+
+# ── $HOME not frozen at import time ──────────────────────────────────────────
+
+class TestHomeDirNotFrozen:
+    """_get_user_home() must resolve at call time, not import time."""
+
+    def test_home_follows_env_change(self, monkeypatch):
+        monkeypatch.setenv("HOME", "/home/testuser42")
+        assert _get_user_home() == "/home/testuser42"
+
+    def test_home_follows_second_env_change(self, monkeypatch):
+        monkeypatch.setenv("HOME", "/home/first")
+        assert _get_user_home() == "/home/first"
+        monkeypatch.setenv("HOME", "/home/second")
+        assert _get_user_home() == "/home/second"
+
+    def test_classify_uses_current_home(self, monkeypatch):
+        monkeypatch.setenv("HOME", "/home/dynamic_user")
+        r = classify(_make_intent("fs.write", "/home/dynamic_user/notes.md"))
+        assert r.tier == Tier.LOW
+
+
+# ── BP-5: unclassified actions escalate to HIGH ─────────────────────────────
+
+class TestUnclassifiedActionEscalation:
+    """Unknown actions must default to Tier.HIGH (BP-5 escalate-only)."""
+
+    def test_unknown_action_is_tier3(self):
+        r = classify(_make_intent("totally.bogus.action", "/tmp/x"))
+        assert r.tier == Tier.HIGH
+        assert r.requires_hitl
+        assert not r.auto_execute
+
+    def test_unknown_action_not_reversible(self):
+        r = classify(_make_intent("unknown.cmd"))
+        assert r.reversible is False
+
+    def test_empty_action_is_tier3(self):
+        r = classify(_make_intent(""))
+        assert r.tier == Tier.HIGH
+
+    def test_unknown_reason_mentions_bp5(self):
+        r = classify(_make_intent("injection.attempt"))
+        assert "BP-5" in r.reason

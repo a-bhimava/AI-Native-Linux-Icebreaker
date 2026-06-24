@@ -25,6 +25,7 @@ import os
 import re
 from dataclasses import dataclass
 from enum import IntEnum
+from pathlib import PurePosixPath
 from typing import Optional
 
 from ._mcpd_tools import (
@@ -69,15 +70,17 @@ _CRITICAL_PATHS = re.compile(
     re.IGNORECASE,
 )
 
-_USER_HOME = os.path.expanduser("~")
+def _get_user_home() -> str:
+    return os.path.expanduser("~")
 
 
 def _target_is_in_user_home(target: str) -> bool:
     if not target:
         return False
     try:
-        # realpath resolves symlinks so a symlink-swap TOCTOU is caught here
-        return os.path.realpath(target).startswith(_USER_HOME)
+        resolved = PurePosixPath(os.path.realpath(target))
+        home = PurePosixPath(os.path.realpath(_get_user_home()))
+        return resolved == home or home in resolved.parents
     except Exception:
         return False
 
@@ -201,13 +204,11 @@ def classify(intent: dict) -> ClassificationResult:
             reversible=False,
         )
 
-    # Unclassified action: defensive medium tier (audit + notify; do not auto-block,
-    # because a missing tool name should be caught upstream by JSON-schema validation
-    # of the Intent Object's `action` field. This fallback exists for resilience.)
+    # BP-5: escalate-only — unknown actions MUST default to the highest tier.
     return ClassificationResult(
-        tier=Tier.MEDIUM,
-        reason=f"Unclassified action '{action}' — applying medium risk tier",
-        reversible=True,
+        tier=Tier.HIGH,
+        reason=f"Unclassified action '{action}' — escalating to HITL (BP-5)",
+        reversible=False,
     )
 
 
@@ -238,7 +239,7 @@ if __name__ == "__main__":
     test_cases = [
         {"action": "system.status",   "target": "",                    "params": {}, "reason": "user_requested", "risk_level": "read_only"},
         {"action": "fs.read",         "target": "/etc/hosts",          "params": {}, "reason": "user_requested", "risk_level": "read_only"},
-        {"action": "fs.write",        "target": f"{_USER_HOME}/notes", "params": {}, "reason": "user_requested", "risk_level": "low"},
+        {"action": "fs.write",        "target": f"{_get_user_home()}/notes", "params": {}, "reason": "user_requested", "risk_level": "low"},
         {"action": "fs.write",        "target": "/etc/nginx/nginx.conf","params": {}, "reason": "user_requested", "risk_level": "medium"},
         {"action": "fs.delete",       "target": "/var/log/app.log",    "params": {}, "reason": "user_requested", "risk_level": "high"},
         {"action": "service.restart", "target": "nginx",               "params": {}, "reason": "user_requested", "risk_level": "medium"},

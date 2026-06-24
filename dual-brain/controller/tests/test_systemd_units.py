@@ -179,13 +179,65 @@ def test_controller_execstart_uses_venv():
     assert "--config /etc/icebreaker/controller.toml" in exec_start
 
 
-# ── Socket unit uses per-user path ───────────────────────────────────────
+# ── Socket unit uses system path matching tmpfiles.d ─────────────────────
 
 
-def test_socket_uses_per_user_path():
+def test_socket_uses_system_path():
     cp = _parse_unit("icebreaker-controller.socket")
     listen = cp.get("Socket", "ListenStream", fallback="")
-    assert "/run/user/%U/icebreaker/controller.sock" in listen
+    assert "/run/icebreaker/controller.sock" in listen
+
+
+def test_socket_path_matches_distro_config():
+    """Socket unit path must agree with controller.toml [daemon].socket_path."""
+    import sys
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:
+        import tomli as tomllib
+    distro_config = Path(__file__).parent.parent.parent.parent / "cx-distro" / "distro" / "controller.toml"
+    if not distro_config.exists():
+        pytest.skip("cx-distro/distro/controller.toml not present")
+    raw = tomllib.loads(distro_config.read_text())
+    config_socket = raw.get("daemon", {}).get("socket_path", "")
+
+    cp = _parse_unit("icebreaker-controller.socket")
+    unit_socket = cp.get("Socket", "ListenStream", fallback="")
+    assert config_socket == unit_socket, (
+        f"Socket unit ListenStream={unit_socket!r} != "
+        f"controller.toml daemon.socket_path={config_socket!r}"
+    )
+
+
+# ── Controller service has ExecStartPre and EnvironmentFile ────────────
+
+
+def test_controller_has_environment_file():
+    cp = _parse_unit("icebreaker-controller.service")
+    env_file = cp.get("Service", "EnvironmentFile", fallback="")
+    assert "/etc/icebreaker/locations.env" in env_file
+
+
+def test_controller_has_exec_start_pre():
+    cp = _parse_unit("icebreaker-controller.service")
+    pre = cp.get("Service", "ExecStartPre", fallback="")
+    assert "wait-for-sockets" in pre
+
+
+def test_controller_has_logs_directory():
+    cp = _parse_unit("icebreaker-controller.service")
+    logs_dir = cp.get("Service", "LogsDirectory", fallback="")
+    assert logs_dir == "icebreaker"
+
+
+# ── start-qbd handles non-local backends ──────────────────────────────
+
+
+def test_start_qbd_checks_backend_type():
+    """start-qbd must check backend before assuming local llama-server."""
+    content = (SCRIPTS_DIR / "start-qbd").read_text()
+    assert "QB_BACKEND" in content, "start-qbd must check backend type"
+    assert "sleep infinity" in content, "start-qbd must sleep if backend is not local"
 
 
 # ── sysusers.d conf ──────────────────────────────────────────────────────
@@ -278,6 +330,24 @@ def test_start_qbd_uses_unix_socket():
     content = (SCRIPTS_DIR / "start-qbd").read_text()
     assert "qbd.sock" in content
     assert "--host" in content
+
+
+def test_wait_for_sockets_exists_and_executable():
+    path = Path(__file__).parent.parent.parent.parent / "cx-distro" / "distro" / "wait-for-sockets"
+    if not path.exists():
+        pytest.skip("cx-distro/distro/wait-for-sockets not present")
+    assert os.access(path, os.X_OK)
+
+
+def test_wait_for_sockets_passes_bash_n():
+    path = Path(__file__).parent.parent.parent.parent / "cx-distro" / "distro" / "wait-for-sockets"
+    if not path.exists():
+        pytest.skip("cx-distro/distro/wait-for-sockets not present")
+    result = subprocess.run(
+        ["bash", "-n", str(path)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, f"bash -n failed: {result.stderr}"
 
 
 def test_start_pbd_passes_bash_n():

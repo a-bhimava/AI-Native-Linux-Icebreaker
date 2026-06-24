@@ -3,6 +3,7 @@ FROM ubuntu:noble
 RUN apt-get update && apt-get install -y --no-install-recommends \
     debootstrap squashfs-tools xorriso \
     isolinux syslinux-common \
+    grub-efi-amd64-bin \
     mtools dosfstools \
     build-essential cmake git ca-certificates curl \
     python3 python3-venv python3-pip \

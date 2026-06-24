@@ -104,6 +104,36 @@ class TestGenerateCSS:
         css = _generate_css(COLOR_TOKENS_LIGHT, FONTS, RADIUS)
         assert "#ffffff" in css
 
+    def test_output_contains_elevated(self) -> None:
+        css = _generate_css(COLOR_TOKENS_DARK, FONTS, RADIUS)
+        assert ".ib-elevated" in css
+        assert "box-shadow" in css
+
+    def test_output_contains_chip(self) -> None:
+        css = _generate_css(COLOR_TOKENS_DARK, FONTS, RADIUS)
+        assert ".ib-chip" in css
+
+    def test_output_contains_greeting(self) -> None:
+        css = _generate_css(COLOR_TOKENS_DARK, FONTS, RADIUS)
+        assert ".ib-greeting" in css
+
+    def test_output_contains_sidebar(self) -> None:
+        css = _generate_css(COLOR_TOKENS_DARK, FONTS, RADIUS)
+        assert ".ib-sidebar" in css
+
+    def test_output_contains_badge(self) -> None:
+        css = _generate_css(COLOR_TOKENS_DARK, FONTS, RADIUS)
+        assert ".ib-badge" in css
+
+    def test_output_contains_tier_classes(self) -> None:
+        css = _generate_css(COLOR_TOKENS_DARK, FONTS, RADIUS)
+        for i in range(4):
+            assert f".ib-tier-{i}" in css
+
+    def test_output_contains_window_class(self) -> None:
+        css = _generate_css(COLOR_TOKENS_DARK, FONTS, RADIUS)
+        assert ".ib-window" in css
+
 
 class TestIcebreakerTheme:
     def test_dark_mode_default(self) -> None:

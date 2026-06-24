@@ -447,3 +447,59 @@ def test_active_sessions_property():
 
     transport.is_open.return_value = False
     assert daemon.active_sessions == 0
+
+
+# ── _UnconfiguredBackend stub ──────────────────────────────────────────
+
+
+def _stub_envelope():
+    from controller.backends.base import RequestEnvelope
+    return RequestEnvelope(system="sys", user="hello", schema=None, sampling={})
+
+
+def test_unconfigured_backend_raises_brain_provider_error():
+    from controller.__main__ import _UnconfiguredBackend
+    from controller.backends.base import BrainProviderError
+
+    stub = _UnconfiguredBackend("GEMINI_API_KEY not set")
+    with pytest.raises(BrainProviderError, match="Quarantined Brain not available"):
+        stub._call_provider(_stub_envelope())
+
+
+def test_unconfigured_backend_message_includes_reason():
+    from controller.__main__ import _UnconfiguredBackend
+    from controller.backends.base import BrainProviderError
+
+    stub = _UnconfiguredBackend("test reason 123")
+    with pytest.raises(BrainProviderError, match="test reason 123"):
+        stub._call_provider(_stub_envelope())
+
+
+def test_unconfigured_backend_message_includes_recovery_instructions():
+    from controller.__main__ import _UnconfiguredBackend
+    from controller.backends.base import BrainProviderError
+
+    stub = _UnconfiguredBackend("missing key")
+    with pytest.raises(BrainProviderError, match="locations.env"):
+        stub._call_provider(_stub_envelope())
+
+
+def test_build_qb_safe_returns_stub_on_failure():
+    from controller.__main__ import _UnconfiguredBackend, _build_qb_safe
+
+    mock_cfg = MagicMock()
+    with patch("controller.__main__._build_qb", side_effect=RuntimeError("boom")):
+        result = _build_qb_safe(mock_cfg)
+    assert isinstance(result, _UnconfiguredBackend)
+    assert result._reason == "boom"
+
+
+def test_build_qb_safe_returns_real_backend_on_success():
+    from controller.__main__ import _UnconfiguredBackend, _build_qb_safe
+
+    fake_backend = MagicMock()
+    mock_cfg = MagicMock()
+    with patch("controller.__main__._build_qb", return_value=fake_backend):
+        result = _build_qb_safe(mock_cfg)
+    assert result is fake_backend
+    assert not isinstance(result, _UnconfiguredBackend)

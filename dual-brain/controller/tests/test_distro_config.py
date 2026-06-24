@@ -39,13 +39,19 @@ def _require_cx_distro():
 
 def test_distro_config_loads_successfully():
     raw = _load_raw_toml(_DISTRO_CONFIG)
-    assert raw["qb"]["backend"] == "local"
+    assert raw["qb"]["backend"] in ("local", "gemini", "openai", "anthropic")
 
 
-def test_distro_config_uses_unix_transport():
+def test_distro_config_uses_unix_transport_for_pb():
     raw = _load_raw_toml(_DISTRO_CONFIG)
-    assert raw["qb"]["local"]["transport"] == "unix"
     assert raw["run"]["pb_transport"] == "unix"
+
+
+def test_distro_config_local_qb_uses_unix_transport():
+    raw = _load_raw_toml(_DISTRO_CONFIG)
+    if raw["qb"]["backend"] != "local":
+        pytest.skip("QB backend is not local")
+    assert raw["qb"]["local"]["transport"] == "unix"
 
 
 def test_distro_config_all_paths_absolute():
@@ -68,10 +74,19 @@ def test_distro_config_all_paths_absolute():
             f"[{section}].{key} = {value!r} is not an absolute path"
 
 
-def test_distro_config_model_ids_in_catalogue():
+def test_distro_config_pb_model_id_in_catalogue():
     raw = _load_raw_toml(_DISTRO_CONFIG)
     cat = tomllib.loads(_CATALOGUE.read_text())
+    catalogue_ids = {m["id"] for m in cat["model"]}
+    pb_model_id = raw["run"]["pb_model_id"]
+    assert pb_model_id in catalogue_ids, f"PB model_id {pb_model_id!r} not in catalogue"
 
+
+def test_distro_config_local_qb_model_ids_in_catalogue():
+    raw = _load_raw_toml(_DISTRO_CONFIG)
+    if raw["qb"]["backend"] != "local":
+        pytest.skip("QB backend is not local")
+    cat = tomllib.loads(_CATALOGUE.read_text())
     catalogue_ids = {m["id"] for m in cat["model"]}
 
     qb_model_id = raw["qb"]["local"]["model_id"]
@@ -81,16 +96,28 @@ def test_distro_config_model_ids_in_catalogue():
     if draft_id:
         assert draft_id in catalogue_ids, f"draft_model_id {draft_id!r} not in catalogue"
 
-    pb_model_id = raw["run"]["pb_model_id"]
-    assert pb_model_id in catalogue_ids, f"PB model_id {pb_model_id!r} not in catalogue"
 
-
-def test_distro_config_endpoints_are_unix_sockets():
+def test_distro_config_gemini_qb_has_required_fields():
     raw = _load_raw_toml(_DISTRO_CONFIG)
-    qb_endpoint = raw["qb"]["local"]["endpoint"]
-    assert qb_endpoint.startswith("unix://"), f"QB endpoint not unix: {qb_endpoint}"
+    if raw["qb"]["backend"] != "gemini":
+        pytest.skip("QB backend is not gemini")
+    gemini = raw["qb"]["gemini"]
+    assert "model" in gemini, "gemini section missing 'model'"
+    assert "api_key_env" in gemini, "gemini section missing 'api_key_env'"
+
+
+def test_distro_config_pb_endpoint_is_unix_socket():
+    raw = _load_raw_toml(_DISTRO_CONFIG)
     pb_endpoint = raw["run"]["pb_endpoint"]
     assert pb_endpoint.startswith("unix://"), f"PB endpoint not unix: {pb_endpoint}"
+
+
+def test_distro_config_local_qb_endpoint_is_unix_socket():
+    raw = _load_raw_toml(_DISTRO_CONFIG)
+    if raw["qb"]["backend"] != "local":
+        pytest.skip("QB backend is not local")
+    qb_endpoint = raw["qb"]["local"]["endpoint"]
+    assert qb_endpoint.startswith("unix://"), f"QB endpoint not unix: {qb_endpoint}"
 
 
 def test_distro_locations_env_pure_keyvalue():

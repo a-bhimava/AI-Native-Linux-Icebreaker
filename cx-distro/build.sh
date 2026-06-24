@@ -8,6 +8,9 @@
 #   cd cx-distro && sudo bash build.sh [OPTIONS]
 #
 # Options:
+#   --profile=NAME  Build profile: vm (default) or desktop
+#                     vm      — XFCE, LightDM, nomodeset, no toram (low RAM, emulation)
+#                     desktop — GNOME, GDM, toram, full GPU (bare-metal / native virt)
 #   --skip-to=N     Skip stages 0..N-1 (e.g. --skip-to=4 to skip binary builds)
 #   --force         Allow running outside Docker
 #   --no-models     Skip GGUF model embedding (fast ISO for testing boot flow)
@@ -18,7 +21,7 @@
 #   2  llama-server — clone + build llama.cpp at pinned commit
 #   3  venv         — create Python venv, pip install dual-brain/
 #   4  chroot       — assemble config/includes.chroot/ tree
-#   5  iso          — debootstrap + mksquashfs + xorriso (manual assembly)
+#   5  iso          — debootstrap + mksquashfs + xorriso (hybrid BIOS+EFI)
 #
 # SECURITY: This file is listed in CLAUDE.md Security-Critical Files.
 # Any change requires human review from the module owner.
@@ -59,9 +62,16 @@ stage_banner() {
 SKIP_TO=0
 FORCE=0
 NO_MODELS=0
+PROFILE="vm"
 
 for arg in "$@"; do
     case "$arg" in
+        --profile=*)
+            PROFILE="${arg#--profile=}"
+            if [[ "$PROFILE" != "vm" && "$PROFILE" != "desktop" ]]; then
+                die "--profile must be 'vm' or 'desktop', got: $PROFILE"
+            fi
+            ;;
         --skip-to=*)
             SKIP_TO="${arg#--skip-to=}"
             if ! [[ "$SKIP_TO" =~ ^[0-5]$ ]]; then
@@ -75,7 +85,7 @@ for arg in "$@"; do
             NO_MODELS=1
             ;;
         --help|-h)
-            head -25 "${BASH_SOURCE[0]}" | grep '^#' | sed 's/^# \?//'
+            head -28 "${BASH_SOURCE[0]}" | grep '^#' | sed 's/^# \?//'
             exit 0
             ;;
         *)
@@ -83,6 +93,8 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+info "Build profile: ${PROFILE}"
 
 # ── Stage 0: Preflight ─────────────────────────────────────────────────
 
@@ -152,7 +164,8 @@ if [ "$SKIP_TO" -le 0 ]; then
   "git_dirty": $(cd "${REPO_ROOT}" && git diff --quiet 2>/dev/null && echo false || echo true),
   "ubuntu_base": "$(cat "${SCRIPT_DIR}/UBUNTU_BASE")",
   "llama_cpp_commit": "$(cat "${SCRIPT_DIR}/LLAMA_CPP_COMMIT")",
-  "no_models": ${NO_MODELS}
+  "no_models": ${NO_MODELS},
+  "profile": "${PROFILE}"
 }
 MANIFEST
     info "Build manifest written to .build/manifest.json"
@@ -229,7 +242,7 @@ if [ "$SKIP_TO" -le 3 ]; then
     VENV_DIR="${BUILD_DIR}/venv"
     rm -rf "${VENV_DIR}"
     info "Creating venv..."
-    python3 -m venv "${VENV_DIR}"
+    python3 -m venv --system-site-packages "${VENV_DIR}"
 
     info "Installing icebreaker-controller..."
     "${VENV_DIR}/bin/pip" install --no-cache-dir "${REPO_ROOT}/dual-brain/" 2>&1 | tail -5
@@ -285,6 +298,8 @@ if [ "$SKIP_TO" -le 4 ]; then
         "${CHROOT}/usr/libexec/icebreaker/first-boot"
     install -Dm755 "${SCRIPT_DIR}/distro/safe-mode" \
         "${CHROOT}/usr/libexec/icebreaker/safe-mode"
+    install -Dm755 "${SCRIPT_DIR}/distro/wait-for-sockets" \
+        "${CHROOT}/usr/libexec/icebreaker/wait-for-sockets"
 
     # ── /usr/share/icebreaker/ ──────────────────────────────────────────
     install -Dm644 "${REPO_ROOT}/dual-brain/controller/catalogue.toml" \
@@ -325,6 +340,19 @@ if [ "$SKIP_TO" -le 4 ]; then
     else
         warn "--no-models: skipping GGUF embedding"
     fi
+
+    # ── .desktop files ─────────────────────────────────────────────────
+    for desktop_file in "${SCRIPT_DIR}"/distro/*.desktop; do
+        [ -f "$desktop_file" ] || continue
+        install -Dm644 "$desktop_file" \
+            "${CHROOT}/usr/share/applications/$(basename "$desktop_file")"
+    done
+
+    # ── Wallpaper + GNOME defaults ─────────────────────────────────────
+    install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-wallpaper.png" \
+        "${CHROOT}/usr/share/backgrounds/icebreaker-wallpaper.png"
+    install -Dm644 "${SCRIPT_DIR}/distro/99_icebreaker.gschema.override" \
+        "${CHROOT}/usr/share/glib-2.0/schemas/99_icebreaker.gschema.override"
 
     # ── Build manifest ──────────────────────────────────────────────────
     install -Dm644 "${BUILD_DIR}/manifest.json" \
@@ -372,33 +400,106 @@ SOURCES
     mount --bind /sys  "${ISO_CHROOT}/sys"
     mount -t devpts devpts "${ISO_CHROOT}/dev/pts"
 
+    # ── Profile-specific desktop/DM setup ─────────────────────────────
+    if [ "$PROFILE" = "desktop" ]; then
+        _DESKTOP_PKGS="ubuntu-desktop-minimal gdm3 gnome-terminal gnome-text-editor nautilus"
+    else
+        _DESKTOP_PKGS="xfce4 xfce4-terminal lightdm lightdm-gtk-greeter thunar mousepad zenity"
+    fi
+
     chroot "${ISO_CHROOT}" bash -c "
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq
+
+        # Core system packages.
         apt-get install -y --no-install-recommends \
             linux-generic \
             live-boot \
             systemd-sysv \
-            sudo bash coreutils python3 \
+            sudo bash coreutils python3 python3-venv python3-pip \
             curl ca-certificates \
             net-tools iproute2 iputils-ping \
-            openssh-client less vim-tiny locales
+            openssh-client less vim-tiny locales \
+            dbus-x11
+
+        # Desktop environment (profile-selected).
+        apt-get install -y --no-install-recommends ${_DESKTOP_PKGS}
+
+        # GTK4 + LibAdwaita for the Icebreaker GUI apps.
+        apt-get install -y --no-install-recommends \
+            python3-gi \
+            gir1.2-gtk-4.0 \
+            gir1.2-adw-1 \
+            libadwaita-1-0 \
+            adwaita-icon-theme
 
         locale-gen en_US.UTF-8
-
-        useradd -m -s /bin/bash -G sudo icebreaker
-        echo 'icebreaker:icebreaker' | chpasswd
-        echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
-
-        apt-get clean
-        rm -rf /var/lib/apt/lists/*
     "
+
+    # ── Display manager enablement + auto-login ────────────────────────
+    if [ "$PROFILE" = "desktop" ]; then
+        chroot "${ISO_CHROOT}" bash -c "systemctl enable gdm || true"
+
+        chroot "${ISO_CHROOT}" bash -c "
+            useradd -m -s /bin/bash -G sudo icebreaker
+            echo 'icebreaker:icebreaker' | chpasswd
+            echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
+            mkdir -p /etc/gdm3
+            cat > /etc/gdm3/custom.conf <<'GDMCFG'
+[daemon]
+AutomaticLoginEnable=true
+AutomaticLogin=icebreaker
+WaylandEnable=false
+[security]
+[xdmcp]
+[chooser]
+[debug]
+GDMCFG
+        "
+    else
+        chroot "${ISO_CHROOT}" bash -c "systemctl enable lightdm || true"
+
+        chroot "${ISO_CHROOT}" bash -c "
+            groupadd -rf autologin
+            useradd -m -s /bin/bash -G sudo,autologin icebreaker
+            echo 'icebreaker:icebreaker' | chpasswd
+            echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
+            mkdir -p /etc/lightdm/lightdm.conf.d
+            cat > /etc/lightdm/lightdm.conf.d/50-autologin.conf <<'LDMCFG'
+[Seat:*]
+autologin-user=icebreaker
+autologin-user-timeout=0
+user-session=xfce
+greeter-session=lightdm-gtk-greeter
+LDMCFG
+        "
+    fi
+
+    chroot "${ISO_CHROOT}" bash -c "apt-get clean && rm -rf /var/lib/apt/lists/*"
     echo "icebreaker" > "${ISO_CHROOT}/etc/hostname"
 
     # ── 5c: Overlay Icebreaker artifacts from Stage 4 ──────────────────
     info "Overlaying Icebreaker artifacts..."
     [ -d "${CHROOT}" ] || die "includes.chroot not found — run Stage 4 first"
     cp -a "${CHROOT}"/* "${ISO_CHROOT}/"
+
+    # ── 5c2: Compile GSettings schemas (wallpaper override) ─────────────
+    if [ -f "${ISO_CHROOT}/usr/share/glib-2.0/schemas/99_icebreaker.gschema.override" ]; then
+        chroot "${ISO_CHROOT}" glib-compile-schemas /usr/share/glib-2.0/schemas/ 2>/dev/null || true
+        info "GSettings schemas compiled (wallpaper override applied)"
+    fi
+
+    # ── 5c3: Enable Icebreaker systemd services ──────────────────────
+    info "Enabling Icebreaker systemd services..."
+    mkdir -p "${ISO_CHROOT}/etc/systemd/system/multi-user.target.wants"
+    mkdir -p "${ISO_CHROOT}/etc/systemd/system/sockets.target.wants"
+    for svc in icebreaker-first-boot.service icebreaker-pbd.service \
+               icebreaker-qbd.service icebreaker-controller.service; do
+        ln -sf "/etc/systemd/system/${svc}" \
+            "${ISO_CHROOT}/etc/systemd/system/multi-user.target.wants/${svc}"
+    done
+    ln -sf /etc/systemd/system/icebreaker-controller.socket \
+        "${ISO_CHROOT}/etc/systemd/system/sockets.target.wants/icebreaker-controller.socket"
 
     # ── 5d: Extract kernel + initrd ────────────────────────────────────
     info "Extracting kernel and initrd..."
@@ -450,7 +551,16 @@ SOURCES
     done
     [ -n "$ISOHDPFX" ] || die "isohdpfx.bin not found — install isolinux package"
 
-    cat > "${ISO_STAGING}/isolinux/isolinux.cfg" <<'BOOTMENU'
+    # Boot parameters differ by profile.
+    if [ "$PROFILE" = "desktop" ]; then
+        _LIVE_APPEND="boot=live toram quiet splash"
+        _SAFE_APPEND="boot=live toram single nomodeset"
+    else
+        _LIVE_APPEND="boot=live nomodeset quiet splash"
+        _SAFE_APPEND="boot=live nomodeset"
+    fi
+
+    cat > "${ISO_STAGING}/isolinux/isolinux.cfg" <<BOOTMENU
 UI vesamenu.c32
 PROMPT 0
 TIMEOUT 50
@@ -462,13 +572,65 @@ DEFAULT live
 LABEL live
   MENU LABEL ^Icebreaker AI-Native OS (Live)
   KERNEL /live/vmlinuz
-  APPEND initrd=/live/initrd boot=live toram quiet splash
+  APPEND initrd=/live/initrd ${_LIVE_APPEND}
 
 LABEL live-safe
   MENU LABEL ^Safe Mode
   KERNEL /live/vmlinuz
-  APPEND initrd=/live/initrd boot=live toram single nomodeset
+  APPEND initrd=/live/initrd ${_SAFE_APPEND}
 BOOTMENU
+
+    # ── 5f2: Set up GRUB EFI bootloader ──────────────────────────────────
+    # The isolinux setup above (5f) handles BIOS boot. This sub-stage adds
+    # EFI boot support so the ISO works on UEFI firmware (VirtualBox on
+    # macOS, OVMF/QEMU, post-2012 hardware). Both paths load the same
+    # kernel with the same parameters.
+    info "Setting up GRUB EFI bootloader..."
+
+    command -v grub-mkstandalone >/dev/null 2>&1 || \
+        die "grub-mkstandalone not found — install grub-efi-amd64-bin"
+
+    GRUB_CFG_DIR="${ISO_WORK}/grub-embed"
+    mkdir -p "${GRUB_CFG_DIR}"
+
+    cat > "${GRUB_CFG_DIR}/grub.cfg" <<GRUBCFG
+search --no-floppy --set=root --label ICEBREAKER
+
+set default=0
+set timeout=5
+
+menuentry "Icebreaker AI-Native OS (Live)" {
+    linux /live/vmlinuz ${_LIVE_APPEND}
+    initrd /live/initrd
+}
+
+menuentry "Safe Mode" {
+    linux /live/vmlinuz ${_SAFE_APPEND}
+    initrd /live/initrd
+}
+GRUBCFG
+
+    mkdir -p "${ISO_STAGING}/boot/grub"
+    grub-mkstandalone \
+        --format=x86_64-efi \
+        --output="${ISO_STAGING}/boot/grub/BOOTX64.EFI" \
+        --modules="part_gpt part_msdos fat iso9660 search search_label linux normal all_video test" \
+        "boot/grub/grub.cfg=${GRUB_CFG_DIR}/grub.cfg"
+    [ -f "${ISO_STAGING}/boot/grub/BOOTX64.EFI" ] || \
+        die "grub-mkstandalone failed to produce BOOTX64.EFI"
+    info "GRUB EFI binary: $(du -h "${ISO_STAGING}/boot/grub/BOOTX64.EFI" | awk '{print $1}')"
+
+    EFI_IMG="${ISO_STAGING}/boot/grub/efi.img"
+    GRUB_SIZE_KB=$(( $(stat -c%s "${ISO_STAGING}/boot/grub/BOOTX64.EFI" 2>/dev/null || stat -f%z "${ISO_STAGING}/boot/grub/BOOTX64.EFI") / 1024 ))
+    EFI_IMG_SIZE_KB=$(( GRUB_SIZE_KB + 1024 ))  # GRUB binary + 1 MB headroom for FAT metadata
+
+    dd if=/dev/zero of="${EFI_IMG}" bs=1K count="${EFI_IMG_SIZE_KB}" 2>/dev/null
+    mkfs.fat "${EFI_IMG}" >/dev/null
+    mmd -i "${EFI_IMG}" ::EFI
+    mmd -i "${EFI_IMG}" ::EFI/BOOT
+    mcopy -i "${EFI_IMG}" "${ISO_STAGING}/boot/grub/BOOTX64.EFI" ::EFI/BOOT/BOOTX64.EFI
+
+    info "EFI image: $(du -h "${EFI_IMG}" | awk '{print $1}')"
 
     # ── 5g: Assemble ISO with xorriso ──────────────────────────────────
     info "Creating ISO image..."
@@ -479,6 +641,10 @@ BOOTMENU
         -no-emul-boot \
         -boot-load-size 4 \
         -boot-info-table \
+        -eltorito-alt-boot \
+        -e boot/grub/efi.img \
+        -no-emul-boot \
+        -isohybrid-gpt-basdat \
         -V "ICEBREAKER" \
         -o "${ISO_FILE}" \
         "${ISO_STAGING}/" 2>&1 | tail -5

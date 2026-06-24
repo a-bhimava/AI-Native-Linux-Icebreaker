@@ -67,6 +67,10 @@ check_file_exists "${CX_DIR}/config/package-lists/icebreaker.list.chroot"
 check_file_exists "${CX_DIR}/config/hooks/live/0100-icebreaker-setup.hook.chroot"
 check_file_exists "${CX_DIR}/Dockerfile.build"
 
+# EFI boot support.
+check "Dockerfile installs grub-efi-amd64-bin" \
+    grep -q 'grub-efi-amd64-bin' "${CX_DIR}/Dockerfile.build"
+
 # CLI wrapper uses #!/bin/sh and exec.
 check "icebreaker-cli shebang is /bin/sh" \
     bash -c 'head -1 "$1" | grep -q "#!/bin/sh"' _ "${CX_DIR}/distro/icebreaker-cli"
