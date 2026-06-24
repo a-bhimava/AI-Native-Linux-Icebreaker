@@ -400,15 +400,15 @@ SOURCES
             openssh-client less vim-tiny locales \
             dbus-x11
 
-        # GNOME desktop (minimal) + display manager for GUI.
+        # XFCE desktop (lightweight — runs well under x86_64 emulation).
         apt-get install -y --no-install-recommends \
-            ubuntu-desktop-minimal \
-            gdm3 \
-            gnome-terminal \
-            gnome-text-editor \
-            nautilus
+            xfce4 \
+            xfce4-terminal \
+            lightdm lightdm-gtk-greeter \
+            thunar \
+            mousepad
 
-        # GTK4 + LibAdwaita for the Icebreaker GUI.
+        # GTK4 + LibAdwaita for the Icebreaker GUI apps.
         apt-get install -y --no-install-recommends \
             python3-gi \
             gir1.2-gtk-4.0 \
@@ -418,24 +418,21 @@ SOURCES
 
         locale-gen en_US.UTF-8
 
-        # Enable GDM for graphical login.
-        systemctl enable gdm || true
+        # Enable LightDM for graphical login.
+        systemctl enable lightdm || true
 
         useradd -m -s /bin/bash -G sudo icebreaker
         echo 'icebreaker:icebreaker' | chpasswd
         echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
 
         # Auto-login for live session.
-        mkdir -p /etc/gdm3
-        cat > /etc/gdm3/custom.conf <<'GDMCFG'
-[daemon]
-AutomaticLoginEnable=true
-AutomaticLogin=icebreaker
-[security]
-[xdmcp]
-[chooser]
-[debug]
-GDMCFG
+        mkdir -p /etc/lightdm
+        cat > /etc/lightdm/lightdm.conf <<'LDMCFG'
+[Seat:*]
+autologin-user=icebreaker
+autologin-user-timeout=0
+user-session=xfce
+LDMCFG
 
         apt-get clean
         rm -rf /var/lib/apt/lists/*
@@ -452,6 +449,18 @@ GDMCFG
         chroot "${ISO_CHROOT}" glib-compile-schemas /usr/share/glib-2.0/schemas/ 2>/dev/null || true
         info "GSettings schemas compiled (wallpaper override applied)"
     fi
+
+    # ── 5c3: Enable Icebreaker systemd services ──────────────────────
+    info "Enabling Icebreaker systemd services..."
+    mkdir -p "${ISO_CHROOT}/etc/systemd/system/multi-user.target.wants"
+    mkdir -p "${ISO_CHROOT}/etc/systemd/system/sockets.target.wants"
+    for svc in icebreaker-first-boot.service icebreaker-pbd.service \
+               icebreaker-qbd.service icebreaker-controller.service; do
+        ln -sf "/etc/systemd/system/${svc}" \
+            "${ISO_CHROOT}/etc/systemd/system/multi-user.target.wants/${svc}"
+    done
+    ln -sf /etc/systemd/system/icebreaker-controller.socket \
+        "${ISO_CHROOT}/etc/systemd/system/sockets.target.wants/icebreaker-controller.socket"
 
     # ── 5d: Extract kernel + initrd ────────────────────────────────────
     info "Extracting kernel and initrd..."
@@ -515,12 +524,12 @@ DEFAULT live
 LABEL live
   MENU LABEL ^Icebreaker AI-Native OS (Live)
   KERNEL /live/vmlinuz
-  APPEND initrd=/live/initrd boot=live toram quiet splash
+  APPEND initrd=/live/initrd boot=live nomodeset quiet splash
 
 LABEL live-safe
   MENU LABEL ^Safe Mode
   KERNEL /live/vmlinuz
-  APPEND initrd=/live/initrd boot=live toram single nomodeset
+  APPEND initrd=/live/initrd boot=live nomodeset
 BOOTMENU
 
     # ── 5f2: Set up GRUB EFI bootloader ──────────────────────────────────
@@ -543,12 +552,12 @@ set default=0
 set timeout=5
 
 menuentry "Icebreaker AI-Native OS (Live)" {
-    linux /live/vmlinuz boot=live toram quiet splash
+    linux /live/vmlinuz boot=live nomodeset quiet splash
     initrd /live/initrd
 }
 
 menuentry "Safe Mode" {
-    linux /live/vmlinuz boot=live toram single nomodeset
+    linux /live/vmlinuz boot=live nomodeset
     initrd /live/initrd
 }
 GRUBCFG
