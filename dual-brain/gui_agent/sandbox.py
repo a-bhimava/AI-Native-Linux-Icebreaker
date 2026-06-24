@@ -23,6 +23,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import os
+import socket as _socket_mod
 import sys
 from pathlib import Path
 
@@ -136,8 +137,18 @@ def _apply_landlock(home_dir: str, scratch_dir: str) -> None:
         raise SandboxError(f"landlock_restrict_self failed: errno {errno}")
 
 
+_AF_UNIX = _socket_mod.AF_UNIX                              # 1
+_AF_NETLINK = getattr(_socket_mod, "AF_NETLINK", 16)        # 16 — Linux-only; D-Bus needs it
+
+
 def _apply_seccomp() -> None:
-    """Apply Seccomp-BPF filter denying execve and network sockets."""
+    """Apply Seccomp-BPF filter denying execve and network sockets.
+
+    Socket filtering: only AF_UNIX and AF_NETLINK are permitted (D-Bus
+    needs both). AF_INET and AF_INET6 are denied by the default EPERM
+    action because ``socket`` is NOT in the blanket allow list — it gets
+    two arg-filtered ALLOW rules instead.
+    """
     try:
         import seccomp
     except ImportError:
@@ -156,7 +167,8 @@ def _apply_seccomp() -> None:
         "mremap", "msync", "madvise", "dup", "dup2", "dup3",
         "nanosleep", "clock_gettime", "clock_nanosleep",
         "getpid", "getuid", "getgid", "geteuid", "getegid", "gettid",
-        "socket", "connect", "sendmsg", "recvmsg", "sendto", "recvfrom",
+        # "socket" intentionally NOT here — arg-filtered below
+        "connect", "sendmsg", "recvmsg", "sendto", "recvfrom",
         "bind", "listen", "accept", "accept4",
         "setsockopt", "getsockopt", "getsockname", "getpeername",
         "shutdown",
@@ -178,6 +190,17 @@ def _apply_seccomp() -> None:
     for name in safe_syscalls:
         try:
             f.add_rule(seccomp.ALLOW, name)
+        except Exception:
+            pass
+
+    # socket(domain, ...) — allow only AF_UNIX and AF_NETLINK (arg0 filter).
+    # All other domains (AF_INET=2, AF_INET6=10, ...) hit the default EPERM.
+    for allowed_af in (_AF_UNIX, _AF_NETLINK):
+        try:
+            f.add_rule(
+                seccomp.ALLOW, "socket",
+                seccomp.Arg(0, seccomp.EQ, allowed_af),
+            )
         except Exception:
             pass
 
