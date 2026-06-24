@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# wait-for-sockets — Block until PB socket is ready.
+#
+# Used as ExecStartPre= in icebreaker-controller.service so the daemon
+# doesn't start before llama-server has bound its UNIX socket.
+# QB socket is optional (API backends don't create one).
+set -euo pipefail
+
+: "${ICEBREAKER_SOCKET_DIR:=/run/icebreaker}"
+: "${ICEBREAKER_SOCKET_TIMEOUT:=60}"
+
+TAG="wait-for-sockets"
+
+deadline=$((SECONDS + ICEBREAKER_SOCKET_TIMEOUT))
+
+echo "[${TAG}] Waiting for pbd.sock (timeout ${ICEBREAKER_SOCKET_TIMEOUT}s)..."
+while [ $SECONDS -lt $deadline ]; do
+    if [ -S "${ICEBREAKER_SOCKET_DIR}/pbd.sock" ]; then
+        echo "[${TAG}] PB socket ready."
+        exit 0
+    fi
+    sleep 1
+done
+
+echo "[${TAG}] WARN: pbd.sock not ready after ${ICEBREAKER_SOCKET_TIMEOUT}s — proceeding anyway" >&2
+exit 0

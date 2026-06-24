@@ -298,6 +298,8 @@ if [ "$SKIP_TO" -le 4 ]; then
         "${CHROOT}/usr/libexec/icebreaker/first-boot"
     install -Dm755 "${SCRIPT_DIR}/distro/safe-mode" \
         "${CHROOT}/usr/libexec/icebreaker/safe-mode"
+    install -Dm755 "${SCRIPT_DIR}/distro/wait-for-sockets" \
+        "${CHROOT}/usr/libexec/icebreaker/wait-for-sockets"
 
     # ── /usr/share/icebreaker/ ──────────────────────────────────────────
     install -Dm644 "${REPO_ROOT}/dual-brain/controller/catalogue.toml" \
@@ -402,7 +404,7 @@ SOURCES
     if [ "$PROFILE" = "desktop" ]; then
         _DESKTOP_PKGS="ubuntu-desktop-minimal gdm3 gnome-terminal gnome-text-editor nautilus"
     else
-        _DESKTOP_PKGS="xfce4 xfce4-terminal lightdm lightdm-gtk-greeter thunar mousepad"
+        _DESKTOP_PKGS="xfce4 xfce4-terminal lightdm lightdm-gtk-greeter thunar mousepad zenity"
     fi
 
     chroot "${ISO_CHROOT}" bash -c "
@@ -458,15 +460,17 @@ GDMCFG
         chroot "${ISO_CHROOT}" bash -c "systemctl enable lightdm || true"
 
         chroot "${ISO_CHROOT}" bash -c "
-            useradd -m -s /bin/bash -G sudo icebreaker
+            groupadd -rf autologin
+            useradd -m -s /bin/bash -G sudo,autologin icebreaker
             echo 'icebreaker:icebreaker' | chpasswd
             echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
-            mkdir -p /etc/lightdm
-            cat > /etc/lightdm/lightdm.conf <<'LDMCFG'
+            mkdir -p /etc/lightdm/lightdm.conf.d
+            cat > /etc/lightdm/lightdm.conf.d/50-autologin.conf <<'LDMCFG'
 [Seat:*]
 autologin-user=icebreaker
 autologin-user-timeout=0
 user-session=xfce
+greeter-session=lightdm-gtk-greeter
 LDMCFG
         "
     fi

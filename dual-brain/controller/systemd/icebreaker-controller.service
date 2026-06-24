@@ -6,12 +6,15 @@ Wants=icebreaker-pbd.service icebreaker-qbd.service
 
 [Service]
 Type=exec
+EnvironmentFile=/etc/icebreaker/locations.env
+ExecStartPre=/usr/libexec/icebreaker/wait-for-sockets
 ExecStart=/opt/icebreaker/venv/bin/python3 -m controller --daemon --config /etc/icebreaker/controller.toml
 ExecStop=/bin/kill -TERM $MAINPID
 Restart=on-failure
 RestartSec=5
 
 StateDirectory=icebreaker
+LogsDirectory=icebreaker
 
 # Hardening (BP-9).
 NoNewPrivileges=yes

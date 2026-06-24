@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Icebreaker Settings
 Comment=Configure the AI-Native OS
-Exec=/opt/icebreaker/venv/bin/python3 -m gui --settings
+Exec=sh -c '/opt/icebreaker/venv/bin/python3 -m gui --settings 2>/tmp/icebreaker-gui.log || zenity --error --title="Icebreaker" --text="Failed to start settings.\nSee /tmp/icebreaker-gui.log for details." 2>/dev/null'
 Icon=preferences-system
 Terminal=false
 Type=Application

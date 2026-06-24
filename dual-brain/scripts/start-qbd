@@ -24,6 +24,25 @@ fi
 
 SOCKET_PATH="${ICEBREAKER_SOCKET_DIR}/qbd.sock"
 
+# ── Check if local backend is configured ────────────────────────────────
+# When QB uses an API backend (gemini, openai, anthropic), there is no
+# local llama-server to run. Sleep indefinitely so systemd keeps the unit
+# in "active (running)" state for ordering dependencies.
+QB_BACKEND=$("${ICEBREAKER_VENV_PYTHON}" -c "
+import sys, pathlib
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+cfg = tomllib.loads(pathlib.Path('${ICEBREAKER_CONFIG}').read_text())
+print(cfg.get('qb', {}).get('backend', 'local'))
+")
+
+if [ "${QB_BACKEND}" != "local" ]; then
+    echo "[start-qbd] QB backend is '${QB_BACKEND}', not 'local' — local llama-server not needed."
+    exec sleep infinity
+fi
+
 # ── Model + grammar resolution ──────────────────────────────────────────
 # Read model_id, draft_model_id, grammar_path from [qb.local] config.
 read -r MODEL_ID DRAFT_ID GRAMMAR_PATH <<EOF

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Generator
 
 from .audit import AuditLog
+from .backends.base import BrainBackend, BrainProviderError, RequestEnvelope
 from .backends.registry import make_backend
 from .config import BackendConfig, ControllerConfig, PromptLoader, SessionConfig, load
 from .intent_store import IntentStore
@@ -26,10 +27,46 @@ from .mcpd_client import McpdClient
 from .session import SessionState
 
 
+class _UnconfiguredBackend(BrainBackend):
+    """Stub QB for when the configured backend fails to initialize.
+
+    Every call returns a structured error directing the user to configure
+    their API key. The daemon stays up so the chatbot can display the
+    message instead of showing "Not connected to daemon."
+    """
+
+    __slots__ = ("_reason",)
+    backend_name = "unconfigured"
+
+    def __init__(self, reason: str) -> None:
+        self._reason = reason
+        self._auditor = type("_NoOp", (), {"intercept": lambda self, x: None})()
+        self._attempt_count = 0
+
+    def _call_provider(
+        self, envelope: RequestEnvelope
+    ) -> tuple[str, int, int]:
+        raise BrainProviderError(
+            f"Quarantined Brain not available: {self._reason}. "
+            "Set GEMINI_API_KEY in /etc/icebreaker/locations.env and "
+            "restart icebreaker-controller, or run: icebreaker --settings"
+        )
+
+
 def _build_qb(cfg: ControllerConfig) -> Any:
-    # Import concrete backends so they self-register.
     from .backends import anthropic_backend, gemini_backend, llama_local_backend, openai_backend  # noqa: F401
     return make_backend(cfg)
+
+
+def _build_qb_safe(cfg: ControllerConfig) -> Any:
+    """Build QB with fallback to stub on config/init errors."""
+    try:
+        return _build_qb(cfg)
+    except Exception as exc:
+        reason = str(exc)
+        print(f"WARN: QB backend init failed: {reason}", file=sys.stderr)
+        print("WARN: Starting with unconfigured QB — user commands will return an error.", file=sys.stderr)
+        return _UnconfiguredBackend(reason)
 
 
 def _build_pb(cfg: ControllerConfig) -> Any:
@@ -171,7 +208,7 @@ def _run_daemon(config_path: Path | None) -> int:
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
         mcpd: McpdClient | None = None
         try:
-            qb = _build_qb(cfg)
+            qb = _build_qb_safe(cfg)
             pb = _build_pb(cfg)
             mcpd = McpdClient.spawn(
                 Path(cfg.run.mcpd_binary).expanduser(),
@@ -213,7 +250,7 @@ def _run_terminal(config_path: Path | None) -> int:
     try:
         cfg = load(config_path)
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
-        qb = _build_qb(cfg)
+        qb = _build_qb_safe(cfg)
         pb = _build_pb(cfg)
         mcpd = McpdClient.spawn(
             Path(cfg.run.mcpd_binary).expanduser(),
@@ -278,7 +315,7 @@ def _run_gui(mode: str, config_path: Path | None) -> int:
     try:
         cfg = load(config_path)
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
-        qb = _build_qb(cfg)
+        qb = _build_qb_safe(cfg)
         pb = _build_pb(cfg)
         mcpd = McpdClient.spawn(
             Path(cfg.run.mcpd_binary).expanduser(),
