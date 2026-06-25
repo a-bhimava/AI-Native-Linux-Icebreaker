@@ -257,19 +257,27 @@ class ChatbotWindow(Adw.ApplicationWindow):
         self._chat_input_bar.set_busy(False)
         self._input_bar.set_busy(False)
 
-        text = result.get("summary", result.get("text", ""))
+        text = result.get("output", "")
         tier = result.get("tier")
         backend = result.get("backend", "")
-        latency_ms = result.get("latency_ms")
-        cost = result.get("cost")
+        duration_ms = result.get("duration_ms")
+        cost_usd = result.get("cost_usd")
 
-        if self._current_row and self._current_row.cot:
-            self._current_row.cot.complete_last()
+        if self._current_row is not None:
+            if self._current_row.cot is not None:
+                self._current_row.cot.complete_last()
+            if text:
+                self._current_row.set_text(text)
+            self._current_row.update_metadata(
+                tier=tier, backend=backend,
+                duration_ms=duration_ms, cost_usd=cost_usd,
+            )
+        else:
+            self._message_list.add_assistant(
+                text, tier=tier, backend=backend,
+                latency_ms=duration_ms, cost=cost_usd,
+            )
 
-        self._message_list.add_assistant(
-            text, tier=tier, backend=backend,
-            latency_ms=latency_ms, cost=cost,
-        )
         self._current_row = None
         return False
 
@@ -280,7 +288,9 @@ class ChatbotWindow(Adw.ApplicationWindow):
             self._current_row.cot.add_step(step_text, state)
 
     def _on_token(self, params: dict) -> None:
-        pass
+        text = params.get("accumulated", "")
+        if self._current_row is not None and text:
+            self._current_row.set_text(text)
 
     def _on_progress(self, params: dict) -> None:
         stage = params.get("stage", "")
