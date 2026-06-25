@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Icebreaker
 Comment=AI-Native OS Assistant
-Exec=sh -c '/opt/icebreaker/venv/bin/python3 -m gui --chatbot 2>/tmp/icebreaker-gui.log || zenity --error --title="Icebreaker" --text="Failed to start chatbot.\nSee /tmp/icebreaker-gui.log for details." 2>/dev/null'
+Exec=sh -c '/opt/icebreaker/venv/bin/python3 -m gui --chatbot --sock /run/icebreaker/controller.sock 2>/tmp/icebreaker-gui.log || zenity --error --title="Icebreaker" --text="Failed to start chatbot.\nSee /tmp/icebreaker-gui.log for details." 2>/dev/null'
 Icon=utilities-terminal
 Terminal=false
 Type=Application

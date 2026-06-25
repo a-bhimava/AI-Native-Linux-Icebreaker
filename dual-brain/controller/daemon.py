@@ -105,7 +105,13 @@ class Daemon:
             sock_path.unlink()
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.bind(str(sock_path))
-        os.chmod(str(sock_path), stat.S_IRUSR | stat.S_IWUSR)  # 0600
+        os.chmod(str(sock_path), 0o660)
+        try:
+            import grp
+            gid = grp.getgrnam(self._cfg.socket_group).gr_gid
+            os.chown(str(sock_path), -1, gid)
+        except (KeyError, PermissionError):
+            pass
         sock.listen(4)
         sock.setblocking(False)
         return sock
@@ -153,7 +159,17 @@ class Daemon:
         peer = transport.peer_uid
         if peer is None:
             return False
-        return peer == os.getuid()
+        if peer == os.getuid():
+            return True
+        try:
+            import grp
+            import pwd
+            peer_entry = pwd.getpwuid(peer)
+            group_gid = grp.getgrnam(self._cfg.socket_group).gr_gid
+            peer_groups = os.getgrouplist(peer_entry.pw_name, peer_entry.pw_gid)
+            return group_gid in peer_groups
+        except (KeyError, PermissionError, OSError):
+            return False
 
     # ── Connection gate ─────────────────────────────────────────────────
 
@@ -476,6 +492,7 @@ class Daemon:
             "session_id": ss.session_id,
             "turn_index": ss.turn_index,
             "backend": ss.backend,
+            "status": "ready",
         })
         session.transport.send(resp.to_bytes())
 

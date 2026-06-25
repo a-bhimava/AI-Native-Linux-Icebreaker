@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Icebreaker Audit Log
 Comment=View the AI operation audit trail
-Exec=sh -c '/opt/icebreaker/venv/bin/python3 -m gui --audit 2>/tmp/icebreaker-gui.log || zenity --error --title="Icebreaker" --text="Failed to start audit viewer.\nSee /tmp/icebreaker-gui.log for details." 2>/dev/null'
+Exec=sh -c '/opt/icebreaker/venv/bin/python3 -m gui --audit --sock /run/icebreaker/controller.sock 2>/tmp/icebreaker-gui.log || zenity --error --title="Icebreaker" --text="Failed to start audit viewer.\nSee /tmp/icebreaker-gui.log for details." 2>/dev/null'
 Icon=document-open-recent
 Terminal=false
 Type=Application

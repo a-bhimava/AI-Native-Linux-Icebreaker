@@ -354,6 +354,20 @@ if [ "$SKIP_TO" -le 4 ]; then
     install -Dm644 "${SCRIPT_DIR}/distro/99_icebreaker.gschema.override" \
         "${CHROOT}/usr/share/glib-2.0/schemas/99_icebreaker.gschema.override"
 
+    # ── XFCE defaults (vm profile) ────────────────────────────────────
+    for xfconf_file in xfce4-desktop.xml xfce4-panel.xml xsettings.xml; do
+        if [ -f "${SCRIPT_DIR}/distro/${xfconf_file}" ]; then
+            install -Dm644 "${SCRIPT_DIR}/distro/${xfconf_file}" \
+                "${CHROOT}/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/${xfconf_file}"
+        fi
+    done
+
+    # ── Chatbot autostart ──────────────────────────────────────────────
+    if [ -f "${SCRIPT_DIR}/distro/icebreaker-chatbot-autostart.desktop" ]; then
+        install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-chatbot-autostart.desktop" \
+            "${CHROOT}/etc/xdg/autostart/icebreaker-chatbot.desktop"
+    fi
+
     # ── Build manifest ──────────────────────────────────────────────────
     install -Dm644 "${BUILD_DIR}/manifest.json" \
         "${CHROOT}/usr/share/icebreaker/build-manifest.json"
@@ -441,7 +455,8 @@ SOURCES
         chroot "${ISO_CHROOT}" bash -c "systemctl enable gdm || true"
 
         chroot "${ISO_CHROOT}" bash -c "
-            useradd -m -s /bin/bash -G sudo icebreaker
+            groupadd -rf icebreaker-users
+            useradd -m -s /bin/bash -G sudo,icebreaker-users icebreaker
             echo 'icebreaker:icebreaker' | chpasswd
             echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
             mkdir -p /etc/gdm3
@@ -461,7 +476,8 @@ GDMCFG
 
         chroot "${ISO_CHROOT}" bash -c "
             groupadd -rf autologin
-            useradd -m -s /bin/bash -G sudo,autologin icebreaker
+            groupadd -rf icebreaker-users
+            useradd -m -s /bin/bash -G sudo,autologin,icebreaker-users icebreaker
             echo 'icebreaker:icebreaker' | chpasswd
             echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
             mkdir -p /etc/lightdm/lightdm.conf.d

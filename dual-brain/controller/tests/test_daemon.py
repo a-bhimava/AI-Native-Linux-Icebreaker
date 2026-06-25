@@ -122,7 +122,8 @@ def test_create_socket_and_permissions():
         mode = sock_path.stat().st_mode
         assert mode & stat.S_IRUSR
         assert mode & stat.S_IWUSR
-        assert not (mode & stat.S_IRGRP)
+        assert mode & stat.S_IRGRP
+        assert mode & stat.S_IWGRP
         assert not (mode & stat.S_IWOTH)
     finally:
         sock.close()

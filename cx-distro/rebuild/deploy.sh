@@ -463,7 +463,21 @@ ${SSH_CMD} --command="
     sudo install -Dm644 \"\${CX}/distro/99_icebreaker.gschema.override\" \
         /usr/share/glib-2.0/schemas/99_icebreaker.gschema.override
 
-    echo '  Desktop files + wallpaper installed.'
+    # XFCE xfconf defaults
+    for xfconf_file in xfce4-desktop.xml xfce4-panel.xml xsettings.xml; do
+        if [ -f \"\${CX}/distro/\${xfconf_file}\" ]; then
+            sudo install -Dm644 \"\${CX}/distro/\${xfconf_file}\" \
+                \"/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/\${xfconf_file}\"
+        fi
+    done
+
+    # Chatbot autostart
+    if [ -f \"\${CX}/distro/icebreaker-chatbot-autostart.desktop\" ]; then
+        sudo install -Dm644 \"\${CX}/distro/icebreaker-chatbot-autostart.desktop\" \
+            /etc/xdg/autostart/icebreaker-chatbot.desktop
+    fi
+
+    echo '  Desktop files + wallpaper + XFCE configs installed.'
 " 2>/dev/null
 
 # ── Step 10: System setup ─────────────────────────────────────────────
