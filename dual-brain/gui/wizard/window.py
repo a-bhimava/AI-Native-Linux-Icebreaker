@@ -255,7 +255,7 @@ class WizardWindow(Adw.Window):
             threading.Thread(target=_bg, daemon=True).start()
 
         def _show_result(r: dict) -> bool:
-            text = r.get("summary", r.get("text", "Test complete"))
+            text = r.get("output", "Test complete")
             result_label.set_label(_sanitize(text))
             result_label.set_visible(True)
             run_btn.set_sensitive(True)

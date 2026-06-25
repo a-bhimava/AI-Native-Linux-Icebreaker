@@ -29,6 +29,9 @@ class MessageRow(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.role = role
         self._cot: Optional[CotExpander] = None
+        self._label: Optional[Gtk.Label] = None
+        self._container: Optional[Gtk.Box] = None
+        self._status_box: Optional[Gtk.Box] = None
 
         self.set_margin_start(12)
         self.set_margin_end(12)
@@ -80,18 +83,19 @@ class MessageRow(Gtk.Box):
         if "```" in sanitized:
             self._build_code_blocks(bubble, sanitized)
         else:
-            label = Gtk.Label(label=sanitized)
-            label.set_xalign(0)
-            label.set_wrap(True)
-            label.set_max_width_chars(70)
-            label.set_margin_start(12)
-            label.set_margin_end(12)
-            label.set_margin_top(8)
-            label.set_margin_bottom(8)
-            label.set_selectable(True)
-            bubble.append(label)
+            self._label = Gtk.Label(label=sanitized)
+            self._label.set_xalign(0)
+            self._label.set_wrap(True)
+            self._label.set_max_width_chars(70)
+            self._label.set_margin_start(12)
+            self._label.set_margin_end(12)
+            self._label.set_margin_top(8)
+            self._label.set_margin_bottom(8)
+            self._label.set_selectable(True)
+            bubble.append(self._label)
 
         container.append(bubble)
+        self._container = container
 
         tier = kwargs.get("tier")
         backend = kwargs.get("backend", "")
@@ -99,8 +103,8 @@ class MessageRow(Gtk.Box):
         cost = kwargs.get("cost")
 
         if any(v is not None for v in (tier, latency_ms, cost)):
-            status = self._build_status_line(tier, backend, latency_ms, cost)
-            container.append(status)
+            self._status_box = self._build_status_line(tier, backend, latency_ms, cost)
+            container.append(self._status_box)
 
         self.append(container)
 
@@ -160,6 +164,25 @@ class MessageRow(Gtk.Box):
         label.set_xalign(0)
         status.append(label)
         return status
+
+    def set_text(self, text: str) -> None:
+        if self._label is not None:
+            self._label.set_label(_sanitize(text))
+
+    def update_metadata(self, *, tier: Optional[int] = None,
+                        backend: str = "",
+                        duration_ms: Optional[int] = None,
+                        cost_usd: Optional[float] = None) -> None:
+        if self._container is None:
+            return
+        if self._status_box is not None:
+            self._container.remove(self._status_box)
+            self._status_box = None
+        if any(v is not None for v in (tier, duration_ms, cost_usd)):
+            self._status_box = self._build_status_line(
+                tier, backend, duration_ms, cost_usd,
+            )
+            self._container.append(self._status_box)
 
     @property
     def cot(self) -> Optional[CotExpander]:

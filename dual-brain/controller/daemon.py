@@ -18,7 +18,6 @@ import os
 import select
 import signal
 import socket
-import stat
 import sys
 import threading
 import time
