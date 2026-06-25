@@ -350,6 +350,7 @@ def _run_gui(mode: str, config_path: Path | None) -> int:
         app = IcebreakerApp(
             sock_path=sock_path,
             dark=cfg.desktop.dark,
+            window_mode=mode,
         )
         app.run(None)
         return 0

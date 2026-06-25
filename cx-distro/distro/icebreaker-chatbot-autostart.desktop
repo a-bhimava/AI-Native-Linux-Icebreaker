@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Icebreaker Chatbot (Autostart)
+Comment=Auto-launch Icebreaker chatbot on login
+Exec=sh -c 'sleep 3 && /opt/icebreaker/venv/bin/python3 -m gui --chatbot --sock /run/icebreaker/controller.sock 2>/tmp/icebreaker-gui.log'
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

@@ -6,6 +6,7 @@ Writes initial controller.toml and marks first-boot complete.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -230,17 +231,28 @@ class WizardWindow(Adw.Window):
                 result_label.set_visible(True)
                 next_btn.set_sensitive(True)
                 return
-            try:
-                self._client.request(
-                    "nl.turn",
-                    {"text": cmd_row.get_text()},
-                    callback=lambda r: GLib.idle_add(_show_result, r),
-                )
-                run_btn.set_sensitive(False)
-            except Exception as exc:
-                result_label.set_label(f"Error: {_sanitize(str(exc))}")
+            run_btn.set_sensitive(False)
+
+            def _bg():
+                try:
+                    resp = self._client.run_turn(cmd_row.get_text())
+                    if "error" in resp:
+                        error_msg = resp["error"].get("message", "Unknown error")
+                        GLib.idle_add(_show_error, error_msg)
+                        return
+                    result = resp.get("result", resp)
+                    GLib.idle_add(_show_result, result)
+                except Exception as exc:
+                    GLib.idle_add(_show_error, str(exc))
+
+            def _show_error(msg: str) -> bool:
+                result_label.set_label(f"Error: {_sanitize(msg)}")
                 result_label.set_visible(True)
+                run_btn.set_sensitive(True)
                 next_btn.set_sensitive(True)
+                return False
+
+            threading.Thread(target=_bg, daemon=True).start()
 
         def _show_result(r: dict) -> bool:
             text = r.get("summary", r.get("text", "Test complete"))

@@ -7,6 +7,7 @@ Right-click menu provides quick access to Chatbot, Settings, Audit.
 
 from __future__ import annotations
 
+import threading
 from typing import Optional
 
 import gi
@@ -98,15 +99,16 @@ class TrayIndicator(Gtk.Box):
         if self._client is None:
             self._set_state(DaemonState.OFFLINE)
             return True
-
-        try:
-            self._client.request("health.check", {}, callback=self._on_health)
-        except Exception:
-            self._set_state(DaemonState.OFFLINE)
+        threading.Thread(target=self._poll_bg, daemon=True).start()
         return True
 
-    def _on_health(self, result: dict) -> None:
-        GLib.idle_add(self._handle_health, result)
+    def _poll_bg(self) -> None:
+        try:
+            resp = self._client.status()
+            result = resp.get("result", {})
+            GLib.idle_add(self._handle_health, result)
+        except Exception:
+            GLib.idle_add(self._set_state, DaemonState.OFFLINE)
 
     def _handle_health(self, result: dict) -> bool:
         status = result.get("status", "unknown")

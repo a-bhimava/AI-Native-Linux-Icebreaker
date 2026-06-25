@@ -10,6 +10,7 @@ Left sidebar with icon navigation to Settings, Audit, etc.
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any, Optional
 
 import gi
@@ -229,16 +230,28 @@ class ChatbotWindow(Adw.ApplicationWindow):
         if self._current_row.cot is not None:
             self._current_row.cot.set_visible(True)
 
-        try:
-            self._client.request("nl.turn", {"text": text}, callback=self._on_turn_result)
-        except Exception as exc:
-            self._message_list.add_system(f"Error: {_sanitize(str(exc))}")
-            self._chat_input_bar.set_busy(False)
-            self._input_bar.set_busy(False)
-            self._current_row = None
+        threading.Thread(
+            target=self._run_turn_bg, args=(text,), daemon=True
+        ).start()
 
-    def _on_turn_result(self, result: dict) -> None:
-        GLib.idle_add(self._handle_turn_result, result)
+    def _run_turn_bg(self, text: str) -> None:
+        try:
+            resp = self._client.run_turn(text)
+            if "error" in resp:
+                error_msg = resp["error"].get("message", "Unknown error")
+                GLib.idle_add(self._handle_turn_error, error_msg)
+                return
+            result = resp.get("result", resp)
+            GLib.idle_add(self._handle_turn_result, result)
+        except Exception as exc:
+            GLib.idle_add(self._handle_turn_error, str(exc))
+
+    def _handle_turn_error(self, msg: str) -> bool:
+        self._chat_input_bar.set_busy(False)
+        self._input_bar.set_busy(False)
+        self._message_list.add_system(f"Error: {_sanitize(msg)}")
+        self._current_row = None
+        return False
 
     def _handle_turn_result(self, result: dict) -> bool:
         self._chat_input_bar.set_busy(False)

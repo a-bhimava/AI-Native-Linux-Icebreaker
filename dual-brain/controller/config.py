@@ -212,6 +212,7 @@ class DaemonConfig:
     socket_path: str = "~/.local/state/icebreaker/controller.sock"
     pid_file: str = "~/.local/state/icebreaker/controller.pid"
     max_connections: int = 1
+    socket_group: str = "icebreaker-users"
 
 
 @dataclass(frozen=True)
