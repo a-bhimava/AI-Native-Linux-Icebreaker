@@ -247,6 +247,17 @@ if [ "$SKIP_TO" -le 3 ]; then
     info "Installing icebreaker-controller..."
     "${VENV_DIR}/bin/pip" install --no-cache-dir "${REPO_ROOT}/dual-brain/" 2>&1 | tail -5
 
+    # pip doesn't ship data files — copy them into the installed package.
+    CONTROLLER_PKG=$(find "${VENV_DIR}" -path '*/site-packages/controller/model_registry.py' \
+        -exec dirname {} \; | head -1)
+    if [ -n "$CONTROLLER_PKG" ]; then
+        cp "${REPO_ROOT}/dual-brain/controller/catalogue.toml" "${CONTROLLER_PKG}/catalogue.toml"
+        cp -a "${REPO_ROOT}/dual-brain/controller/schemas"  "${CONTROLLER_PKG}/schemas"
+        cp -a "${REPO_ROOT}/dual-brain/controller/prompts"  "${CONTROLLER_PKG}/prompts"
+        cp -a "${REPO_ROOT}/dual-brain/controller/grammars" "${CONTROLLER_PKG}/grammars"
+        info "Data files copied into venv package"
+    fi
+
     # Verify entry point.
     "${VENV_DIR}/bin/python3" -m controller --help >/dev/null 2>&1 || \
         die "venv broken: python3 -m controller --help failed"
