@@ -2,6 +2,10 @@
 # User overrides: ~/.config/icebreaker/controller.toml (load_layered, ADR-8).
 
 [qb]
+# Default: Gemini Flash for QB (intent parsing). The local PB model
+# (Qwen 1.5B) lacks capacity for reliable intent parsing — Gemini
+# provides the best cost/quality tradeoff. Requires internet + API key.
+# For offline operation, set backend = "local" and run a local QB server.
 backend = "gemini"
 
 [qb.gemini]

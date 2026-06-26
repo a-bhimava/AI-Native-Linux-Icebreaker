@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Icebreaker AI Terminal — Mockup v4</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+
+  :root {
+    --bg: #0a0a0e;
+    --bg-card: #12121a;
+    --bg-card-hover: #1a1a24;
+    --bg-input: #16161f;
+    --bg-panel-r: #0e0e14;
+    --fg: #e8e8ed;
+    --fg-secondary: #a8a8b4;
+    --fg-muted: #6e6e7a;
+    --fg-faint: #4a4a56;
+    --border: #222230;
+    --border-light: #3a3a48;
+    --accent: #818cf8;
+    --accent-glow: rgba(129, 140, 248, 0.25);
+    --accent-soft: rgba(129, 140, 248, 0.10);
+    --green: #34d399;
+    --green-glow: rgba(52, 211, 153, 0.2);
+    --green-soft: rgba(52, 211, 153, 0.08);
+    --cyan: #22d3ee;
+    --yellow: #fbbf24;
+    --yellow-soft: rgba(251, 191, 36, 0.08);
+    --red: #f87171;
+    --red-soft: rgba(248, 113, 113, 0.08);
+    --magenta: #c084fc;
+    --magenta-soft: rgba(192, 132, 252, 0.08);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+    --shadow-lg: 0 8px 30px rgba(0,0,0,0.6);
+    --shadow-glow-accent: 0 0 20px rgba(129,140,248,0.15), 0 0 4px rgba(129,140,248,0.3);
+    --shadow-glow-green: 0 0 12px rgba(52,211,153,0.15);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    background: var(--bg);
+    color: var(--fg);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    z-index: 10;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 16px; }
+  .logo {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700; font-size: 16px; color: var(--accent);
+    letter-spacing: 1px; text-transform: lowercase;
+    text-shadow: 0 0 12px rgba(129,140,248,0.4);
+  }
+  .mode-badge {
+    font-size: 11px; font-weight: 700; padding: 3px 12px;
+    border-radius: 12px; letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .mode-shell { background: var(--green-soft); color: var(--green); box-shadow: var(--shadow-glow-green); }
+  .mode-nl { background: var(--magenta-soft); color: var(--magenta); box-shadow: 0 0 12px rgba(192,132,252,0.15); }
+  .topbar-right { display: flex; align-items: center; gap: 18px; font-size: 12px; color: var(--fg-muted); }
+  .status-dot {
+    width: 8px; height: 8px; background: var(--green);
+    border-radius: 50%; display: inline-block; margin-right: 5px;
+    box-shadow: 0 0 8px rgba(52,211,153,0.5);
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { box-shadow: 0 0 8px rgba(52,211,153,0.5); }
+    50% { box-shadow: 0 0 14px rgba(52,211,153,0.8); }
+  }
+
+  /* ── INPUT BAR — TOP POSITION (high visibility) ── */
+  .input-bar {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 24px;
+    flex-shrink: 0;
+    box-shadow: var(--shadow-md);
+    position: relative;
+    z-index: 9;
+  }
+  .input-bar-inner { display: flex; align-items: center; gap: 12px; }
+  .input-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px; font-weight: 700; color: var(--fg-faint);
+    text-transform: uppercase; letter-spacing: 1px;
+    flex-shrink: 0; min-width: 56px;
+  }
+  .input-mode {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 700; padding: 4px 12px;
+    border-radius: 6px; flex-shrink: 0; letter-spacing: 0.5px;
+  }
+  .input-field-wrap {
+    flex: 1; display: flex; align-items: center;
+    background: var(--bg-input); border: 2px solid var(--border);
+    border-radius: 10px; padding: 0 14px; transition: all 0.2s ease;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .input-field-wrap.focused {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-glow-accent), inset 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .input-field-wrap.disabled { opacity: 0.4; }
+  .input-prompt-char {
+    font-family: 'JetBrains Mono', monospace; font-size: 15px;
+    font-weight: 700; color: var(--green); margin-right: 10px; flex-shrink: 0;
+    text-shadow: 0 0 8px rgba(52,211,153,0.4);
+  }
+  .input-prompt-char.nl { color: var(--accent); text-shadow: 0 0 8px rgba(129,140,248,0.4); }
+  .input-field {
+    flex: 1; background: transparent; border: none;
+    font-family: 'JetBrains Mono', monospace; font-size: 14px;
+    font-weight: 500; color: var(--fg); padding: 10px 0; outline: none;
+  }
+  .input-field::placeholder { color: var(--fg-faint); font-weight: 400; }
+  .input-hint {
+    font-size: 11px; color: var(--fg-faint); white-space: nowrap; flex-shrink: 0;
+    font-weight: 500;
+  }
+  .input-hint kbd {
+    background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+    padding: 2px 6px; border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: var(--fg-muted); font-weight: 600;
+  }
+  .input-hint-working { color: var(--accent); font-weight: 600; text-shadow: 0 0 6px rgba(129,140,248,0.3); }
+  .input-hint-approval { color: var(--red); font-weight: 600; text-shadow: 0 0 6px rgba(248,113,113,0.3); }
+
+  /* ── Scenario tabs + nav combined ── */
+  .controls-bar {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .scenario-tabs { display: flex; gap: 0; }
+  .scenario-tab {
+    padding: 7px 16px; font-size: 12px; font-weight: 600;
+    color: var(--fg-faint); cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all 0.2s;
+    letter-spacing: 0.3px;
+  }
+  .scenario-tab:hover { color: var(--fg-secondary); }
+  .scenario-tab.active {
+    color: var(--accent); border-bottom-color: var(--accent);
+    text-shadow: 0 0 8px rgba(129,140,248,0.3);
+  }
+
+  .nav-controls { display: flex; align-items: center; gap: 12px; }
+  .nav-arrow {
+    width: 30px; height: 30px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--bg);
+    color: var(--fg-muted); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; transition: all 0.2s; line-height: 1;
+  }
+  .nav-arrow:hover {
+    border-color: var(--accent); color: var(--accent);
+    background: var(--accent-soft); box-shadow: var(--shadow-glow-accent);
+  }
+  .nav-arrow:disabled { opacity: 0.2; cursor: not-allowed; }
+  .nav-arrow:disabled:hover { border-color: var(--border); color: var(--fg-muted); background: var(--bg); box-shadow: none; }
+  .nav-indicator { display: flex; gap: 7px; align-items: center; }
+  .nav-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--border); transition: all 0.25s; cursor: pointer;
+  }
+  .nav-dot.active {
+    background: var(--accent);
+    box-shadow: 0 0 10px rgba(129,140,248,0.5);
+    transform: scale(1.2);
+  }
+  .nav-dot.visited { background: var(--fg-faint); }
+  .nav-label {
+    font-size: 12px; font-weight: 600; color: var(--fg-secondary);
+    min-width: 130px; text-align: left; letter-spacing: 0.3px;
+  }
+
+  /* ── Split container ── */
+  .split-container {
+    flex: 1; display: flex; overflow: hidden;
+    transition: opacity 0.15s ease;
+  }
+  .split-container.transitioning { opacity: 0.2; }
+
+  /* ── Left panel — REAL TERMINAL ── */
+  .terminal-panel {
+    flex: 6; min-width: 0; display: flex; flex-direction: column;
+    background: var(--bg); border-right: 1px solid var(--border);
+    position: relative;
+  }
+  .terminal-panel::before {
+    content: 'TERMINAL'; position: absolute; top: 8px; right: 12px;
+    font-family: 'Inter', sans-serif; font-size: 9px; font-weight: 800;
+    letter-spacing: 2px; color: rgba(255,255,255,0.04);
+    text-transform: uppercase; pointer-events: none;
+  }
+  .terminal-scroll {
+    flex: 1; overflow-y: auto; padding: 14px 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; line-height: 1.6; color: var(--fg);
+  }
+  .term-line { white-space: pre-wrap; word-break: break-all; min-height: 1.6em; }
+  .term-ps1 { color: var(--green); font-weight: 600; text-shadow: 0 0 6px rgba(52,211,153,0.25); }
+  .term-cmd { color: #fff; font-weight: 500; }
+  .term-hash { color: var(--accent); font-weight: 700; text-shadow: 0 0 6px rgba(129,140,248,0.3); }
+  .term-nl { color: var(--fg); font-weight: 500; }
+  .term-info { color: var(--cyan); font-weight: 600; }
+  .term-warn { color: var(--yellow); font-weight: 600; }
+  .term-err { color: var(--red); font-weight: 700; text-shadow: 0 0 6px rgba(248,113,113,0.3); }
+  .term-ok { color: var(--green); font-weight: 600; }
+  .term-dim { color: var(--fg-muted); }
+  .term-cursor {
+    display: inline-block; width: 9px; height: 17px;
+    background: var(--green); vertical-align: text-bottom;
+    animation: blink-cursor 1s step-end infinite;
+    box-shadow: 0 0 6px rgba(52,211,153,0.4);
+  }
+  @keyframes blink-cursor { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+  .term-spinner {
+    display: inline-block; width: 13px; height: 13px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+    vertical-align: middle; margin-left: 6px;
+    box-shadow: 0 0 8px rgba(129,140,248,0.2);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Divider ── */
+  .panel-divider {
+    width: 3px; background: var(--border); cursor: col-resize;
+    flex-shrink: 0; transition: all 0.2s;
+    position: relative;
+  }
+  .panel-divider:hover {
+    background: var(--accent); width: 4px;
+    box-shadow: 0 0 10px rgba(129,140,248,0.4);
+  }
+
+  /* ── Right panel ── */
+  .panel-right {
+    flex: 4; min-width: 0; display: flex; flex-direction: column;
+    background: var(--bg-panel-r);
+    position: relative;
+  }
+  .panel-right::before {
+    content: ''; position: absolute; top: 0; left: 0; bottom: 0; width: 1px;
+    background: linear-gradient(180deg, var(--accent-glow) 0%, transparent 30%, transparent 70%, var(--accent-glow) 100%);
+    pointer-events: none;
+  }
+  .panel-right-header {
+    padding: 10px 18px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0;
+  }
+  .panel-right-header .title {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px; font-weight: 800; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--fg-faint);
+  }
+  .panel-right-header .title.active-title {
+    color: var(--accent);
+    text-shadow: 0 0 8px rgba(129,140,248,0.3);
+  }
+  .panel-right-header .hint {
+    font-size: 10px; font-weight: 500; color: var(--fg-faint);
+  }
+  .panel-right-header .hint kbd {
+    background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+    padding: 1px 5px; border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  }
+  .panel-right-scroll { flex: 1; overflow-y: auto; padding: 14px 16px; }
+
+  /* ── Idle state ── */
+  .cot-idle {
+    text-align: center; padding: 50px 20px; color: var(--fg-faint); font-size: 13px;
+  }
+  .cot-idle-icon {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 32px; opacity: 0.15; margin-bottom: 12px;
+    text-shadow: 0 0 20px rgba(129,140,248,0.2);
+  }
+  .cot-idle-sub { margin-top: 6px; font-size: 11px; color: var(--fg-faint); }
+
+  /* ── CoT step cards ── */
+  .cot-step {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 8px; overflow: hidden;
+    transition: all 0.25s; box-shadow: var(--shadow-sm);
+  }
+  .cot-step.s-active {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-glow-accent);
+  }
+  .cot-step.s-done { border-color: rgba(52,211,153,0.2); }
+  .cot-step.s-fail { border-color: rgba(248,113,113,0.25); }
+
+  .cot-header {
+    padding: 8px 10px; display: flex; align-items: center; gap: 8px; font-size: 12px;
+  }
+  .cot-num {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 800; flex-shrink: 0;
+  }
+  .s-pending .cot-num { background: var(--bg); color: var(--fg-faint); border: 1px solid var(--border); }
+  .s-active .cot-num { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); box-shadow: 0 0 8px rgba(129,140,248,0.3); }
+  .s-done .cot-num { background: var(--green-soft); color: var(--green); border: 1px solid rgba(52,211,153,0.25); }
+  .s-fail .cot-num { background: var(--red-soft); color: var(--red); border: 1px solid rgba(248,113,113,0.25); }
+
+  .cot-label { flex: 1; font-weight: 600; letter-spacing: 0.2px; }
+  .s-pending .cot-label { color: var(--fg-faint); }
+  .s-active .cot-label { color: var(--accent); text-shadow: 0 0 6px rgba(129,140,248,0.2); }
+  .s-done .cot-label { color: var(--fg-secondary); }
+  .s-fail .cot-label { color: var(--red); }
+
+  .cot-check { font-size: 13px; flex-shrink: 0; font-weight: 700; }
+  .s-done .cot-check { color: var(--green); text-shadow: 0 0 4px rgba(52,211,153,0.3); }
+  .s-fail .cot-check { color: var(--red); }
+
+  .cot-body {
+    padding: 0 10px 9px 40px; font-size: 12px; line-height: 1.6; color: var(--fg-muted);
+  }
+  .cot-narrative { color: var(--fg-secondary); margin-bottom: 4px; font-weight: 500; }
+  .kv {
+    display: grid; grid-template-columns: 74px 1fr; gap: 1px 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-top: 3px;
+  }
+  .k { color: var(--fg-faint); font-weight: 500; }
+  .v { color: var(--fg-muted); }
+  .v.ok { color: var(--green); }
+  .v.warn { color: var(--yellow); }
+  .v.err { color: var(--red); }
+
+  .cot-mini-spinner {
+    width: 14px; height: 14px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.7s linear infinite; flex-shrink: 0;
+    box-shadow: 0 0 6px rgba(129,140,248,0.2);
+  }
+
+  /* ── Interpretation mode ── */
+  .interp-summary {
+    font-size: 15px; line-height: 1.7; color: var(--fg);
+    margin-bottom: 14px; font-weight: 500;
+  }
+  .interp-summary strong { color: var(--accent); font-weight: 700; }
+
+  .interp-section {
+    font-size: 10px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 1.2px; color: var(--fg-faint); margin: 16px 0 8px;
+  }
+
+  .bar-chart { margin: 10px 0; }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+  .bar-label {
+    width: 105px; text-align: right; color: var(--fg-secondary);
+    white-space: nowrap; flex-shrink: 0; font-size: 11px; font-weight: 500;
+  }
+  .bar-track {
+    flex: 1; height: 18px; background: rgba(255,255,255,0.03);
+    border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.03);
+  }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+  .bar-fill.purple { background: linear-gradient(90deg, #6366f1, #818cf8); box-shadow: 0 0 8px rgba(99,102,241,0.3); }
+  .bar-fill.blue { background: linear-gradient(90deg, #3b82f6, #60a5fa); box-shadow: 0 0 8px rgba(59,130,246,0.3); }
+  .bar-fill.teal { background: linear-gradient(90deg, #14b8a6, #2dd4bf); box-shadow: 0 0 8px rgba(20,184,166,0.3); }
+  .bar-fill.slate { background: linear-gradient(90deg, #475569, #64748b); }
+  .bar-size {
+    width: 48px; text-align: right; font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--fg-secondary); flex-shrink: 0; font-weight: 600;
+  }
+
+  .interp-tips {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; margin-top: 10px;
+    box-shadow: var(--shadow-sm);
+  }
+  .interp-tips li {
+    font-size: 12px; color: var(--fg-secondary); line-height: 1.7;
+    list-style: none; padding-left: 16px; position: relative; margin-bottom: 3px;
+  }
+  .interp-tips li::before {
+    content: '\276F'; position: absolute; left: 0;
+    color: var(--accent); font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    font-weight: 700;
+  }
+  .interp-tips code {
+    background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;
+    font-size: 11px; font-family: 'JetBrains Mono', monospace; font-weight: 500;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .interp-meta {
+    margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; align-items: center; font-size: 12px;
+  }
+  .tier-badge {
+    font-size: 10px; font-weight: 700; padding: 3px 10px;
+    border-radius: 5px; letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .tier-0 { background: var(--green-soft); color: var(--green); box-shadow: var(--shadow-glow-green); }
+  .tier-1 { background: rgba(34,211,238,0.08); color: var(--cyan); box-shadow: 0 0 8px rgba(34,211,238,0.15); }
+  .tier-2 { background: var(--yellow-soft); color: var(--yellow); box-shadow: 0 0 8px rgba(251,191,36,0.15); }
+  .tier-3 { background: var(--red-soft); color: var(--red); box-shadow: 0 0 8px rgba(248,113,113,0.15); }
+  .exec-tier {
+    font-size: 10px; padding: 3px 10px; border-radius: 5px;
+    font-weight: 600; letter-spacing: 0.3px;
+  }
+  .tier-a { background: var(--accent-soft); color: var(--accent); }
+  .tier-b { background: var(--yellow-soft); color: var(--yellow); }
+  .tier-c { background: var(--red-soft); color: var(--red); }
+
+  /* Screenshot cards */
+  .ss-row { display: flex; gap: 8px; margin: 10px 0; }
+  .ss-card {
+    flex: 1; border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; background: var(--bg); box-shadow: var(--shadow-sm);
+  }
+  .ss-header {
+    padding: 5px 10px; background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    font-size: 10px; color: var(--fg-muted); font-weight: 600;
+    display: flex; justify-content: space-between;
+  }
+  .ss-body {
+    padding: 18px; text-align: center; color: var(--fg-faint); font-size: 11px;
+  }
+  .ss-icon { font-size: 24px; margin-bottom: 4px; }
+
+  .undo-hint {
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-top: 8px; font-size: 11px; color: var(--fg-muted);
+    background: rgba(255,255,255,0.03); padding: 4px 10px; border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.04);
+  }
+  .undo-hint kbd {
+    background: var(--bg-card); border: 1px solid var(--border);
+    padding: 1px 5px; border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: var(--fg-secondary); font-weight: 600;
+  }
+
+  .interp-note {
+    font-size: 12px; color: var(--fg-muted); line-height: 1.7;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; margin: 10px 0;
+    box-shadow: var(--shadow-sm); font-weight: 500;
+  }
+  .interp-note strong { color: var(--fg-secondary); font-weight: 700; }
+
+  /* ── Status bar ── */
+  .statusbar {
+    background: var(--bg-card); border-top: 1px solid var(--border);
+    padding: 4px 24px; font-size: 10px; color: var(--fg-faint);
+    display: flex; justify-content: space-between; flex-shrink: 0;
+    font-weight: 500; letter-spacing: 0.3px;
+  }
+  .statusbar kbd {
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    padding: 0 4px; border-radius: 2px;
+    font-family: 'JetBrains Mono', monospace; font-size: 9px;
+    margin: 0 1px; font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="logo">icebreaker</span>
+    <span class="mode-badge mode-shell" id="topbar-mode">SHELL</span>
+  </div>
+  <div class="topbar-right">
+    <span><span class="status-dot"></span>Connected</span>
+    <span style="color:var(--fg-faint)">|</span>
+    <span>QB: Gemini</span>
+    <span style="color:var(--fg-faint)">|</span>
+    <span>PB: run7_cot</span>
+  </div>
+</div>
+
+<!-- INPUT BAR — now at top, prominent, always visible -->
+<div class="input-bar" id="input-bar">
+  <div class="input-bar-inner">
+    <div class="input-label">Input</div>
+    <span class="input-mode mode-shell" id="input-mode">SHELL</span>
+    <div class="input-field-wrap focused" id="input-wrap">
+      <span class="input-prompt-char" id="input-prompt">$</span>
+      <input class="input-field" id="input-field" placeholder="Type a command, or # for natural language..." readonly />
+    </div>
+    <div class="input-hint" id="input-hint"><kbd>#</kbd> NL &nbsp;<kbd>&#9664;</kbd><kbd>&#9654;</kbd> navigate</div>
+  </div>
+</div>
+
+<!-- Controls: tabs + arrow nav -->
+<div class="controls-bar">
+  <div class="scenario-tabs" id="tabs"></div>
+  <div class="nav-controls">
+    <button class="nav-arrow" id="nav-prev" aria-label="Previous state">&#9664;</button>
+    <div class="nav-indicator" id="nav-dots"></div>
+    <button class="nav-arrow" id="nav-next" aria-label="Next state">&#9654;</button>
+    <div class="nav-label" id="nav-label"></div>
+  </div>
+</div>
+
+<!-- Split pane -->
+<div class="split-container" id="split">
+  <div class="terminal-panel">
+    <div class="terminal-scroll" id="term"></div>
+  </div>
+  <div class="panel-divider"></div>
+  <div class="panel-right">
+    <div class="panel-right-header">
+      <span class="title" id="right-title">COMPANION</span>
+      <span class="hint">collapse <kbd>F3</kbd></span>
+    </div>
+    <div class="panel-right-scroll" id="right-content"></div>
+  </div>
+</div>
+
+<!-- Status bar -->
+<div class="statusbar">
+  <span><kbd>F1</kbd> Help <kbd>F2</kbd> Toggle NL <kbd>F3</kbd> Collapse CoT <kbd>F6</kbd> GUI Log <kbd>F9</kbd> Resize</span>
+  <span id="sb-audit">Audit #47 &middot; Chain valid</span>
+</div>
+
+<script>
+const PS1 = '<span class="term-ps1">aditya@icebreaker:~$</span> ';
+const CURSOR = '<span class="term-cursor"></span>';
+const SPINNER = '<span class="term-spinner"></span>';
+
+const SCENARIOS = {
+
+disk: {
+  label: "Disk Space (CLI)",
+  states: [
+  {
+    name: "Prompt Entry",
+    term: `${PS1}<span class="term-cmd">ls -la</span>
+<span class="term-dim">total 48
+drwxr-xr-x  6 aditya aditya 4096 Jun 17 02:30 .
+drwxr-xr-x 28 aditya aditya 4096 Jun 17 01:15 ..
+-rw-r--r--  1 aditya aditya 8234 Jun 16 23:41 report.pdf
+drwxr-xr-x  3 aditya aditya 4096 Jun 15 14:20 Projects
+-rw-r--r--  1 aditya aditya 2048 Jun 14 09:30 notes.txt</span>
+${PS1}${CURSOR}`,
+    rightTitle: "COMPANION", rightTitleActive: false,
+    right: `<div class="cot-idle"><div class="cot-idle-icon">_</div>Idle &mdash; waiting for input<div class="cot-idle-sub">Type a command or <span style="color:var(--accent);font-weight:600">#</span> natural language prompt above</div></div>`,
+    inputText: "# what's eating my disk space",
+    inputPrompt: "#", inputPromptClass: "nl",
+    inputModeText: "NL", inputModeClass: "mode-nl",
+    topbarMode: "NL", topbarClass: "mode-nl"
+  },
+  {
+    name: "Running",
+    term: `${PS1}<span class="term-cmd">ls -la</span>
+<span class="term-dim">total 48
+drwxr-xr-x  6 aditya aditya 4096 Jun 17 02:30 .
+drwxr-xr-x 28 aditya aditya 4096 Jun 17 01:15 ..
+-rw-r--r--  1 aditya aditya 8234 Jun 16 23:41 report.pdf
+drwxr-xr-x  3 aditya aditya 4096 Jun 15 14:20 Projects
+-rw-r--r--  1 aditya aditya 2048 Jun 14 09:30 notes.txt</span>
+${PS1}<span class="term-hash">#</span> <span class="term-nl">what's eating my disk space</span>
+${PS1}<span class="term-cmd">du -sh ~/*/</span> ${SPINNER}`,
+    rightTitle: "CHAIN OF THOUGHT", rightTitleActive: true,
+    right: cotDisk_running(),
+    inputText: "", inputPrompt: "$", inputPromptClass: "",
+    inputModeText: "SHELL", inputModeClass: "mode-shell",
+    inputDisabled: true,
+    inputHintOverride: '<span class="input-hint-working">&#9679; working...</span>',
+    topbarMode: "SHELL", topbarClass: "mode-shell"
+  },
+  {
+    name: "Output Complete",
+    term: `${PS1}<span class="term-cmd">ls -la</span>
+<span class="term-dim">total 48
+drwxr-xr-x  6 aditya aditya 4096 Jun 17 02:30 .
+drwxr-xr-x 28 aditya aditya 4096 Jun 17 01:15 ..
+-rw-r--r--  1 aditya aditya 8234 Jun 16 23:41 report.pdf
+drwxr-xr-x  3 aditya aditya 4096 Jun 15 14:20 Projects
+-rw-r--r--  1 aditya aditya 2048 Jun 14 09:30 notes.txt</span>
+${PS1}<span class="term-hash">#</span> <span class="term-nl">what's eating my disk space</span>
+${PS1}<span class="term-cmd">du -sh ~/*/</span>
+4.2G    /home/aditya/models/
+1.8G    /home/aditya/.cache/pip/
+952M    /home/aditya/Projects/
+548M    /home/aditya/.cargo/
+420M    /home/aditya/.rustup/
+77M     /home/aditya/Documents/
+${PS1}${CURSOR}`,
+    rightTitle: "INTERPRETATION", rightTitleActive: true,
+    right: interpDisk(),
+    inputText: "", inputPrompt: "$", inputPromptClass: "",
+    inputModeText: "SHELL", inputModeClass: "mode-shell",
+    topbarMode: "SHELL", topbarClass: "mode-shell"
+  }
+  ]
+},
+
+spreadsheet: {
+  label: "Spreadsheet (GUI)",
+  states: [
+  {
+    name: "Prompt Entry",
+    term: `${PS1}<span class="term-cmd">libreoffice --calc Q3_Revenue.ods &</span>
+<span class="term-dim">[1] 14523</span>
+${PS1}${CURSOR}`,
+    rightTitle: "COMPANION", rightTitleActive: false,
+    right: `<div class="cot-idle"><div class="cot-idle-icon">_</div>Idle &mdash; waiting for input<div class="cot-idle-sub">LibreOffice Calc running (PID 14523)</div></div>`,
+    inputText: "# bold the header row in the spreadsheet",
+    inputPrompt: "#", inputPromptClass: "nl",
+    inputModeText: "NL", inputModeClass: "mode-nl",
+    topbarMode: "NL", topbarClass: "mode-nl"
+  },
+  {
+    name: "Running",
+    term: `${PS1}<span class="term-cmd">libreoffice --calc Q3_Revenue.ods &</span>
+<span class="term-dim">[1] 14523</span>
+${PS1}<span class="term-hash">#</span> <span class="term-nl">bold the header row in the spreadsheet</span>
+<span class="term-info">[AT-SPI]</span> Connecting to LibreOffice Calc (PID 14523)... <span class="term-ok">ok</span>
+<span class="term-info">[AT-SPI]</span> Selecting row 1 (table_cell)... <span class="term-ok">ok</span>
+<span class="term-info">[AT-SPI]</span> Clicking Bold (push_button)... ${SPINNER}`,
+    rightTitle: "CHAIN OF THOUGHT", rightTitleActive: true,
+    right: cotSpreadsheet_running(),
+    inputText: "", inputPrompt: "$", inputPromptClass: "",
+    inputModeText: "SHELL", inputModeClass: "mode-shell",
+    inputDisabled: true,
+    inputHintOverride: '<span class="input-hint-working">&#9679; working...</span>',
+    topbarMode: "SHELL", topbarClass: "mode-shell"
+  },
+  {
+    name: "Output Complete",
+    term: `${PS1}<span class="term-cmd">libreoffice --calc Q3_Revenue.ods &</span>
+<span class="term-dim">[1] 14523</span>
+${PS1}<span class="term-hash">#</span> <span class="term-nl">bold the header row in the spreadsheet</span>
+<span class="term-info">[AT-SPI]</span> Connecting to LibreOffice Calc (PID 14523)... <span class="term-ok">ok</span>
+<span class="term-info">[AT-SPI]</span> Selecting row 1 (table_cell)... <span class="term-ok">ok</span>
+<span class="term-info">[AT-SPI]</span> Clicking Bold (push_button)... <span class="term-ok">ok</span>
+<span class="term-ok">[done]</span> Row 1 formatted in 1.8s
+${PS1}${CURSOR}`,
+    rightTitle: "INTERPRETATION", rightTitleActive: true,
+    right: interpSpreadsheet(),
+    inputText: "", inputPrompt: "$", inputPromptClass: "",
+    inputModeText: "SHELL", inputModeClass: "mode-shell",
+    topbarMode: "SHELL", topbarClass: "mode-shell"
+  }
+  ]
+},
+
+rpa: {
+  label: "RPA Fallback (Tier 3)",
+  states: [
+  {
+    name: "Prompt Entry",
+    term: `${PS1}<span class="term-cmd">freecad drawing.FCStd &</span>
+<span class="term-dim">[1] 18291</span>
+${PS1}${CURSOR}`,
+    rightTitle: "COMPANION", rightTitleActive: false,
+    right: `<div class="cot-idle"><div class="cot-idle-icon">_</div>Idle &mdash; waiting for input<div class="cot-idle-sub">FreeCAD running (PID 18291)</div></div>`,
+    inputText: "# export this legacy CAD drawing as PNG",
+    inputPrompt: "#", inputPromptClass: "nl",
+    inputModeText: "NL", inputModeClass: "mode-nl",
+    topbarMode: "NL", topbarClass: "mode-nl"
+  },
+  {
+    name: "Awaiting Approval",
+    term: `${PS1}<span class="term-cmd">freecad drawing.FCStd &</span>
+<span class="term-dim">[1] 18291</span>
+${PS1}<span class="term-hash">#</span> <span class="term-nl">export this legacy CAD drawing as PNG</span>
+<span class="term-warn">[warn]</span> CLI export: freecadcmd --export-png not found
+<span class="term-warn">[warn]</span> AT-SPI: export action not in accessibility tree
+<span class="term-err">[escalate]</span> Falling back to RPA (Robot Framework)
+
+<span class="term-err">[APPROVAL REQUIRED]</span> Tier 3 &mdash; press <span class="term-cmd">[y]</span> to approve, <span class="term-cmd">[Esc]</span> to deny
+  Robot Framework will click File &gt; Export &gt; PNG in FreeCAD
+  Scope: keyboard + mouse via /dev/uinput, 30s timeout
+  COW backup: created
+<span class="term-warn">[waiting for approval...]</span> ${SPINNER}`,
+    rightTitle: "CHAIN OF THOUGHT", rightTitleActive: true,
+    right: cotRpa_running(),
+    inputText: "", inputPrompt: "$", inputPromptClass: "",
+    inputModeText: "SHELL", inputModeClass: "mode-shell",
+    inputDisabled: true,
+    inputHintOverride: '<span class="input-hint-approval">&#9679; awaiting approval</span>',
+    topbarMode: "SHELL", topbarClass: "mode-shell"
+  },
+  {
+    name: "Output Complete",
+    term: `${PS1}<span class="term-cmd">freecad drawing.FCStd &</span>
+<span class="term-dim">[1] 18291</span>
+${PS1}<span class="term-hash">#</span> <span class="term-nl">export this legacy CAD drawing as PNG</span>
+<span class="term-warn">[warn]</span> CLI export: freecadcmd --export-png not found
+<span class="term-warn">[warn]</span> AT-SPI: export action not in accessibility tree
+<span class="term-err">[escalate]</span> Falling back to RPA (Robot Framework)
+<span class="term-ok">[APPROVED]</span> User approved Tier 3 at 02:31:47
+<span class="term-info">[RPA]</span> Step 1/3: Click File menu... <span class="term-ok">ok</span> (0.4s)
+<span class="term-info">[RPA]</span> Step 2/3: Click Export... <span class="term-ok">ok</span> (0.3s)
+<span class="term-info">[RPA]</span> Step 3/3: Select PNG, save... <span class="term-ok">ok</span> (0.8s)
+<span class="term-ok">[done]</span> Exported to ~/drawing.png (2.4 MB) in 3.2s
+${PS1}${CURSOR}`,
+    rightTitle: "INTERPRETATION", rightTitleActive: true,
+    right: interpRpa(),
+    inputText: "", inputPrompt: "$", inputPromptClass: "",
+    inputModeText: "SHELL", inputModeClass: "mode-shell",
+    topbarMode: "SHELL", topbarClass: "mode-shell"
+  }
+  ]
+}
+};
+
+function cotStep(num, label, state, body, checkChar) {
+  const ck = state === 'done' ? '&#10003;' : state === 'fail' ? '&#10007;' : '&bull;';
+  const spinner = state === 'active' ? '<div class="cot-mini-spinner"></div>' : `<div class="cot-check">${checkChar||ck}</div>`;
+  return `<div class="cot-step s-${state}">
+    <div class="cot-header"><div class="cot-num">${num}</div><div class="cot-label">${label}</div>${spinner}</div>
+    ${body ? `<div class="cot-body">${body}</div>` : ''}
+  </div>`;
+}
+
+function cotDisk_running() {
+  return cotStep(1,'Parse Intent','done',`<div class="cot-narrative">Recognized "disk space" &rarr; <code>fs.list</code> (recursive, sort by size)</div><div class="kv"><span class="k">action</span><span class="v">fs.list</span><span class="k">target</span><span class="v">/home/aditya</span></div>`)
+  + cotStep(2,'Schema Validation','done',`<div class="kv"><span class="k">schema</span><span class="v ok">valid</span><span class="k">meta</span><span class="v ok">no shell metacharacters</span></div>`)
+  + cotStep(3,'Risk Classification','done',`<div class="cot-narrative">Read-only tool on user&rsquo;s own home directory.</div><div class="kv"><span class="k">tier</span><span class="v ok">Tier 0 &mdash; safe</span><span class="k">HITL</span><span class="v ok">not required</span></div>`)
+  + cotStep(4,'PB Tool Call','done',`<div class="kv"><span class="k">tool</span><span class="v">fs.list</span><span class="k">uuid</span><span class="v">a7f3...8b21</span></div>`)
+  + cotStep(5,'Sandbox &amp; Execute','active',`<div class="cot-narrative">Landlock scoped to $HOME (read-only). Seccomp: 140 syscalls.</div><div class="kv"><span class="k">status</span><span class="v" style="color:var(--accent)">executing du -sh ~/*/...</span></div>`)
+  + cotStep(6,'Verify &amp; Audit','pending','');
+}
+
+function cotSpreadsheet_running() {
+  return cotStep(1,'Parse Intent','done',`<div class="cot-narrative">"bold header row" &rarr; GUI formatting on active spreadsheet</div><div class="kv"><span class="k">action</span><span class="v">gui.app.calc.format</span><span class="k">app</span><span class="v">LibreOffice Calc</span></div>`)
+  + cotStep(2,'Detect Application','done',`<div class="cot-narrative">Found LibreOffice Calc via AT-SPI accessibility tree.</div><div class="kv"><span class="k">method</span><span class="v">AT-SPI / D-Bus</span><span class="k">locator</span><span class="v">/org/a11y/atspi/accessible/23/42</span><span class="k">doc</span><span class="v">Q3_Revenue.ods</span></div>`)
+  + cotStep(3,'Risk Classification','done',`<div class="cot-narrative">Modifying user-owned document. Reversible (Ctrl+Z).</div><div class="kv"><span class="k">tier</span><span class="v" style="color:var(--cyan)">Tier 1 &mdash; low risk</span><span class="k">HITL</span><span class="v ok">not required</span></div>`)
+  + cotStep(4,'Screenshot (Before)','done',`<div class="kv"><span class="k">hash</span><span class="v">a3f8...7b2e</span><span class="k">saved</span><span class="v ok">COW snapshot</span></div>`)
+  + cotStep(5,'Execute GUI Actions','active',`<div class="kv"><span class="k">step 1</span><span class="v ok">select row 1 (table_cell) &#10003;</span><span class="k">step 2</span><span class="v" style="color:var(--accent)">click Bold (push_button)...</span></div>`)
+  + cotStep(6,'Screenshot (After) &amp; Audit','pending','');
+}
+
+function cotRpa_running() {
+  return cotStep(1,'Parse Intent','done',`<div class="cot-narrative">"export as PNG" &rarr; file conversion. Checking methods...</div>`)
+  + cotStep(2,'Tier A &mdash; CLI Check','fail',`<div class="cot-narrative">No CLI export tool found for .FCStd format.</div><div class="kv"><span class="k">tried</span><span class="v err">freecadcmd --export-png (not found)</span><span class="k">result</span><span class="v err">Tier A unavailable</span></div>`)
+  + cotStep(3,'Tier B &mdash; GUI Check','fail',`<div class="cot-narrative">FreeCAD 0.18 does not expose export via AT-SPI or D-Bus.</div><div class="kv"><span class="k">AT-SPI</span><span class="v err">export action not in tree</span><span class="k">D-Bus</span><span class="v err">no app API registered</span></div>`)
+  + cotStep(4,'Tier C &mdash; RPA Escalation','active',`<div class="cot-narrative" style="color:var(--yellow)">Last resort. Robot Framework will simulate keyboard/mouse. Always Tier 3.</div><div class="kv"><span class="k">method</span><span class="v">Robot Framework</span><span class="k">sandbox</span><span class="v warn">$HOME + D-Bus + /dev/uinput</span><span class="k">timeout</span><span class="v">30s max</span><span class="k">tier</span><span class="v err">Tier 3 &mdash; always</span><span class="k">status</span><span class="v warn">awaiting human approval...</span></div>`)
+  + cotStep(5,'Execute RPA Steps','pending','')
+  + cotStep(6,'Verify &amp; Audit','pending','');
+}
+
+function interpDisk() {
+  return `<div class="interp-summary">Your home directory is using <strong>8.0 GB</strong> total.</div>
+  <div class="interp-section">Breakdown</div>
+  <div class="bar-chart">
+    <div class="bar-row"><div class="bar-label">AI Models</div><div class="bar-track"><div class="bar-fill purple" style="width:52%"></div></div><div class="bar-size">4.2 GB</div></div>
+    <div class="bar-row"><div class="bar-label">pip cache</div><div class="bar-track"><div class="bar-fill blue" style="width:22%"></div></div><div class="bar-size">1.8 GB</div></div>
+    <div class="bar-row"><div class="bar-label">Projects</div><div class="bar-track"><div class="bar-fill teal" style="width:12%"></div></div><div class="bar-size">952 MB</div></div>
+    <div class="bar-row"><div class="bar-label">Cargo + Rustup</div><div class="bar-track"><div class="bar-fill slate" style="width:7%"></div></div><div class="bar-size">548 MB</div></div>
+    <div class="bar-row"><div class="bar-label">Everything else</div><div class="bar-track"><div class="bar-fill slate" style="width:5%"></div></div><div class="bar-size">497 MB</div></div>
+  </div>
+  <div class="interp-section">Quick Wins</div>
+  <div class="interp-tips"><ul>
+    <li>pip cache (1.8 GB) safe to clear: <code>pip cache purge</code></li>
+    <li>Cargo cache (420 MB) trimmable: <code>cargo cache --autoclean</code></li>
+    <li><strong style="color:var(--accent)">Total freeable: ~2.2 GB</strong></li>
+  </ul></div>
+  <div class="interp-meta"><span class="tier-badge tier-0">Safe</span><span class="exec-tier tier-a">CLI</span><span style="font-size:11px;color:var(--fg-muted);font-weight:600">0.8s</span><span style="font-size:11px;color:var(--fg-faint);margin-left:auto">Audit #47</span></div>`;
+}
+
+function interpSpreadsheet() {
+  return `<div class="interp-summary"><strong>Row 1</strong> in <strong>Q3_Revenue.ods</strong> is now bold.</div>
+  <div class="interp-section">Before / After</div>
+  <div class="ss-row">
+    <div class="ss-card"><div class="ss-header"><span>Before</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px">a3f8...7b2e</span></div><div class="ss-body"><div class="ss-icon">&#128196;</div>Row 1: Revenue | Q1 | Q2 | Q3<br><span style="color:var(--fg-faint)">(regular weight)</span></div></div>
+    <div class="ss-card"><div class="ss-header"><span>After</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px">9c1d...e4f0</span></div><div class="ss-body"><div class="ss-icon">&#128196;</div>Row 1: <strong>Revenue | Q1 | Q2 | Q3</strong><br><span style="color:var(--green)">&#10003; bold applied</span></div></div>
+  </div>
+  <div class="undo-hint">&#8617; Undo: <kbd>Ctrl</kbd>+<kbd>Z</kbd> in LibreOffice Calc</div>
+  <div class="interp-meta"><span class="tier-badge tier-1">Low Risk</span><span class="exec-tier tier-b">GUI / AT-SPI</span><span style="font-size:11px;color:var(--fg-muted);font-weight:600">1.8s</span><span style="font-size:11px;color:var(--fg-faint);margin-left:auto">Audit #48</span></div>`;
+}
+
+function interpRpa() {
+  return `<div class="interp-summary">Exported <strong>drawing.FCStd</strong> to <strong>drawing.png</strong> (2.4 MB).</div>
+  <div class="interp-note"><strong>Why RPA?</strong> FreeCAD 0.18 lacks both CLI export (<code style="font-size:11px">freecadcmd</code> not found) and AT-SPI accessibility for the export function. Robot Framework simulated the File &gt; Export &gt; PNG menu sequence as a last resort.</div>
+  <div class="interp-section">Export Result</div>
+  <div class="ss-row">
+    <div class="ss-card"><div class="ss-header"><span>Exported PNG</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px">~/drawing.png</span></div><div class="ss-body"><div class="ss-icon">&#128444;</div>2.4 MB &middot; 1920 &times; 1080<br><span style="color:var(--green)">&#10003; verified</span></div></div>
+  </div>
+  <div class="interp-tips"><ul>
+    <li>Original file <strong>drawing.FCStd</strong> unchanged</li>
+    <li>3 RPA steps executed, each screenshot-verified</li>
+    <li>Approval logged at 02:31:47 (audit #49)</li>
+  </ul></div>
+  <div class="interp-meta"><span class="tier-badge tier-3">High Risk</span><span class="exec-tier tier-c">RPA</span><span style="font-size:11px;color:var(--fg-muted);font-weight:600">3.2s</span><span style="font-size:11px;color:var(--fg-faint);margin-left:auto">Audit #49</span></div>`;
+}
+
+// ── State machine ──
+let curScenario = 'disk';
+let curState = 0;
+
+function setState(idx) {
+  const sc = SCENARIOS[curScenario];
+  if (idx < 0 || idx >= sc.states.length) return;
+  curState = idx;
+  const st = sc.states[idx];
+  const split = document.getElementById('split');
+  split.classList.add('transitioning');
+
+  setTimeout(() => {
+    document.getElementById('term').innerHTML = st.term;
+    const termEl = document.getElementById('term');
+    termEl.scrollTop = termEl.scrollHeight;
+
+    const titleEl = document.getElementById('right-title');
+    titleEl.textContent = st.rightTitle;
+    titleEl.className = 'title' + (st.rightTitleActive ? ' active-title' : '');
+    document.getElementById('right-content').innerHTML = st.right;
+
+    const field = document.getElementById('input-field');
+    field.value = st.inputText || '';
+    field.disabled = !!st.inputDisabled;
+    const wrap = document.getElementById('input-wrap');
+    wrap.classList.toggle('disabled', !!st.inputDisabled);
+    wrap.classList.toggle('focused', !st.inputDisabled && !!st.inputText);
+
+    const prompt = document.getElementById('input-prompt');
+    prompt.textContent = st.inputPrompt || '$';
+    prompt.className = 'input-prompt-char' + (st.inputPromptClass ? ' ' + st.inputPromptClass : '');
+
+    const mode = document.getElementById('input-mode');
+    mode.textContent = st.inputModeText || 'SHELL';
+    mode.className = 'input-mode ' + (st.inputModeClass || 'mode-shell');
+
+    const hint = document.getElementById('input-hint');
+    hint.innerHTML = st.inputHintOverride || '<kbd>#</kbd> NL &nbsp;<kbd>&#9664;</kbd><kbd>&#9654;</kbd> navigate';
+
+    const tb = document.getElementById('topbar-mode');
+    tb.textContent = st.topbarMode || 'SHELL';
+    tb.className = 'mode-badge ' + (st.topbarClass || 'mode-shell');
+
+    updateNav();
+    split.classList.remove('transitioning');
+  }, 100);
+}
+
+function updateNav() {
+  const sc = SCENARIOS[curScenario];
+  const dotC = document.getElementById('nav-dots');
+  dotC.innerHTML = sc.states.map((s, i) =>
+    `<span class="nav-dot${i === curState ? ' active' : i < curState ? ' visited' : ''}" data-idx="${i}"></span>`
+  ).join('');
+  dotC.querySelectorAll('.nav-dot').forEach(d =>
+    d.addEventListener('click', () => setState(parseInt(d.dataset.idx)))
+  );
+  document.getElementById('nav-label').textContent = sc.states[curState].name;
+  document.getElementById('nav-prev').disabled = (curState === 0);
+  document.getElementById('nav-next').disabled = (curState === sc.states.length - 1);
+}
+
+function buildTabs() {
+  const c = document.getElementById('tabs');
+  c.innerHTML = Object.entries(SCENARIOS).map(([key, sc]) =>
+    `<div class="scenario-tab${key === curScenario ? ' active' : ''}" data-sc="${key}">${sc.label}</div>`
+  ).join('');
+  c.querySelectorAll('.scenario-tab').forEach(t =>
+    t.addEventListener('click', () => {
+      curScenario = t.dataset.sc;
+      curState = 0;
+      document.querySelectorAll('.scenario-tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      setState(0);
+    })
+  );
+}
+
+document.getElementById('nav-prev').addEventListener('click', () => setState(curState - 1));
+document.getElementById('nav-next').addEventListener('click', () => setState(curState + 1));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft') { e.preventDefault(); setState(curState - 1); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); setState(curState + 1); }
+});
+
+buildTabs();
+setState(0);
+</script>
+</body>
+</html>

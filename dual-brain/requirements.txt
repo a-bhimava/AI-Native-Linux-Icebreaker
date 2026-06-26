@@ -41,3 +41,6 @@ rich>=13
 # TOML config parsing (M2.4)
 # tomllib is stdlib in Python 3.11+; tomli is the back-port for 3.10.
 tomli>=2.0; python_version < "3.11"
+
+# TOML round-trip serialization (settings window — preserves nested tables)
+tomlkit>=0.12

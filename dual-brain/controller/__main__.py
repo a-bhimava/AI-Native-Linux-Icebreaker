@@ -285,9 +285,10 @@ def _run_terminal(config_path: Path | None) -> int:
                 break
             time.sleep(0.1)
 
+        from terminal.daemon_client import TextualDaemonClient
         client: DaemonClient | None = None
         try:
-            client = DaemonClient(sock_path)
+            client = TextualDaemonClient(sock_path)
             client.connect()
         except Exception:
             client = None

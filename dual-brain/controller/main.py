@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generator, Optional
 
+import jsonschema
+
 from .audit import AuditFields, AuditLog, Outcome, make_entry
 from .hitl import Decision, HitlPresenter, HitlPrompt, TerminalPresenter
 from .presenters import make_presenter
@@ -22,6 +24,7 @@ from .mcpd_client import JsonRpcError, McpdClient, McpdProcessError, McpdTimeout
 from .risk_classifier import ClassificationResult, Tier, classify
 from .tier2_review import Tier2Reviewer, get_reviewer
 from .trust_store import TrustStore
+from .backends.base import BrainSchemaError
 from .verifier import VerifierConfig, VerifierStrategy, make_verifier
 
 _SUMMARISE_SCHEMA = {
@@ -438,10 +441,43 @@ class Controller:
             tool_schema = self._get_tool_schema(intent["action"])
             pb_user = session.build_pb_user_turn(intent_id, intent["action"], tool_schema)
             pb_system = self._prompts.get("pb")
-            pb_response = self._pb.complete(
-                system=pb_system, user=pb_user, schema=None, max_retries=1,
-            )
-            tool_call = pb_response.content_json
+            try:
+                pb_response = self._pb.complete(
+                    system=pb_system, user=pb_user, schema=None, max_retries=1,
+                )
+                tool_call = pb_response.content_json
+            except BrainSchemaError as exc:
+                raw = exc.last_payload_excerpt.strip()
+                if raw.upper().startswith("REFUSE:"):
+                    reason = raw[len("REFUSE:"):].strip()
+                    yield _cot("pb_tool_call", "failed",
+                                body=f"PB refused: {reason}")
+                    duration = (time.monotonic() - t0) * 1000
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id,
+                        turn_index=session.turn_index,
+                        intent_id=intent_id, action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"],
+                        risk_level=intent["risk_level"],
+                        outcome=Outcome.PB_SCHEMA_ERROR, duration_ms=duration,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=total_tokens_in, tokens_out=0,
+                        cost_estimate_usd=qb_cost,
+                        extra={"pb_refused": True,
+                               "refusal_reason": reason},
+                    ))
+                    yield ResultEvent(result=TurnResult(
+                        success=False,
+                        output=f"Privileged Brain refused: {reason}",
+                        outcome=Outcome.PB_SCHEMA_ERROR,
+                        tier=int(cls_result.tier),
+                        backend=session.backend, duration_ms=duration,
+                        cost_usd=qb_cost if qb_cost > 0 else None,
+                        tokens_in=total_tokens_in, tokens_out=0,
+                    ))
+                    return
+                raise
             pb_cost = pb_response.cost_usd or 0.0
             total_cost = qb_cost + pb_cost
             total_tokens_in = qb_tokens_in + pb_response.tokens_in
@@ -1225,13 +1261,43 @@ class Controller:
         tool_schema = self._get_tool_schema(intent["action"])
         pb_user = session.build_pb_user_turn(intent_id, intent["action"], tool_schema)
         pb_system = self._prompts.get("pb")
-        pb_response = self._pb.complete(
-            system=pb_system,
-            user=pb_user,
-            schema=None,
-            max_retries=1,
-        )
-        tool_call = pb_response.content_json
+        try:
+            pb_response = self._pb.complete(
+                system=pb_system,
+                user=pb_user,
+                schema=None,
+                max_retries=1,
+            )
+            tool_call = pb_response.content_json
+        except BrainSchemaError as exc:
+            raw = exc.last_payload_excerpt.strip()
+            if raw.upper().startswith("REFUSE:"):
+                reason = raw[len("REFUSE:"):].strip()
+                duration = (time.monotonic() - t0) * 1000
+                self._audit.write_fields(AuditFields(
+                    session_id=session.session_id,
+                    turn_index=session.turn_index,
+                    intent_id=intent_id, action=intent["action"],
+                    target=intent["target"], tier=int(cls_result.tier),
+                    reason=intent["reason"],
+                    risk_level=intent["risk_level"],
+                    outcome=Outcome.PB_SCHEMA_ERROR, duration_ms=duration,
+                    backend=session.backend, model=self._cfg.qb.model,
+                    tokens_in=total_tokens_in, tokens_out=0,
+                    cost_estimate_usd=qb_cost,
+                    extra={"pb_refused": True,
+                           "refusal_reason": reason},
+                ))
+                return TurnResult(
+                    success=False,
+                    output=f"Privileged Brain refused: {reason}",
+                    outcome=Outcome.PB_SCHEMA_ERROR,
+                    tier=int(cls_result.tier),
+                    backend=session.backend, duration_ms=duration,
+                    cost_usd=qb_cost if qb_cost > 0 else None,
+                    tokens_in=total_tokens_in, tokens_out=0,
+                )
+            raise
         pb_cost = pb_response.cost_usd or 0.0
         total_cost = qb_cost + pb_cost
         total_tokens_in = qb_tokens_in + pb_response.tokens_in
@@ -1505,6 +1571,19 @@ class Controller:
         params = tool_call.get("params")
         if params is not None and not isinstance(params, dict):
             raise ValueError("PB params must be a JSON object or absent")
+        if params is not None:
+            tool_schema = self._get_tool_schema(expected_action)
+            if tool_schema.get("properties"):
+                try:
+                    jsonschema.validate(params, tool_schema)
+                except jsonschema.ValidationError as exc:
+                    path = " -> ".join(
+                        str(p) for p in exc.absolute_path
+                    ) or "root"
+                    raise ValueError(
+                        f"PB params failed schema validation at "
+                        f"{path}: {exc.message}"
+                    ) from None
 
     def _get_tool_schema(self, action: str) -> dict:
         if self._schemas_dir:
@@ -1754,14 +1833,18 @@ class Controller:
             "required": ["on_track"],
         }
         try:
-            response = self._qb.generate(
-                f"Is this RPA workflow progressing correctly? {state_summary}",
-                session,
-                response_schema=_PROGRESS_SCHEMA,
+            response = self._qb.complete(
+                system=(
+                    "You monitor RPA workflow progress. Given a keyword "
+                    "execution summary, assess if the workflow is on track. "
+                    'Output JSON: {"on_track": true/false, "concern": "text"}'
+                ),
+                user=state_summary,
+                schema=_PROGRESS_SCHEMA,
+                max_retries=1,
             )
-            if isinstance(response, dict):
-                return response.get("on_track", True), response.get("concern", "")
-            return True, ""
+            result = response.content_json
+            return result.get("on_track", True), result.get("concern", "")
         except Exception:
             return True, ""
 

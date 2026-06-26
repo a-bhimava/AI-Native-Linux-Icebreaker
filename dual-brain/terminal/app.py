@@ -79,6 +79,73 @@ class AiTerminalApp(App):
         if self._no_color:
             self.screen.add_class("-no-color")
         self._check_companion_width()
+        self._wire_daemon_callbacks()
+
+    def _wire_daemon_callbacks(self) -> None:
+        client = self._daemon_client
+        if client is None or not hasattr(client, "on"):
+            return
+        if hasattr(client, "set_app"):
+            client.set_app(self)
+        client.on("cot", self._on_cot_event)
+        client.on("token", self._on_token_event)
+        client.on("progress", self._on_progress_event)
+        client.on("gui", self._on_gui_event)
+        client.on("rpa", self._on_rpa_event)
+        client.on("info", self._on_info_event)
+
+    def _on_cot_event(self, params: dict) -> None:
+        try:
+            companion = self.query_one(CompanionPanel)
+            companion.handle_cot(
+                step_index=params.get("step_index", 0),
+                step_name=params.get("step_name", ""),
+                step_state=params.get("step_state", "pending"),
+                heading=params.get("heading", ""),
+                body=params.get("body", ""),
+                data=params.get("data"),
+            )
+        except Exception:
+            pass
+
+    def _on_token_event(self, params: dict) -> None:
+        text = params.get("accumulated", "")
+        if not text:
+            return
+        try:
+            from rich.text import Text
+            log = self.query_one(ExecutionPanel).query_one("#shell-output")
+            log.write(Text(text, style="#c0c0c0"))
+        except Exception:
+            pass
+
+    def _on_progress_event(self, params: dict) -> None:
+        pass
+
+    def _on_gui_event(self, params: dict) -> None:
+        try:
+            companion = self.query_one(CompanionPanel)
+            companion.handle_gui(params)
+        except Exception:
+            pass
+
+    def _on_rpa_event(self, params: dict) -> None:
+        try:
+            companion = self.query_one(CompanionPanel)
+            companion.handle_rpa(params)
+        except Exception:
+            pass
+
+    def _on_info_event(self, params: dict) -> None:
+        msg = params.get("message", "")
+        if not msg:
+            return
+        try:
+            from rich.text import Text
+            log = self.query_one(ExecutionPanel).query_one("#shell-output")
+            log.write(Text(f"[info] {msg}", style="#888888"))
+        except Exception:
+            pass
 
     def on_resize(self) -> None:
         self._check_companion_width()

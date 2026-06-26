@@ -25,9 +25,16 @@ sys.modules.setdefault("gi.repository", MagicMock())
 
 from gui.settings.window import _dict_to_toml, _load_raw_config
 
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+
+import tomlkit
+
 
 # ---------------------------------------------------------------------------
-# TOML serializer
+# TOML serializer (legacy _dict_to_toml kept for backward compat)
 # ---------------------------------------------------------------------------
 
 class TestTomlSerializer:
@@ -69,6 +76,40 @@ class TestTomlSerializer:
         assert 'name = "test"' in result
         assert "[sub]" in result
         assert "x = 1" in result
+
+
+# ---------------------------------------------------------------------------
+# tomlkit round-trip (production serializer — replaces _dict_to_toml)
+# ---------------------------------------------------------------------------
+
+class TestTomlkitRoundTrip:
+    def test_nested_tables_preserved(self) -> None:
+        data = {"qb": {"backend": "gemini", "gemini": {"model": "flash"}}}
+        serialized = tomlkit.dumps(data)
+        parsed = tomllib.loads(serialized)
+        assert parsed["qb"]["gemini"]["model"] == "flash"
+
+    def test_deeply_nested(self) -> None:
+        data = {"a": {"b": {"c": {"d": 1}}}}
+        serialized = tomlkit.dumps(data)
+        parsed = tomllib.loads(serialized)
+        assert parsed["a"]["b"]["c"]["d"] == 1
+
+    def test_full_config_round_trip(self) -> None:
+        data = {
+            "qb": {
+                "backend": "gemini",
+                "model": "gemini-2.5-flash",
+                "gemini": {"api_key_env": "GEMINI_API_KEY", "max_tokens": 4096},
+            },
+            "session": {"color": "auto", "session_ttl_seconds": 3600},
+            "hitl": {"lockout_seconds": 3},
+        }
+        serialized = tomlkit.dumps(data)
+        parsed = tomllib.loads(serialized)
+        assert parsed["qb"]["gemini"]["api_key_env"] == "GEMINI_API_KEY"
+        assert parsed["session"]["color"] == "auto"
+        assert parsed["hitl"]["lockout_seconds"] == 3
 
 
 # ---------------------------------------------------------------------------

@@ -130,7 +130,13 @@ class DaemonClient:
             try:
                 raw = self._transport.recv(timeout=1.0)
             except TransportClosed:
-                break
+                if self._closed:
+                    break
+                self._on_info({"message": "Connection to daemon lost. Reconnecting..."})
+                if not self._reconnect_with_backoff():
+                    break
+                self._on_info({"message": "Reconnected to daemon"})
+                continue
             if raw is None:
                 continue
             try:
@@ -148,6 +154,20 @@ class DaemonClient:
                     event.set()
             elif is_notification(msg):
                 self._dispatch_notification(msg)
+
+    def _reconnect_with_backoff(self) -> bool:
+        delay = 1.0
+        max_delay = 30.0
+        while not self._closed:
+            try:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.connect(self._sock_path)
+                self._transport = UnixSocketTransport(sock)
+                return True
+            except (OSError, ConnectionRefusedError):
+                time.sleep(delay)
+                delay = min(delay * 2, max_delay)
+        return False
 
     def _dispatch_notification(self, msg: dict) -> None:
         method = msg.get("method", "")

@@ -23,6 +23,8 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
+import tomlkit
+
 from .backend_page import BackendPage
 from .daemon_page import DaemonPage
 from .keymap_page import KeymapPage
@@ -162,8 +164,8 @@ class SettingsWindow(Adw.PreferencesWindow):
             return
 
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        toml_text = _dict_to_toml(data)
-        self._config_path.write_text(toml_text + "\n", encoding="utf-8")
+        toml_text = tomlkit.dumps(data)
+        self._config_path.write_text(toml_text, encoding="utf-8")
 
         self._dirty = False
         self._apply_btn.set_sensitive(False)

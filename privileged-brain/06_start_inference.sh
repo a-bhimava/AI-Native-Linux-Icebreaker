@@ -83,17 +83,30 @@ elif [ "$MODE" = "2" ]; then
   echo ""
   echo "  Main model   : $MAIN_MODEL"
   echo "  Draft model  : $DRAFT_MODEL"
+  echo "  Grammar      : $GRAMMAR"
   echo "  Draft tokens : 8 per pass"
   echo "  GPU layers   : 99 (all on Metal)"
   echo "  Port         : 8080"
   echo ""
+
+  GRAMMAR_FLAG=""
+  if [ -f "$GRAMMAR" ]; then
+    GRAMMAR_FLAG="--grammar-file $GRAMMAR"
+    echo "  GBNF grammar constraint enabled (MCP tool call format)."
+  else
+    echo "  WARNING: Grammar file $GRAMMAR not found. Output will not be constrained."
+  fi
+
+  echo ""
   echo "Press Ctrl+C to stop the server."
   echo ""
 
+  # shellcheck disable=SC2086
   llama-server \
     -m "$MAIN_MODEL" \
     --draft-model "$DRAFT_MODEL" \
     --draft 8 \
+    $GRAMMAR_FLAG \
     -ngl 99 \
     --host 127.0.0.1 \
     --port 8080 \
