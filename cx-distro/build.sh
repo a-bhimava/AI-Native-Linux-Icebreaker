@@ -447,6 +447,22 @@ SOURCES
             openssh-client less vim-tiny locales \
             dbus-x11
 
+        # X server — required for any display manager (LightDM/GDM) to launch.
+        # xfce4/gdm3 packages do NOT pull this in with --no-install-recommends.
+        # Without xserver-xorg the system falls back to a bare VT/terminal.
+        apt-get install -y --no-install-recommends \
+            xserver-xorg \
+            xserver-xorg-core \
+            xserver-xorg-video-all \
+            xinit \
+            x11-xserver-utils
+
+        # Network management — provides DHCP client and NIC management at boot.
+        # Required for internet connectivity in the live session.
+        apt-get install -y --no-install-recommends \
+            network-manager \
+            isc-dhcp-client
+
         # Desktop environment (profile-selected).
         apt-get install -y --no-install-recommends ${_DESKTOP_PKGS}
 
@@ -459,17 +475,32 @@ SOURCES
             adwaita-icon-theme
 
         locale-gen en_US.UTF-8
+
+        # Virtio kernel modules for QEMU/UTM emulated NICs and disk.
+        # Without these in the initramfs, virtio-net / virtio-blk devices are
+        # not detected during live-boot and the network interface is absent.
+        cat >> /etc/initramfs-tools/modules << 'VIRTIO'
+virtio
+virtio_pci
+virtio_net
+virtio_blk
+virtio_scsi
+VIRTIO
+        update-initramfs -u -k all 2>&1 | tail -3
     "
 
     # ── Display manager enablement + auto-login ────────────────────────
     if [ "$PROFILE" = "desktop" ]; then
         chroot "${ISO_CHROOT}" bash -c "systemctl enable gdm || true"
+        chroot "${ISO_CHROOT}" bash -c "systemctl enable NetworkManager || true"
 
         chroot "${ISO_CHROOT}" bash -c "
             groupadd -rf icebreaker-users
             useradd -m -s /bin/bash -G sudo,icebreaker-users icebreaker
             echo 'icebreaker:icebreaker' | chpasswd
             echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
+            # sudo refuses any sudoers file that is not mode 440 (world-readable = broken sudo).
+            chmod 440 /etc/sudoers.d/icebreaker
             mkdir -p /etc/gdm3
             cat > /etc/gdm3/custom.conf <<'GDMCFG'
 [daemon]
@@ -484,6 +515,7 @@ GDMCFG
         "
     else
         chroot "${ISO_CHROOT}" bash -c "systemctl enable lightdm || true"
+        chroot "${ISO_CHROOT}" bash -c "systemctl enable NetworkManager || true"
 
         chroot "${ISO_CHROOT}" bash -c "
             groupadd -rf autologin
@@ -491,6 +523,8 @@ GDMCFG
             useradd -m -s /bin/bash -G sudo,autologin,icebreaker-users icebreaker
             echo 'icebreaker:icebreaker' | chpasswd
             echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
+            # sudo refuses any sudoers file that is not mode 440 (world-readable = broken sudo).
+            chmod 440 /etc/sudoers.d/icebreaker
             mkdir -p /etc/lightdm/lightdm.conf.d
             cat > /etc/lightdm/lightdm.conf.d/50-autologin.conf <<'LDMCFG'
 [Seat:*]
