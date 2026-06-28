@@ -10,6 +10,10 @@
 
 # Schema validation (M2.2) — Intent Object JSON Schema enforcement
 jsonschema>=4.20,<5
+jsonschema[format-nongpl]>=4.20,<5
+# attrs is a hard runtime dep of jsonschema>=4.0 — not guaranteed present in
+# the minimal debootstrap chroot, so pin it explicitly.
+attrs>=23.1
 
 # Property-based / fuzz testing (M2.2, M2.5, M2.13)
 hypothesis>=6.100
