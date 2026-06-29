@@ -27,6 +27,9 @@
 # Any change requires human review from the module owner.
 set -euo pipefail
 
+# Workaround for dubious ownership in Docker builds
+git config --global --add safe.directory '*'
+
 # ── Constants ───────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
