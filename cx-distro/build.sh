@@ -295,6 +295,8 @@ if [ "$SKIP_TO" -le 4 ]; then
     # ── /usr/bin/ ───────────────────────────────────────────────────────
     install -Dm755 "${SCRIPT_DIR}/distro/icebreaker-cli" \
         "${CHROOT}/usr/bin/icebreaker"
+    install -Dm755 "${SCRIPT_DIR}/distro/mount-mac-share" \
+        "${CHROOT}/usr/bin/mount-mac-share"
 
     # ── /usr/libexec/icebreaker/ ────────────────────────────────────────
     install -Dm755 "${BUILD_DIR}/mcpd" \
@@ -444,7 +446,7 @@ SOURCES
             sudo bash coreutils python3 python3-venv python3-pip \
             curl ca-certificates \
             net-tools iproute2 iputils-ping \
-            openssh-client less vim-tiny locales \
+            openssh-client openssh-server less vim-tiny locales \
             dbus-x11
 
         # X server — required for any display manager (LightDM/GDM) to launch.
