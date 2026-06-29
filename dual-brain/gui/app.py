@@ -43,6 +43,13 @@ class IcebreakerApp(Adw.Application):
         self._window_mode = window_mode
         self._client: Optional[GtkDaemonClient] = None
         self._window: Optional[Adw.ApplicationWindow] = None
+        
+        try:
+            from controller.logger import SystemLogger
+            self.logger = SystemLogger("/var/log/icebreaker/system.jsonl")
+            self.logger.log("gui_rpa", "app_startup", {"mode": window_mode})
+        except Exception:
+            self.logger = None
 
     @property
     def client(self) -> Optional[GtkDaemonClient]:

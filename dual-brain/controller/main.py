@@ -24,6 +24,7 @@ from .mcpd_client import JsonRpcError, McpdClient, McpdProcessError, McpdTimeout
 from .risk_classifier import ClassificationResult, Tier, classify
 from .tier2_review import Tier2Reviewer, get_reviewer
 from .trust_store import TrustStore
+from .logger import SystemLogger
 from .backends.base import BrainSchemaError
 from .verifier import VerifierConfig, VerifierStrategy, make_verifier
 
@@ -141,6 +142,7 @@ class Controller:
         vcfg = getattr(cfg, "verifier", None) or VerifierConfig()
         self._verifier: VerifierStrategy = make_verifier(vcfg)
         self._rpa_step_events: list = []
+        self._system_logger = SystemLogger("/var/log/icebreaker/system.jsonl")
 
     def backend_name(self) -> str:
         return self._cfg.qb.name
@@ -268,6 +270,11 @@ class Controller:
                 intent["target_realpath"] = os.path.realpath(raw_target)
             else:
                 intent["target_realpath"] = ""
+
+            try:
+                self._system_logger.log("controller", "intent_generated", {"intent": intent})
+            except Exception as e:
+                yield _cot("system_logger", "failed", body=f"Failed to log intent: {e}")
 
             # Step 3: Risk classification
             yield _progress("risk_classification")
