@@ -455,7 +455,9 @@ SOURCES
             xserver-xorg-core \
             xserver-xorg-video-all \
             xinit \
-            x11-xserver-utils
+            x11-xserver-utils \
+            spice-vdagent \
+            qemu-guest-agent
 
         # Network management — provides DHCP client and NIC management at boot.
         # Required for internet connectivity in the live session.
@@ -485,6 +487,8 @@ virtio_pci
 virtio_net
 virtio_blk
 virtio_scsi
+9p
+9pnet_virtio
 VIRTIO
         update-initramfs -u -k all 2>&1 | tail -3
     "
