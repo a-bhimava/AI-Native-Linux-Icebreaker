@@ -717,7 +717,7 @@ GRUBCFG
 
     # ── 5g: Assemble ISO with xorriso ──────────────────────────────────
     info "Creating ISO image..."
-    xorriso -as mkisofs \
+    xorriso -as mkisofs -iso-level 3 \
         -isohybrid-mbr "$ISOHDPFX" \
         -c isolinux/boot.cat \
         -b isolinux/isolinux.bin \
