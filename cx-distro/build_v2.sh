@@ -378,10 +378,10 @@ if [ "$SKIP_TO" -le 4 ]; then
         fi
     done
 
-    # ── Chatbot autostart ──────────────────────────────────────────────
-    if [ -f "${SCRIPT_DIR}/distro/icebreaker-chatbot-autostart.desktop" ]; then
-        install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-chatbot-autostart.desktop" \
-            "${CHROOT}/etc/xdg/autostart/icebreaker-chatbot.desktop"
+    # ── Terminal autostart ─────────────────────────────────────────────
+    if [ -f "${SCRIPT_DIR}/distro/icebreaker-terminal-autostart.desktop" ]; then
+        install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-terminal-autostart.desktop" \
+            "${CHROOT}/etc/xdg/autostart/icebreaker-terminal.desktop"
     fi
 
     # ── Build manifest ──────────────────────────────────────────────────
@@ -432,7 +432,7 @@ SOURCES
 
     # ── Profile-specific desktop/DM setup ─────────────────────────────
     if [ "$PROFILE" = "desktop" ]; then
-        _DESKTOP_PKGS="ubuntu-desktop-minimal gdm3 gnome-terminal gnome-text-editor nautilus"
+        _DESKTOP_PKGS="ubuntu-desktop ubuntu-standard gdm3 libreoffice vlc gimp thunderbird"
     else
         _DESKTOP_PKGS="xfce4 xfce4-terminal lightdm lightdm-gtk-greeter thunar mousepad zenity"
     fi
@@ -470,8 +470,8 @@ SOURCES
             network-manager \
             isc-dhcp-client
 
-        # Desktop environment (profile-selected).
-        apt-get install -y --no-install-recommends ${_DESKTOP_PKGS}
+        # Desktop environment (profile-selected). We want the full themes and icons!
+        apt-get install -y ${_DESKTOP_PKGS}
 
         # GTK4 + LibAdwaita for the Icebreaker GUI apps.
         apt-get install -y --no-install-recommends \
@@ -548,6 +548,17 @@ LDMCFG
     chroot "${ISO_CHROOT}" bash -c "apt-get clean && rm -rf /var/lib/apt/lists/*"
     chroot "${ISO_CHROOT}" bash -c "mkdir -p /var/log/icebreaker && chmod 777 /var/log/icebreaker"
     echo "icebreaker" > "${ISO_CHROOT}/etc/hostname"
+    cat <<EOF > "${ISO_CHROOT}/etc/hosts"
+127.0.0.1 localhost
+127.0.1.1 icebreaker
+
+# The following lines are desirable for IPv6 capable hosts
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+EOF
 
     # ── 5c: Overlay Icebreaker artifacts from Stage 4 ──────────────────
     info "Overlaying Icebreaker artifacts..."
@@ -564,8 +575,9 @@ LDMCFG
     info "Enabling Icebreaker systemd services..."
     mkdir -p "${ISO_CHROOT}/etc/systemd/system/multi-user.target.wants"
     mkdir -p "${ISO_CHROOT}/etc/systemd/system/sockets.target.wants"
+    # Note: icebreaker-qbd.service is intentionally excluded so only the Privileged Brain loads
     for svc in icebreaker-first-boot.service icebreaker-pbd.service \
-               icebreaker-qbd.service icebreaker-controller.service; do
+               icebreaker-controller.service; do
         ln -sf "/etc/systemd/system/${svc}" \
             "${ISO_CHROOT}/etc/systemd/system/multi-user.target.wants/${svc}"
     done
@@ -591,7 +603,7 @@ LDMCFG
 
     info "Creating squashfs (this takes several minutes)..."
     mksquashfs "${ISO_CHROOT}" "${ISO_STAGING}/live/filesystem.squashfs" \
-        -comp xz -Xbcj x86 -b 1M -no-duplicates \
+        -noI -noD -noF -noX -no-duplicates \
         -e boot/vmlinuz-\* boot/initrd.img-\* \
         2>&1 | tail -5
     info "Squashfs: $(du -h "${ISO_STAGING}/live/filesystem.squashfs" | awk '{print $1}')"

@@ -545,8 +545,13 @@ _DEFAULT_SEARCH_DIRS = [
     Path.home() / ".local" / "share" / "icebreaker" / "models",
     Path("/var/lib/icebreaker/models"),
 ]
-_DEFAULT_CHECKSUMS = (
-    Path(__file__).parent.parent.parent / "models" / "checksums.sha256"
+_DEFAULT_CHECKSUMS = Path(
+    os.environ.get("ICEBREAKER_CHECKSUMS")
+    or (
+        "/var/lib/icebreaker/models/checksums.sha256"
+        if Path("/var/lib/icebreaker/models/checksums.sha256").exists()
+        else Path(__file__).parent.parent.parent / "models" / "checksums.sha256"
+    )
 )
 
 

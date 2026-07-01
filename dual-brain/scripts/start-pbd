@@ -23,6 +23,8 @@ fi
 : "${ICEBREAKER_MODELS_DIR:=/var/lib/icebreaker/models}"
 : "${ICEBREAKER_SOCKET_DIR:=/run/icebreaker}"
 : "${ICEBREAKER_LLAMA_SERVER:=/usr/libexec/icebreaker/llama-server}"
+: "${ICEBREAKER_CHECKSUMS:=${ICEBREAKER_MODELS_DIR}/checksums.sha256}"
+export ICEBREAKER_CHECKSUMS
 
 SOCKET_PATH="${ICEBREAKER_SOCKET_DIR}/pbd.sock"
 
