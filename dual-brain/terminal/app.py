@@ -30,6 +30,38 @@ from .input_router import InputRouter, RouteTarget
 
 _CSS_PATH = Path(__file__).parent / "styles.tcss"
 
+# Minimum layout CSS injected when styles.tcss is not present at the installed
+# path (e.g. package-data not included in the venv build). This guarantees the
+# TUI widgets are always visible — avoids the blank-screen Bug #3.
+_FALLBACK_CSS = """
+Screen { background: #111112; color: #c0c0c0; }
+InputBar { dock: top; height: 3; background: #111111;
+           border-bottom: solid #222222; padding: 0 1; }
+StatusBar { dock: bottom; height: 1; background: #111111;
+            color: #888888; padding: 0 1; }
+StatusBar .key-hint { color: #e78952; text-style: bold; }
+#main-split { height: 1fr; }
+ExecutionPanel { width: 3fr; min-width: 30;
+                 border-right: solid #222222; background: #111112; }
+ExecutionPanel #shell-output { background: #111112; color: #c0c0c0;
+                                scrollbar-size: 1 1; }
+CompanionPanel { width: 2fr; min-width: 24;
+                 background: #111112; padding: 0 1; }
+CompanionPanel #companion-header { height: 1; color: #888888;
+                                   text-style: bold; }
+CompanionPanel #cot-container { height: 1fr; overflow-y: auto;
+                                 scrollbar-size: 1 1; }
+CompanionPanel.-hidden { display: none; }
+.cot-card { height: auto; margin: 0 0 1 0; padding: 0 1;
+            background: #111111; border-left: tall #222222; }
+.card-heading { height: 1; color: #c0c0c0; }
+.card-body { height: auto; color: #888888; }
+InputBar #mode-label { width: 8; color: #888888; text-style: bold;
+                       padding: 0 1; content-align: center middle; }
+InputBar #input-field { background: #111112; color: #c0c0c0;
+                        border: round #222222; padding: 0 1; }
+"""
+
 _MIN_COMPANION_WIDTH = 80
 
 
@@ -48,7 +80,13 @@ class StatusBar(Static):
 class AiTerminalApp(App):
     """Split-pane AI Terminal."""
 
-    CSS_PATH = str(_CSS_PATH) if _CSS_PATH.exists() else None
+    # Use the on-disk TCSS when available; fall back to the embedded constant
+    # so widgets are always visible even if package-data wasn't installed.
+    if _CSS_PATH.exists():
+        CSS_PATH = str(_CSS_PATH)
+    else:
+        CSS = _FALLBACK_CSS
+
     TITLE = "Icebreaker AI Terminal"
 
     BINDINGS = [
@@ -57,12 +95,18 @@ class AiTerminalApp(App):
         Binding("f10", "quit", "Quit"),
     ]
 
-    def __init__(self, daemon_client: Any = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        daemon_client: Any = None,
+        startup_warning: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         self._companion_visible = True
         self._no_color = bool(os.environ.get("NO_COLOR"))
         self._router = InputRouter()
         self._daemon_client = daemon_client
+        self._startup_warning = startup_warning
 
     @property
     def router(self) -> InputRouter:
@@ -80,6 +124,18 @@ class AiTerminalApp(App):
             self.screen.add_class("-no-color")
         self._check_companion_width()
         self._wire_daemon_callbacks()
+        # Surface any daemon startup error inside the TUI output panel so the
+        # user sees it rather than a silent blank window or unexpected exit.
+        if self._startup_warning:
+            try:
+                from rich.text import Text
+                log = self.query_one(ExecutionPanel).query_one("#shell-output")
+                log.write(Text(
+                    f"[WARN] {self._startup_warning}",
+                    style="bold #f87171",
+                ))
+            except Exception:
+                pass
 
     def _wire_daemon_callbacks(self) -> None:
         client = self._daemon_client

@@ -27,6 +27,10 @@ icebreaker = "controller.__main__:main"
 [tool.setuptools.packages.find]
 include = ["controller*", "terminal*", "gui*", "gui_agent*", "rpa_bridge*"]
 
+[tool.setuptools.package-data]
+terminal = ["*.tcss"]
+gui = ["*.css", "*.ui"]
+
 [project.optional-dependencies]
 gui = [
     "PyGObject>=3.42",

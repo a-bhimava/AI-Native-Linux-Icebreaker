@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Icebreaker Terminal (Autostart)
+Comment=Auto-launch Icebreaker split-pane terminal on login
+Exec=gnome-terminal --full-screen -- sh -c 'sleep 3 && /opt/icebreaker/venv/bin/python3 -m controller --terminal --config /etc/icebreaker/controller.toml 2>>/var/log/icebreaker/terminal.log'
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

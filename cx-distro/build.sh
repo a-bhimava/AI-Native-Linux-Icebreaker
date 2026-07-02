@@ -335,6 +335,15 @@ if [ "$SKIP_TO" -le 4 ]; then
             "${CHROOT}/usr/share/icebreaker/prompts/$(basename "$prompt")"
     done
 
+    # Shell # trigger — installed for all users via /etc/skel.
+    install -Dm755 "${REPO_ROOT}/shell/ib_trigger.bash" \
+        "${CHROOT}/usr/share/icebreaker/shell/ib_trigger.bash"
+    {
+        echo ""
+        echo "# Icebreaker # trigger — type \"# <intent>\" to run AI commands"
+        echo "source /usr/share/icebreaker/shell/ib_trigger.bash"
+    } >> "${CHROOT}/etc/skel/.bashrc"
+
     # ── /opt/icebreaker/venv/ ───────────────────────────────────────────
     mkdir -p "${CHROOT}/opt/icebreaker"
     cp -a "${BUILD_DIR}/venv" "${CHROOT}/opt/icebreaker/venv"
@@ -379,6 +388,12 @@ if [ "$SKIP_TO" -le 4 ]; then
     if [ -f "${SCRIPT_DIR}/distro/icebreaker-chatbot-autostart.desktop" ]; then
         install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-chatbot-autostart.desktop" \
             "${CHROOT}/etc/xdg/autostart/icebreaker-chatbot.desktop"
+    fi
+
+    # ── Terminal autostart ─────────────────────────────────────────────
+    if [ -f "${SCRIPT_DIR}/distro/icebreaker-terminal-autostart.desktop" ]; then
+        install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-terminal-autostart.desktop" \
+            "${CHROOT}/etc/xdg/autostart/icebreaker-terminal.desktop"
     fi
 
     # ── Build manifest ──────────────────────────────────────────────────

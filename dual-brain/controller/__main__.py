@@ -239,14 +239,30 @@ def _run_daemon(config_path: Path | None) -> int:
 
 
 def _run_terminal(config_path: Path | None) -> int:
-    """Start daemon in background thread, launch AI Terminal TUI as foreground."""
-    from .daemon import Daemon
-    from .client import DaemonClient
-    from terminal.app import AiTerminalApp
+    """Start daemon in background thread, launch AI Terminal TUI as foreground.
 
-    daemon_thread = None
-    daemon_obj = None
+    Resilient startup: if the daemon layer fails to initialise (missing mcpd
+    binary, missing model weights, bad config) the TUI is still launched in
+    shell-only mode so the user always gets a working terminal window.
+    The daemon startup error is shown inside the TUI output panel.
+    """
+    try:
+        from .daemon import Daemon
+        from .client import DaemonClient
+        from terminal.app import AiTerminalApp
+    except ImportError as _import_exc:
+        print(
+            f"FATAL: Icebreaker TUI import failed: {_import_exc}\n"
+            "Check that textual>=0.80 is installed and the 'terminal' package is in the venv.",
+            file=sys.stderr,
+        )
+        return 1
+
     mcpd: McpdClient | None = None
+    client: DaemonClient | None = None
+    _daemon_startup_error: str = ""
+
+    # ── Phase 1: try to start the daemon ──────────────────────────────────
     try:
         cfg = load(config_path)
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
@@ -270,11 +286,8 @@ def _run_terminal(config_path: Path | None) -> int:
         )
         daemon_obj = Daemon(cfg.daemon, controller, cfg, audit)
 
-        def _daemon_thread_fn() -> None:
-            daemon_obj.start()
-
         daemon_thread = threading.Thread(
-            target=_daemon_thread_fn, daemon=True, name="terminal-daemon",
+            target=daemon_obj.start, daemon=True, name="terminal-daemon",
         )
         daemon_thread.start()
 
@@ -285,26 +298,53 @@ def _run_terminal(config_path: Path | None) -> int:
                 break
             time.sleep(0.1)
 
-        from terminal.daemon_client import TextualDaemonClient
-        client: DaemonClient | None = None
+        # ── Phase 2: try to connect the TUI client to the daemon ──────────
         try:
+            from terminal.daemon_client import TextualDaemonClient
             client = TextualDaemonClient(sock_path)
             client.connect()
-        except Exception:
+        except Exception as conn_exc:
+            _daemon_startup_error = (
+                f"Daemon started but client connection failed: {conn_exc}\n"
+                "Running in shell-only mode."
+            )
             client = None
 
-        app = AiTerminalApp(daemon_client=client)
-        app.run()
-
-        if client is not None:
-            client.close()
-        return 0
-    except Exception as exc:
-        print(f"Fatal: {exc}", file=sys.stderr)
-        return 1
-    finally:
+    except Exception as daemon_exc:
+        # Log for sysadmin triage, then fall through to shell-only TUI.
+        _daemon_startup_error = (
+            f"Daemon startup failed: {daemon_exc}\n"
+            "Running in shell-only mode — NL commands unavailable."
+        )
+        print(f"WARN: {_daemon_startup_error}", file=sys.stderr)
         if mcpd is not None:
-            mcpd.close()
+            try:
+                mcpd.close()
+            except Exception:
+                pass
+            mcpd = None
+
+    # ── Phase 3: always launch the TUI (with or without daemon) ───────────
+    try:
+        app = AiTerminalApp(
+            daemon_client=client,
+            startup_warning=_daemon_startup_error or None,
+        )
+        app.run()
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+        if mcpd is not None:
+            try:
+                mcpd.close()
+            except Exception:
+                pass
+
+    return 0
+
 
 
 def _run_gui(mode: str, config_path: Path | None) -> int:

@@ -85,8 +85,7 @@ Rules:
 - Use only the allowed_tool specified in the input
 - params must match tool_schema exactly
 - No explanation. No reasoning. One JSON object only.
-- If input is malformed: output {"tool":"system.status","params":{}}
-- If the request is dangerous: output REFUSE: <one-line reason>"""
+- If input is malformed: output {"tool":"system.status","params":{}}"""
 
 PARAMETER temperature 0.1
 PARAMETER top_p 0.9

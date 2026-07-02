@@ -1,9 +1,9 @@
 [Desktop Entry]
 Name=Icebreaker Terminal
 Comment=AI-Native OS split-pane terminal
-Exec=sh -c '/opt/icebreaker/venv/bin/python3 -m controller --terminal --config /etc/icebreaker/controller.toml 2>/tmp/icebreaker-terminal.log'
+Exec=gnome-terminal --full-screen -- sh -c '/opt/icebreaker/venv/bin/python3 -m controller --terminal --config /etc/icebreaker/controller.toml 2>&1 | tee -a /var/log/icebreaker/terminal.log; echo "--- Icebreaker Terminal exited. Press Enter to close. ---"; read'
 Icon=utilities-terminal
-Terminal=true
+Terminal=false
 Type=Application
 Categories=System;TerminalEmulator;
 Keywords=ai;terminal;tui;icebreaker;
