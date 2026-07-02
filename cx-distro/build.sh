@@ -587,7 +587,7 @@ LDMCFG
     mkdir -p "${ISO_CHROOT}/etc/systemd/system/multi-user.target.wants"
     mkdir -p "${ISO_CHROOT}/etc/systemd/system/sockets.target.wants"
     for svc in icebreaker-first-boot.service icebreaker-pbd.service \
-               icebreaker-qbd.service icebreaker-controller.service; do
+               icebreaker-controller.service; do
         ln -sf "/etc/systemd/system/${svc}" \
             "${ISO_CHROOT}/etc/systemd/system/multi-user.target.wants/${svc}"
     done
@@ -613,7 +613,7 @@ LDMCFG
 
     info "Creating squashfs (this takes several minutes)..."
     mksquashfs "${ISO_CHROOT}" "${ISO_STAGING}/live/filesystem.squashfs" \
-        -comp xz -Xbcj x86 -b 1M -no-duplicates \
+        -noI -noD -noF -noX -b 1M -no-duplicates \
         -e boot/vmlinuz-\* boot/initrd.img-\* \
         2>&1 | tail -5
     info "Squashfs: $(du -h "${ISO_STAGING}/live/filesystem.squashfs" | awk '{print $1}')"
