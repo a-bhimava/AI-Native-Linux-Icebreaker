@@ -565,6 +565,17 @@ LDMCFG
     [ -d "${CHROOT}" ] || die "includes.chroot not found — run Stage 4 first"
     cp -a "${CHROOT}"/* "${ISO_CHROOT}/"
 
+    # Wire # trigger into the primary user's .bashrc.
+    # Must happen AFTER cp-a and AFTER useradd (which creates ~/.bashrc from skel).
+    if [ -f "${ISO_CHROOT}/home/icebreaker/.bashrc" ]; then
+        {
+            echo ""
+            echo "# Icebreaker # trigger — type \"# <intent>\" to run AI commands"
+            echo "source /usr/share/icebreaker/shell/ib_trigger.bash"
+        } >> "${ISO_CHROOT}/home/icebreaker/.bashrc"
+        info "Wired # trigger into /home/icebreaker/.bashrc"
+    fi
+
     # ── 5c2: Compile GSettings schemas (wallpaper override) ─────────────
     if [ -f "${ISO_CHROOT}/usr/share/glib-2.0/schemas/99_icebreaker.gschema.override" ]; then
         chroot "${ISO_CHROOT}" glib-compile-schemas /usr/share/glib-2.0/schemas/ 2>/dev/null || true

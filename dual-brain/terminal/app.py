@@ -13,6 +13,7 @@ Layout (ADR-18, ADR-19):
 
 from __future__ import annotations
 
+import asyncio
 import os
 import threading
 from pathlib import Path
@@ -280,7 +281,7 @@ class AiTerminalApp(App):
             return self._daemon_client.run_turn(text)
 
         try:
-            resp = await self.run_in_thread(_do_turn)
+            resp = await asyncio.to_thread(_do_turn)
         except Exception as exc:
             from rich.text import Text
             log = execution.query_one("#shell-output")

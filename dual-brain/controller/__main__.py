@@ -83,6 +83,22 @@ def _build_pb(cfg: ControllerConfig) -> Any:
     return LlamaCppLocalBackend(pb_cfg)
 
 
+def _build_pb_safe(cfg: ControllerConfig) -> Any:
+    """Build PB with fallback to stub when llama-server isn't up yet.
+
+    The pbd service may not be ready (model not installed, still starting).
+    Fall back to _UnconfiguredBackend so the controller starts and serves
+    NL requests that don't require PB execution.
+    """
+    try:
+        return _build_pb(cfg)
+    except Exception as exc:
+        reason = str(exc)
+        print(f"WARN: PB backend init failed: {reason}", file=sys.stderr)
+        print("WARN: Starting with unconfigured PB — tool execution unavailable.", file=sys.stderr)
+        return _UnconfiguredBackend(reason)
+
+
 @contextmanager
 def _build_controller(
     config_path: Path | None = None,
@@ -102,7 +118,7 @@ def _build_controller(
     mcpd: McpdClient | None = None
     try:
         qb = _build_qb(cfg)
-        pb = _build_pb(cfg)
+        pb = _build_pb_safe(cfg)
         # spawn() is the factory: it Popen's mcpd and returns a connected
         # client. The bare constructor takes an already-spawned process plus
         # keyword-only binary_path/default_timeout, so must not be called here.
@@ -209,7 +225,7 @@ def _run_daemon(config_path: Path | None) -> int:
         mcpd: McpdClient | None = None
         try:
             qb = _build_qb_safe(cfg)
-            pb = _build_pb(cfg)
+            pb = _build_pb_safe(cfg)
             mcpd = McpdClient.spawn(
                 Path(cfg.run.mcpd_binary).expanduser(),
                 default_timeout=cfg.run.mcpd_timeout_seconds,
@@ -267,7 +283,7 @@ def _run_terminal(config_path: Path | None) -> int:
         cfg = load(config_path)
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
         qb = _build_qb_safe(cfg)
-        pb = _build_pb(cfg)
+        pb = _build_pb_safe(cfg)
         mcpd = McpdClient.spawn(
             Path(cfg.run.mcpd_binary).expanduser(),
             default_timeout=cfg.run.mcpd_timeout_seconds,
@@ -357,7 +373,7 @@ def _run_gui(mode: str, config_path: Path | None) -> int:
         cfg = load(config_path)
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
         qb = _build_qb_safe(cfg)
-        pb = _build_pb(cfg)
+        pb = _build_pb_safe(cfg)
         mcpd = McpdClient.spawn(
             Path(cfg.run.mcpd_binary).expanduser(),
             default_timeout=cfg.run.mcpd_timeout_seconds,
