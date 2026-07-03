@@ -143,5 +143,8 @@ info "Compressing base image (zstd)..."
 tar -C "$CHROOT" -cf - . | zstd -3 -T0 -o "$BASE_TAR"
 sha256sum "$BASE_TAR" > "${BASE_TAR}.sha256"
 
+# The tarball is the artifact — reclaim the ~5 GB working chroot (F-15).
+rm -rf "$CHROOT"
+
 info "Base image ready: ${BASE_TAR} ($(du -h "$BASE_TAR" | awk '{print $1}'))"
 info "Next: sudo bash incremental/build/build-iso.sh 0"

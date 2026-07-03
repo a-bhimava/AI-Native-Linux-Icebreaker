@@ -41,6 +41,10 @@ for tool in mksquashfs xorriso zstd grub-mkstandalone mkfs.fat mcopy; do
     command -v "$tool" >/dev/null || die "$tool not installed"
 done
 
+# Fail fast, not at xorriso 15 minutes in (F-15): chroot ~6G + squashfs ~2.5G + ISO ~2.5G.
+FREE_GB=$(df -BG --output=avail "$INC_ROOT" 2>/dev/null | tail -1 | tr -dc '0-9' || echo 0)
+[ "${FREE_GB:-0}" -ge 12 ] || die "only ${FREE_GB}G free under ${BUILD_DIR} — need ≥12G. Clean old chroots/ISOs first (see GROUND_TRUTH F-15)."
+
 # ── Locate cached base ──────────────────────────────────────────────────
 PKG_LIST="$(grep -vE '^\s*(#|$)' "$PKG_FILE")"
 BASE_HASH="$(printf '%s\n%s' "$PKG_LIST" "$UBUNTU_BASE" | sha256sum | cut -c1-12)"
