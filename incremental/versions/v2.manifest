@@ -1,0 +1,15 @@
+# v2 — Controller daemon (echo backend)
+# Scope: venv + controller pkg + package data (PKG-1) + icebreaker-controller.service + echo backend registered in BrainBackend registry
+# Gate: GROUND_TRUTH.md § 3 V2.
+#
+# STUB ON PURPOSE (rules R2 + D-4): implement version_overlay() only when
+# V1 is GREEN on the Status Board. Implementing ahead of the gate
+# recreates the big-bang integration failure this project exists to kill.
+
+VERSION_PACKAGES=""
+
+version_overlay() {
+    echo "FATAL: v2.manifest is not implemented yet." >&2
+    echo "Rule R2: implement it only after V1 is GREEN in incremental/GROUND_TRUTH.md." >&2
+    return 1
+}

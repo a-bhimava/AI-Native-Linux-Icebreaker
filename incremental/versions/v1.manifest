@@ -1,0 +1,16 @@
+# v1 — SSH access + diagnostics
+# Adds: ib-debug at /usr/local/bin. (sshd is enabled in the base.)
+# Gate: GROUND_TRUTH.md § 3 V1.
+
+VERSION_PACKAGES=""
+
+version_overlay() {
+    local chroot="$1" repo="$2"
+
+    install -Dm755 "${repo}/dual-brain/scripts/ib_debug.py" \
+        "${chroot}/usr/local/bin/ib-debug"
+
+    # Log directory that ib-debug and later services expect.
+    mkdir -p "${chroot}/var/log/icebreaker"
+    chmod 0775 "${chroot}/var/log/icebreaker"
+}

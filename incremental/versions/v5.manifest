@@ -1,0 +1,15 @@
+# v5 — QB Gemini
+# Scope: gemini QB config in controller.toml + locations.env API-key flow + R6 no-key error message
+# Gate: GROUND_TRUTH.md § 3 V5.
+#
+# STUB ON PURPOSE (rules R2 + D-4): implement version_overlay() only when
+# V4 is GREEN on the Status Board. Implementing ahead of the gate
+# recreates the big-bang integration failure this project exists to kill.
+
+VERSION_PACKAGES=""
+
+version_overlay() {
+    echo "FATAL: v5.manifest is not implemented yet." >&2
+    echo "Rule R2: implement it only after V4 is GREEN in incremental/GROUND_TRUTH.md." >&2
+    return 1
+}

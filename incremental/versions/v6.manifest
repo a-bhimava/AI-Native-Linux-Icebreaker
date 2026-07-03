@@ -1,0 +1,15 @@
+# v6 — PB + mcpd execution
+# Scope: run7 GGUF embed + checksums (INV-7) + llama-server + start-pbd + icebreaker-pbd.service + mcpd + HITL + actionable PB-missing message
+# Gate: GROUND_TRUTH.md § 3 V6.
+#
+# STUB ON PURPOSE (rules R2 + D-4): implement version_overlay() only when
+# V5 is GREEN on the Status Board. Implementing ahead of the gate
+# recreates the big-bang integration failure this project exists to kill.
+
+VERSION_PACKAGES=""
+
+version_overlay() {
+    echo "FATAL: v6.manifest is not implemented yet." >&2
+    echo "Rule R2: implement it only after V5 is GREEN in incremental/GROUND_TRUTH.md." >&2
+    return 1
+}

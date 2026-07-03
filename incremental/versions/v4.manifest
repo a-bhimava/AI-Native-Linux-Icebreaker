@@ -1,0 +1,15 @@
+# v4 — # trigger
+# Scope: shell/ib_trigger.bash -> /usr/share/icebreaker/shell/ + skel .bashrc + explicit /home/icebreaker/.bashrc patch (F-6)
+# Gate: GROUND_TRUTH.md § 3 V4.
+#
+# STUB ON PURPOSE (rules R2 + D-4): implement version_overlay() only when
+# V3 is GREEN on the Status Board. Implementing ahead of the gate
+# recreates the big-bang integration failure this project exists to kill.
+
+VERSION_PACKAGES=""
+
+version_overlay() {
+    echo "FATAL: v4.manifest is not implemented yet." >&2
+    echo "Rule R2: implement it only after V3 is GREEN in incremental/GROUND_TRUTH.md." >&2
+    return 1
+}

@@ -1,0 +1,15 @@
+# v3 — Dual-pane terminal
+# Scope: terminal pkg + styles.tcss + icebreaker-terminal.desktop + autostart + ib-wait-sock + F-7 fix (retry + visible startup_warning in terminal/__main__.py)
+# Gate: GROUND_TRUTH.md § 3 V3.
+#
+# STUB ON PURPOSE (rules R2 + D-4): implement version_overlay() only when
+# V2 is GREEN on the Status Board. Implementing ahead of the gate
+# recreates the big-bang integration failure this project exists to kill.
+
+VERSION_PACKAGES=""
+
+version_overlay() {
+    echo "FATAL: v3.manifest is not implemented yet." >&2
+    echo "Rule R2: implement it only after V2 is GREEN in incremental/GROUND_TRUTH.md." >&2
+    return 1
+}
