@@ -12,8 +12,8 @@
 |---------|------|-------|-----|---------|-------------|
 | V0 | Boots to GNOME | **GREEN 2026-07-03** (QEMU + UTM, commit `eb274f0`) | `ISO/incremental/v0.iso` | `fa688645…3fac` | 2026-07-03 |
 | V1 | SSH + diagnostics | **GREEN 2026-07-03** (QEMU L1 + UTM, commit `50b2293`) | `ISO/incremental/v1.iso` | `f8c9bfff…89a8` | 2026-07-03 |
-| V2 | Daemon (echo) | **IN PROGRESS** | — | — | — |
-| V3 | Dual-pane terminal | RED — blocked by V2 | — | — | — |
+| V2 | Daemon (QB-unconfigured path) | **TESTING** — smoke + QEMU L2 gates PASS; live-guest checks PASS (turn.run actionable error, restart 22 s); UTM boot pending | `ISO/incremental/v2.iso` (verified) | `5cc74e1f…46a3` | — |
+| V3 | Dual-pane terminal | **TESTING** — smoke + QEMU L3 gates PASS (incl. F-7 behavioral); UTM boot pending | downloading → `ISO/incremental/v3.iso` | `432c9757…aa6e` | — |
 | V4 | `#` trigger | RED — blocked by V3 | — | — | — |
 | V5 | QB (Gemini) | RED — blocked by V4 | — | — | — |
 | V6 | PB + mcpd execution | RED — blocked by V5 | — | — | — |
