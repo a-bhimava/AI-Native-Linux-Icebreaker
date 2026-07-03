@@ -105,6 +105,11 @@ fi
 if [ "$LEVEL" -ge 4 ]; then
     echo "[L4] # trigger"
     check_file /usr/share/icebreaker/shell/ib_trigger.bash "trigger script not installed"
+    check_file /usr/share/icebreaker/shell/ib_run.py "ib_run.py runner not installed"
+    in_chroot "bash -n /usr/share/icebreaker/shell/ib_trigger.bash" \
+        && pass "ib_trigger.bash syntax OK" || fail "ib_trigger.bash has a bash syntax error"
+    in_chroot "/opt/icebreaker/venv/bin/python3 -m py_compile /usr/share/icebreaker/shell/ib_run.py" \
+        && pass "ib_run.py compiles" || fail "ib_run.py has a syntax error"
     grep -q "ib_trigger.bash" "${CHROOT}/etc/skel/.bashrc" 2>/dev/null \
         && pass "skel .bashrc sources trigger" || fail "trigger not in /etc/skel/.bashrc"
     grep -q "ib_trigger.bash" "${CHROOT}/home/icebreaker/.bashrc" 2>/dev/null \

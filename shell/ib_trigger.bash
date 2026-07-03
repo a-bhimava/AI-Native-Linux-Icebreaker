@@ -10,11 +10,15 @@
 #   # list running services    →  runs systemctl list-units --state=running
 #
 # The trigger intercepts Enter when the line starts with "#", strips the prefix,
-# sends the text to the Controller daemon (QB → PB → mcpd), and prints the result.
-# Lines NOT starting with "#" are executed normally by bash.
+# sends the text to the Controller daemon (QB → PB → mcpd) via ib_run.py, and
+# prints the result. Lines NOT starting with "#" are executed normally by bash.
+
+# Interactive shells only — bind is meaningless (and noisy) otherwise.
+[[ $- == *i* ]] || return 0 2>/dev/null || exit 0
 
 _IB_VENV_PYTHON="${ICEBREAKER_VENV_PYTHON:-/opt/icebreaker/venv/bin/python3}"
 _IB_SOCK="${ICEBREAKER_CONTROLLER_SOCK:-/run/icebreaker/controller.sock}"
+_IB_RUN="${ICEBREAKER_IB_RUN:-/usr/share/icebreaker/shell/ib_run.py}"
 
 _ib_hash_trigger() {
     local buf="${READLINE_LINE}"
@@ -37,40 +41,11 @@ _ib_hash_trigger() {
     echo ""
     printf '\033[1;36m[icebreaker]\033[0m %s\n' "$query"
 
-    "${_IB_VENV_PYTHON}" - "$query" "$_IB_SOCK" <<'PYEOF'
-import sys
-
-query = sys.argv[1]
-sock_path = sys.argv[2]
-
-try:
-    from controller.client import DaemonClient
-    client = DaemonClient(sock_path)
-    client.connect()
-    resp = client.run_turn(query)
-    client.close()
-    if "result" in resp:
-        out = resp["result"].get("output", "")
-        if out:
-            print(out)
-        else:
-            print("(done)")
-    else:
-        msg = resp.get("error", {}).get("message", "unknown error")
-        print(f"\033[1;31m[error]\033[0m {msg}", file=sys.stderr)
-except FileNotFoundError:
-    print(
-        f"\033[1;33m[icebreaker]\033[0m Daemon socket not found: {sock_path}",
-        file=sys.stderr,
-    )
-    print(
-        "\033[1;33m[icebreaker]\033[0m Start the daemon: systemctl start icebreaker-controller",
-        file=sys.stderr,
-    )
-except Exception as exc:
-    print(f"\033[1;31m[icebreaker]\033[0m {exc}", file=sys.stderr)
-PYEOF
+    "${_IB_VENV_PYTHON}" "${_IB_RUN}" "$query" "$_IB_SOCK"
 }
 
-bind -x '"\C-m": _ib_hash_trigger'   # Enter
-bind -x '"\C-j": _ib_hash_trigger'   # Ctrl+J (also Enter in some terminals)
+# Bind Ctrl-J to the trigger function
+bind -x '"\C-j": _ib_hash_trigger'
+
+# Bind Enter (Ctrl-M) to execute Ctrl-J, then accept the line (Ctrl-M)
+bind '"\C-m": "\C-j\n"'

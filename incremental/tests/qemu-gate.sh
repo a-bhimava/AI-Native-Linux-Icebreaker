@@ -195,6 +195,32 @@ if [ "$LEVEL" -ge 3 ]; then
         || fail "F-7: no visible warning when daemon is down (got: ${F7_OUT:0:100})"
 fi
 
+# ═══ Level 4 ═══
+if [ "$LEVEL" -ge 4 ]; then
+    echo "[L4] # trigger"
+    # Plain shell must be unaffected by the trigger's readline binds.
+    PLAIN="$(_ssh "bash -ic 'echo plain-ok' 2>/dev/null" || true)"
+    echo "$PLAIN" | grep -q "plain-ok" \
+        && pass "plain shell commands unaffected" || fail "interactive bash broken by trigger (got: ${PLAIN:0:80})"
+    _ssh "grep -qF 'source /usr/share/icebreaker/shell/ib_trigger.bash' /home/icebreaker/.bashrc" \
+        && pass "trigger sourced in user .bashrc (F-6)" || fail "F-6: trigger not wired into /home/icebreaker/.bashrc"
+    # Behavioral: run the SHIPPED runner (same file the trigger calls, F-17).
+    # Timeout scales with accelerator (F-16 rule).
+    L4_TIMEOUT=30
+    [ "${QEMU_ACCEL[0]}" = "-cpu" ] && L4_TIMEOUT=120
+    IBRUN="$(_ssh "timeout ${L4_TIMEOUT} /opt/icebreaker/venv/bin/python3 /usr/share/icebreaker/shell/ib_run.py 'hello' /run/icebreaker/controller.sock 2>&1" || true)"
+    if [ "$LEVEL" -eq 4 ]; then
+        # QB has no key until V5 — the actionable error IS the pass condition (R6).
+        echo "$IBRUN" | grep -qi "GEMINI_API_KEY\|Quarantined Brain" \
+            && pass "ib_run.py returns actionable QB-unconfigured error" \
+            || fail "ib_run.py gave no actionable error (got: ${IBRUN:0:120})"
+    else
+        [ -n "$IBRUN" ] \
+            && pass "ib_run.py returned output" \
+            || fail "ib_run.py produced no output"
+    fi
+fi
+
 # ═══ Level 6 ═══
 if [ "$LEVEL" -ge 6 ]; then
     echo "[L6] PB + mcpd runtime"

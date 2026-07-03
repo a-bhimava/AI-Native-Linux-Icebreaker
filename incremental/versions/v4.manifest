@@ -1,15 +1,44 @@
-# v4 — # trigger
-# Scope: shell/ib_trigger.bash -> /usr/share/icebreaker/shell/ + skel .bashrc + explicit /home/icebreaker/.bashrc patch (F-6)
+# v4 — # trigger in the default terminal
+# Adds:
+#   - /usr/share/icebreaker/shell/ib_trigger.bash  (readline # intercept)
+#   - /usr/share/icebreaker/shell/ib_run.py        (daemon call — same file the
+#     QEMU gate executes, so tested path == shipped path, F-17 discipline)
+#   - source line in /etc/skel/.bashrc (future users) AND explicitly in
+#     /home/icebreaker/.bashrc (F-6: useradd copied skel in the BASE build,
+#     long before this overlay — skel edits alone never reach the user)
 # Gate: GROUND_TRUTH.md § 3 V4.
-#
-# STUB ON PURPOSE (rules R2 + D-4): implement version_overlay() only when
-# V3 is GREEN on the Status Board. Implementing ahead of the gate
-# recreates the big-bang integration failure this project exists to kill.
 
 VERSION_PACKAGES=""
 
 version_overlay() {
-    echo "FATAL: v4.manifest is not implemented yet." >&2
-    echo "Rule R2: implement it only after V3 is GREEN in incremental/GROUND_TRUTH.md." >&2
-    return 1
+    local chroot="$1" repo="$2"
+
+    echo "[v4] Installing # trigger..."
+    install -Dm644 "${repo}/shell/ib_trigger.bash" \
+        "${chroot}/usr/share/icebreaker/shell/ib_trigger.bash"
+    install -Dm644 "${repo}/shell/ib_run.py" \
+        "${chroot}/usr/share/icebreaker/shell/ib_run.py"
+
+    # Syntax-verify what we just shipped (fail the build, not the user).
+    bash -n "${chroot}/usr/share/icebreaker/shell/ib_trigger.bash" || \
+        { echo "FATAL[v4]: ib_trigger.bash has a bash syntax error" >&2; return 1; }
+    chroot "$chroot" /opt/icebreaker/venv/bin/python3 -m py_compile \
+        /usr/share/icebreaker/shell/ib_run.py || \
+        { echo "FATAL[v4]: ib_run.py does not compile" >&2; return 1; }
+
+    # Idempotent bashrc wiring (skel for future users, explicit for icebreaker — F-6).
+    local line='source /usr/share/icebreaker/shell/ib_trigger.bash'
+    for rc in "${chroot}/etc/skel/.bashrc" "${chroot}/home/icebreaker/.bashrc"; do
+        [ -f "$rc" ] || { echo "FATAL[v4]: $rc missing" >&2; return 1; }
+        if ! grep -qF "$line" "$rc"; then
+            {
+                echo ""
+                echo "# Icebreaker # trigger — type \"# <intent>\" to run AI commands"
+                echo "$line"
+            } >> "$rc"
+        fi
+    done
+    chroot "$chroot" chown icebreaker:icebreaker /home/icebreaker/.bashrc
+
+    echo "[v4] overlay complete"
 }
