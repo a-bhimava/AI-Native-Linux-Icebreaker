@@ -18,7 +18,6 @@ LEVEL="${2:?usage: qemu-gate.sh <iso> <level>}"
 command -v qemu-system-x86_64 >/dev/null || { echo "FATAL: qemu-system-x86_64 not installed" >&2; exit 2; }
 command -v sshpass >/dev/null || { echo "FATAL: sshpass not installed (apt-get install sshpass)" >&2; exit 2; }
 
-SSH_PORT=2299
 GUEST_USER=icebreaker
 GUEST_PASS=icebreaker
 SERIAL_LOG="$(mktemp /tmp/qemu-gate-serial.XXXXXX.log)"
@@ -39,6 +38,15 @@ else
     BOOT_TIMEOUT=1800     # 30 min under TCG emulation
     info "No KVM — falling back to TCG emulation (slow; timeout ${BOOT_TIMEOUT}s)"
 fi
+
+# ── Stale-QEMU cleanup + per-run port (F-18) ────────────────────────────
+# A leftover gate QEMU holding the ssh forward makes the new QEMU launch
+# WITHOUT forwarding (the hostfwd error is non-fatal), and ssh then reaches
+# the ORPHANED guest — the gate silently tests the wrong ISO. Kill stale
+# gate QEMUs and use a random ephemeral port per run.
+pkill -f 'qemu-system-x86_64.*icebreaker-v[0-9]+\.iso' 2>/dev/null && \
+    { info "Killed stale gate QEMU (F-18)"; sleep 2; } || true
+SSH_PORT="${QEMU_GATE_PORT:-$((20000 + RANDOM % 20000))}"
 
 # ── Launch QEMU ─────────────────────────────────────────────────────────
 info "Booting $(basename "$ISO") (ssh forward localhost:${SSH_PORT})..."
@@ -99,7 +107,14 @@ fi
 _ssh "systemctl is-active gdm" | grep -q active \
     && pass "gdm active" || fail "gdm not active"
 V="$(_ssh "cat /etc/icebreaker-version")"
-[ "$V" = "v${LEVEL}" ] && pass "version marker = v${LEVEL}" || fail "version marker '$V' != expected 'v${LEVEL}'"
+# F-18: a marker mismatch means we are talking to the WRONG guest (stale
+# QEMU / port collision) — every further check would be meaningless. Abort.
+if [ "$V" = "v${LEVEL}" ]; then
+    pass "version marker = v${LEVEL}"
+else
+    fail "version marker '$V' != expected 'v${LEVEL}' — WRONG GUEST (stale QEMU?). Aborting gate."
+    exit 1
+fi
 _ssh "systemctl --failed --no-legend" | grep -q . \
     && fail "failed units: $(_ssh 'systemctl --failed --no-legend' | awk '{print $1}' | tr '\n' ' ')" \
     || pass "no failed systemd units"
