@@ -60,6 +60,27 @@ SOCKETS = [
     ("/run/icebreaker/pbd.sock",        "PB llama-server"),
 ]
 
+# Incremental-ladder awareness: components below the system's version level
+# are reported as "not expected yet" instead of failures. Keyed to
+# /etc/icebreaker-version (see incremental/GROUND_TRUTH.md § 3).
+SERVICE_LEVELS = {
+    "icebreaker-first-boot.service": 2,
+    "icebreaker-controller.service": 2,
+    "icebreaker-pbd.service":        6,
+}
+SOCKET_LEVELS = {
+    "/run/icebreaker/controller.sock": 2,
+    "/run/icebreaker/pbd.sock":        6,
+}
+MODELS_LEVEL = 6
+
+def version_level() -> int:
+    """Parse /etc/icebreaker-version ('v2' -> 2). 99 = expect everything."""
+    try:
+        return int(Path("/etc/icebreaker-version").read_text().strip().lstrip("v"))
+    except Exception:
+        return 99
+
 LOG_PATHS = {
     "controller":  "/var/log/icebreaker/controller.log",
     "terminal":    "/var/log/icebreaker/terminal.log",
@@ -561,13 +582,23 @@ def render_snapshot(snap: DiagSnapshot, show_logs: bool = True,
 
     # ── Health summary ──
     lines.append(bold("═" * w))
-    failed_svcs   = [s.label for s in snap.services if not s.ok and s.active == "failed"]
-    inactive_svcs = [s.label for s in snap.services if not s.ok and s.active != "failed"]
-    failed_socks  = [s.label for s in snap.sockets if not s.ok]
+    lvl = version_level()
+    def _svc_expected(s):  return SERVICE_LEVELS.get(s.unit, 0) <= lvl
+    def _sock_expected(s): return SOCKET_LEVELS.get(s.path, 0) <= lvl
+
+    failed_svcs   = [s.label for s in snap.services
+                     if not s.ok and s.active == "failed" and _svc_expected(s)]
+    inactive_svcs = [s.label for s in snap.services
+                     if not s.ok and s.active != "failed" and _svc_expected(s)]
+    failed_socks  = [s.label for s in snap.sockets if not s.ok and _sock_expected(s)]
+    not_yet       = ([s.label for s in snap.services if not s.ok and not _svc_expected(s)]
+                     + [s.label for s in snap.sockets if not s.ok and not _sock_expected(s)])
     total_errors  = sum(len(l.errors) for l in snap.logs)
 
     if not failed_svcs and not failed_socks and snap.config_ok and snap.venv_ok:
         lines.append(green("  SYSTEM HEALTHY") + dim(f"  ({len(snap.processes)} IB processes running)"))
+        if not_yet:
+            lines.append(dim(f"  Not expected until later versions (v{lvl} now): {', '.join(sorted(set(not_yet)))}"))
     else:
         lines.append(red("  SYSTEM ISSUES DETECTED:"))
         if failed_svcs:
@@ -582,6 +613,8 @@ def render_snapshot(snap: DiagSnapshot, show_logs: bool = True,
             lines.append(red(f"    CONFIG: {snap.config_error}"))
         if not snap.venv_ok:
             lines.append(red(f"    VENV: {snap.venv_error}"))
+        if not_yet:
+            lines.append(dim(f"    (not counted — arrive in later versions: {', '.join(sorted(set(not_yet)))})"))
     lines.append(bold("═" * w))
 
     return "\n".join(lines)
@@ -673,11 +706,22 @@ def rich_snapshot(snap: DiagSnapshot) -> None:
         for src, line in all_errors[-10:]:
             console.print(f"  [dim]{src}[/dim]  [red]{line[:120]}[/red]")
 
-    # Health footer
-    failed = [s.label for s in snap.services if s.active == "failed"]
-    bad_socks = [s.label for s in snap.sockets if not s.ok]
+    # Health footer — version-aware: components above the system's ladder
+    # level are informational, not failures (see /etc/icebreaker-version).
+    lvl = version_level()
+    failed = [s.label for s in snap.services
+              if s.active == "failed" and SERVICE_LEVELS.get(s.unit, 0) <= lvl]
+    bad_socks = [s.label for s in snap.sockets
+                 if not s.ok and SOCKET_LEVELS.get(s.path, 0) <= lvl]
+    not_yet = ([s.label for s in snap.services
+                if not s.ok and SERVICE_LEVELS.get(s.unit, 0) > lvl]
+               + [s.label for s in snap.sockets
+                  if not s.ok and SOCKET_LEVELS.get(s.path, 0) > lvl])
     if not failed and not bad_socks and snap.config_ok and snap.venv_ok:
         console.print(Rule("[green bold]SYSTEM HEALTHY[/green bold]", style="green"))
+        if not_yet:
+            console.print(f"  [dim]Not expected until later versions (v{lvl} now): "
+                          f"{', '.join(sorted(set(not_yet)))}[/dim]")
     else:
         console.print(Rule("[bold red]ISSUES DETECTED[/bold red]", style="red"))
         if failed:
@@ -688,6 +732,9 @@ def rich_snapshot(snap: DiagSnapshot) -> None:
             console.print(f"  [bold red]Config:[/bold red] {snap.config_error}")
         if not snap.venv_ok:
             console.print(f"  [bold red]Venv:[/bold red] {snap.venv_error}")
+        if not_yet:
+            console.print(f"  [dim](not counted — arrive in later versions: "
+                          f"{', '.join(sorted(set(not_yet)))})[/dim]")
 
 # ── Modes ─────────────────────────────────────────────────────────────────────
 
