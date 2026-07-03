@@ -1,15 +1,38 @@
 # v3 — Dual-pane terminal
-# Scope: terminal pkg + styles.tcss + icebreaker-terminal.desktop + autostart + ib-wait-sock + F-7 fix (retry + visible startup_warning in terminal/__main__.py)
+# Adds:
+#   - icebreaker-terminal.desktop launcher (Terminal=true, direct exec — F-1/F-2)
+#   - login autostart via gnome-terminal + ib-wait-sock (F-9: no blind sleep)
+#   - terminal package refresh in venv (carries the F-7 fix: 20 s connect retry
+#     + visible startup_warning instead of silent daemon_client=None)
+#   - styles.tcss guaranteed in site-packages (PKG-1)
 # Gate: GROUND_TRUTH.md § 3 V3.
 #
-# STUB ON PURPOSE (rules R2 + D-4): implement version_overlay() only when
-# V2 is GREEN on the Status Board. Implementing ahead of the gate
-# recreates the big-bang integration failure this project exists to kill.
+# Note: the venv is rebuilt from source by v2's overlay on every build, so the
+# F-7 fix ships via pip; the explicit copy below is PKG-1 insurance and makes
+# the .tcss check enforceable.
 
 VERSION_PACKAGES=""
 
 version_overlay() {
-    echo "FATAL: v3.manifest is not implemented yet." >&2
-    echo "Rule R2: implement it only after V2 is GREEN in incremental/GROUND_TRUTH.md." >&2
-    return 1
+    local chroot="$1" repo="$2"
+
+    echo "[v3] Installing terminal launcher + autostart..."
+    install -Dm644 "${repo}/cx-distro/distro/icebreaker-terminal.desktop" \
+        "${chroot}/usr/share/applications/icebreaker-terminal.desktop"
+    install -Dm755 "${repo}/cx-distro/distro/ib-wait-sock" \
+        "${chroot}/usr/libexec/icebreaker/ib-wait-sock"
+    install -Dm644 "${repo}/cx-distro/distro/icebreaker-terminal-autostart.desktop" \
+        "${chroot}/etc/xdg/autostart/icebreaker-terminal-autostart.desktop"
+
+    echo "[v3] Refreshing terminal package in venv (PKG-1)..."
+    local sp
+    sp="$(chroot "$chroot" /opt/icebreaker/venv/bin/python3 -c \
+        'import terminal,os;print(os.path.dirname(terminal.__file__))')"
+    [ -n "$sp" ] || { echo "FATAL[v3]: terminal package not importable — v2 venv build broken?" >&2; return 1; }
+    cp -a "${repo}/dual-brain/terminal/." "${chroot}${sp}/"
+    rm -rf "${chroot}${sp}/__pycache__" "${chroot}${sp}/tests" 2>/dev/null || true
+    [ -f "${chroot}${sp}/styles.tcss" ] || \
+        { echo "FATAL[v3]: styles.tcss missing after copy (PKG-1)" >&2; return 1; }
+
+    echo "[v3] overlay complete"
 }

@@ -156,6 +156,25 @@ if [ "$LEVEL" -ge 2 ]; then
     fi
 fi
 
+# ═══ Level 3 ═══
+if [ "$LEVEL" -ge 3 ]; then
+    echo "[L3] Terminal TUI (headless checks — visual gate is UTM, R1)"
+    _ssh "/opt/icebreaker/venv/bin/python3 -m terminal --help 2>&1" | grep -qi "usage" \
+        && pass "python3 -m terminal --help" || fail "terminal module crashes on --help"
+    _ssh "test -f /usr/share/applications/icebreaker-terminal.desktop" \
+        && pass "terminal .desktop installed" || fail "icebreaker-terminal.desktop missing"
+    _ssh "test -f /etc/xdg/autostart/icebreaker-terminal-autostart.desktop" \
+        && pass "autostart .desktop installed" || fail "autostart .desktop missing"
+    _ssh "test -x /usr/libexec/icebreaker/ib-wait-sock" \
+        && pass "ib-wait-sock helper installed" || fail "ib-wait-sock missing (F-9)"
+    # F-7 behavioral check: with the daemon STOPPED, the TUI must print the
+    # explicit warning to stderr (headless run exits fast since no TTY).
+    F7_OUT="$(_ssh "sudo systemctl stop icebreaker-controller; timeout 60 /opt/icebreaker/venv/bin/python3 -m terminal --sock /run/icebreaker/controller.sock --connect-timeout 3 2>&1 | head -5; sudo systemctl start icebreaker-controller" || true)"
+    echo "$F7_OUT" | grep -q "Daemon unreachable" \
+        && pass "F-7: explicit daemon-unreachable warning printed" \
+        || fail "F-7: no visible warning when daemon is down (got: ${F7_OUT:0:100})"
+fi
+
 # ═══ Level 6 ═══
 if [ "$LEVEL" -ge 6 ]; then
     echo "[L6] PB + mcpd runtime"

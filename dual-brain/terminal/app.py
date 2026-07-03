@@ -166,6 +166,8 @@ class AiTerminalApp(App):
             pass
 
     def _on_token_event(self, params: dict) -> None:
+        if not params.get("final"):
+            return
         text = params.get("accumulated", "")
         if not text:
             return
@@ -305,7 +307,7 @@ class AiTerminalApp(App):
             log.write(Text(f"Error: {msg}", style="bold #f87171"))
 
 
-def run(daemon_client: Any = None) -> None:
+def run(daemon_client: Any = None, startup_warning: str | None = None) -> None:
     """Entry point for `python -m terminal`."""
-    app = AiTerminalApp(daemon_client=daemon_client)
+    app = AiTerminalApp(daemon_client=daemon_client, startup_warning=startup_warning)
     app.run()

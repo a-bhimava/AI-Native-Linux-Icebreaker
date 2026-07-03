@@ -1,0 +1,26 @@
+#!/bin/sh
+# ib-wait-sock — wait until the controller socket accepts connections,
+# then exec the given command (F-9: replaces blind `sleep 5` in autostart).
+#
+# Usage: ib-wait-sock COMMAND [ARGS...]
+# Env:   IB_SOCK          socket path  (default /run/icebreaker/controller.sock)
+#        IB_WAIT_TIMEOUT  max seconds  (default 45)
+#
+# On timeout the command is exec'd ANYWAY — the TUI shows its own
+# daemon-unreachable warning (F-7 / R6); this helper must never be the
+# reason nothing appears on screen.
+
+SOCK="${IB_SOCK:-/run/icebreaker/controller.sock}"
+TIMEOUT="${IB_WAIT_TIMEOUT:-45}"
+
+i=0
+while [ "$i" -lt "$TIMEOUT" ]; do
+    if socat -u OPEN:/dev/null "UNIX-CONNECT:${SOCK}" 2>/dev/null; then
+        exec "$@"
+    fi
+    sleep 1
+    i=$((i + 1))
+done
+
+echo "ib-wait-sock: ${SOCK} not ready after ${TIMEOUT}s — launching anyway" >&2
+exec "$@"
