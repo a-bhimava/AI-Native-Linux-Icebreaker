@@ -122,13 +122,16 @@ if [ "$LEVEL" -ge 2 ]; then
     echo "$PERMS" | grep -q "660 root icebreaker-users" \
         && pass "socket perms 0660 root:icebreaker-users (PKG-4)" \
         || fail "socket perms wrong: '${PERMS}' (expected 660 root icebreaker-users)"
-    RESP="$(_ssh "echo '{\"jsonrpc\":\"2.0\",\"method\":\"daemon.status\",\"id\":1}' | timeout 5 socat - UNIX:/run/icebreaker/controller.sock" || true)"
+    # F-17: keep stdin open while awaiting the reply — `echo | socat` half-closes
+    # the socket on stdin EOF and the daemon tears the session down before the
+    # response is delivered. `(printf …; sleep N) | socat` holds the connection.
+    RESP="$(_ssh "(printf '%s\n' '{\"jsonrpc\":\"2.0\",\"method\":\"daemon.status\",\"id\":1}'; sleep 5) | timeout 8 socat -t 5 - UNIX:/run/icebreaker/controller.sock" || true)"
     echo "$RESP" | grep -q '"result"' \
         && pass "daemon.status RPC responds" || fail "no RPC response from daemon (got: ${RESP:0:100})"
     # turn.run must return a graceful structured error (QB unconfigured until V5),
     # never crash the daemon (R6 / F-5). Response streams notifications, then a
-    # final message carrying "id":2.
-    TURN="$(_ssh "printf '%s\n' '{\"jsonrpc\":\"2.0\",\"method\":\"turn.run\",\"params\":{\"text\":\"hello\"},\"id\":2}' | timeout 30 socat - UNIX:/run/icebreaker/controller.sock" || true)"
+    # final message carrying "id":2. Param is 'input' (daemon.py _METHODS table).
+    TURN="$(_ssh "(printf '%s\n' '{\"jsonrpc\":\"2.0\",\"method\":\"turn.run\",\"params\":{\"input\":\"hello\"},\"id\":2}'; sleep 25) | timeout 30 socat -t 25 - UNIX:/run/icebreaker/controller.sock" || true)"
     if echo "$TURN" | grep -q '"id": *2'; then
         echo "$TURN" | grep -qi "not available\|GEMINI_API_KEY\|unconfigured" \
             && pass "turn.run returns actionable QB-unconfigured error (R6)" \

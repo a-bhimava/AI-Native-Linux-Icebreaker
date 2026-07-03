@@ -25,12 +25,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 DB="${REPO_ROOT}/dual-brain"
 
-HOST="${1:?usage: ib-update.sh <host> [--port N] [--dry-run]}"; shift
+HOST="${1:?usage: ib-update.sh <host> [--port N] [--key PATH] [--dry-run]}"; shift
 PORT=22
 DRY=0
+KEY="${ICEBREAKER_SSH_KEY:-}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --port) PORT="$2"; shift 2 ;;
+        --key) KEY="$2"; shift 2 ;;
         --dry-run) DRY=1; shift ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
@@ -39,11 +41,16 @@ done
 USER=icebreaker
 PASS=icebreaker
 SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -p "$PORT")
+[ -n "$KEY" ] && SSH_OPTS+=(-i "$KEY")
 
 if command -v sshpass >/dev/null; then
     SSH=(sshpass -p "$PASS" ssh "${SSH_OPTS[@]}" "${USER}@${HOST}")
     RSYNC_RSH="sshpass -p ${PASS} ssh ${SSH_OPTS[*]}"
 else
+    # No sshpass → key auth only. BatchMode makes ssh FAIL FAST instead of
+    # hanging on an unanswerable password prompt (R6: no silent hangs).
+    # Key setup (once per boot): ssh-copy-id -i ~/.ssh/<key>.pub icebreaker@<host>
+    SSH_OPTS+=(-o BatchMode=yes)
     SSH=(ssh "${SSH_OPTS[@]}" "${USER}@${HOST}")
     RSYNC_RSH="ssh ${SSH_OPTS[*]}"
 fi
