@@ -6,46 +6,51 @@
 #   source /usr/share/icebreaker/shell/ib_trigger.bash
 #
 # Usage:
-#   # show disk usage          →  runs df -h via the AI pipeline
-#   # list running services    →  runs systemctl list-units --state=running
+#   # show disk usage          →  routed through the AI pipeline
+#   # list running services    →  routed through the AI pipeline
 #
-# The trigger intercepts Enter when the line starts with "#", strips the prefix,
-# sends the text to the Controller daemon (QB → PB → mcpd) via ib_run.py, and
-# prints the result. Lines NOT starting with "#" are executed normally by bash.
+# Design (F-19): NO readline key bindings. Binding \C-j/\C-m to a bind -x
+# handler destroyed accept-line and broke ALL command execution; and bind -x
+# handlers inside macros don't reliably see READLINE_LINE. Instead we exploit
+# the fact that a '#'-prefixed interactive line is a bash comment (a no-op
+# that still lands in history): a PROMPT_COMMAND hook inspects the newest
+# history entry before each prompt and routes '#' lines to the daemon.
+# Enter is untouched — plain commands cannot break, structurally.
 
-# Interactive shells only — bind is meaningless (and noisy) otherwise.
+# Interactive shells only.
 [[ $- == *i* ]] || return 0 2>/dev/null || exit 0
 
 _IB_VENV_PYTHON="${ICEBREAKER_VENV_PYTHON:-/opt/icebreaker/venv/bin/python3}"
 _IB_SOCK="${ICEBREAKER_CONTROLLER_SOCK:-/run/icebreaker/controller.sock}"
 _IB_RUN="${ICEBREAKER_IB_RUN:-/usr/share/icebreaker/shell/ib_run.py}"
 
-_ib_hash_trigger() {
-    local buf="${READLINE_LINE}"
+# Seed with the current newest history number so sourcing this file never
+# fires on a pre-existing '#' entry.
+_IB_LAST_HISTNUM="$(HISTTIMEFORMAT= builtin history 1 | awk '{print $1}')"
 
-    # Only intercept lines that start with "#"
-    [[ "$buf" != '#'* ]] && return
+_ib_prompt_hook() {
+    local entry num line
+    entry="$(HISTTIMEFORMAT= builtin history 1)" || return 0
+    [[ -n "$entry" ]] || return 0
+    num="${entry%%[!\ ]*}"                 # leading spaces
+    num="$(awk '{print $1}' <<<"$entry")"
+    line="$(sed 's/^ *[0-9]\{1,\} *//' <<<"$entry")"
 
-    local query="${buf:1}"
-    query="${query## }"   # strip leading space
+    # Only fire once per NEW history entry (empty Enter adds no entry).
+    [[ "$num" == "$_IB_LAST_HISTNUM" ]] && return 0
+    _IB_LAST_HISTNUM="$num"
 
-    # Empty "#" — just clear the line
-    if [[ -z "$query" ]]; then
-        READLINE_LINE=""
-        READLINE_POINT=0
-        return
-    fi
+    [[ "$line" == '#'* ]] || return 0
+    local query="${line:1}"
+    query="${query## }"
+    [[ -n "$query" ]] || return 0
 
-    READLINE_LINE=""
-    READLINE_POINT=0
-    echo ""
     printf '\033[1;36m[icebreaker]\033[0m %s\n' "$query"
-
     "${_IB_VENV_PYTHON}" "${_IB_RUN}" "$query" "$_IB_SOCK"
 }
 
-# Bind Ctrl-J to the trigger function
-bind -x '"\C-j": _ib_hash_trigger'
-
-# Bind Enter (Ctrl-M) to execute Ctrl-J, then accept the line (Ctrl-M)
-bind '"\C-m": "\C-j\n"'
+# Prepend to PROMPT_COMMAND (runs before each prompt is drawn).
+case ";${PROMPT_COMMAND:-};" in
+    *";_ib_prompt_hook;"*) ;;   # already installed — idempotent
+    *) PROMPT_COMMAND="_ib_prompt_hook${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
+esac

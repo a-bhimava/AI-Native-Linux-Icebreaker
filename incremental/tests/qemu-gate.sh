@@ -198,10 +198,14 @@ fi
 # ═══ Level 4 ═══
 if [ "$LEVEL" -ge 4 ]; then
     echo "[L4] # trigger"
-    # Plain shell must be unaffected by the trigger's readline binds.
-    PLAIN="$(_ssh "bash -ic 'echo plain-ok' 2>/dev/null" || true)"
-    echo "$PLAIN" | grep -q "plain-ok" \
-        && pass "plain shell commands unaffected" || fail "interactive bash broken by trigger (got: ${PLAIN:0:80})"
+    # F-19: test through a REAL pty (script -qec) — `bash -ic` bypasses
+    # readline/prompt machinery and passed while Enter was completely broken.
+    # The expected output 'plain-42' is computed at runtime so it can never
+    # match the input echo.
+    PLAIN="$(_ssh "printf 'echo plain-\$((40+2))\r' | timeout 30 script -qec bash /dev/null" || true)"
+    echo "$PLAIN" | grep -q "plain-42" \
+        && pass "plain commands execute through pty (F-19)" \
+        || fail "F-19: interactive Enter broken — command not executed (got: ${PLAIN:0:100})"
     _ssh "grep -qF 'source /usr/share/icebreaker/shell/ib_trigger.bash' /home/icebreaker/.bashrc" \
         && pass "trigger sourced in user .bashrc (F-6)" || fail "F-6: trigger not wired into /home/icebreaker/.bashrc"
     # Behavioral: run the SHIPPED runner (same file the trigger calls, F-17).
@@ -218,6 +222,20 @@ if [ "$LEVEL" -ge 4 ]; then
         [ -n "$IBRUN" ] \
             && pass "ib_run.py returned output" \
             || fail "ib_run.py produced no output"
+    fi
+    # End-to-end trigger through a real pty: '# <query>' typed at a live
+    # prompt must produce the [icebreaker] echo AND a daemon response (F-19).
+    TRIG="$(_ssh "printf '# gate-ping\r' | timeout ${L4_TIMEOUT} script -qec bash /dev/null 2>/dev/null" || true)"
+    if echo "$TRIG" | grep -q "icebreaker\]"; then
+        if [ "$LEVEL" -eq 4 ]; then
+            echo "$TRIG" | grep -qi "GEMINI_API_KEY\|Quarantined Brain" \
+                && pass "# trigger end-to-end via pty (echo + daemon error)" \
+                || fail "# trigger echoed but no daemon response (got: $(echo "$TRIG" | tail -2 | head -c 120))"
+        else
+            pass "# trigger end-to-end via pty"
+        fi
+    else
+        fail "F-19: # trigger did not fire through pty (got: $(echo "$TRIG" | tail -2 | head -c 120))"
     fi
 fi
 
