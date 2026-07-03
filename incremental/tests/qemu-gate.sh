@@ -138,12 +138,16 @@ if [ "$LEVEL" -ge 2 ]; then
     fi
     _ssh "systemctl is-active icebreaker-controller" | grep -q active \
         && pass "controller still active after turn.run" || fail "controller crashed after turn.run"
+    # TCG runs the daemon's Python startup ~5x slower than KVM/native (F-16);
+    # a genuine wait-for-sockets stall would read 60s+, well above either limit.
+    RESTART_MAX=15
+    [ "${QEMU_ACCEL[0]}" = "-cpu" ] && RESTART_MAX=45
     RESTART_T0=$(date +%s)
     if _ssh "sudo systemctl restart icebreaker-controller && systemctl is-active icebreaker-controller" | grep -q active; then
         RESTART_DT=$(( $(date +%s) - RESTART_T0 ))
-        [ "$RESTART_DT" -le 15 ] \
-            && pass "restart → active in ${RESTART_DT}s" \
-            || fail "restart took ${RESTART_DT}s (gate: ≤15 s incl. ssh overhead — check wait-for-sockets stall)"
+        [ "$RESTART_DT" -le "$RESTART_MAX" ] \
+            && pass "restart → active in ${RESTART_DT}s (limit ${RESTART_MAX}s)" \
+            || fail "restart took ${RESTART_DT}s (limit ${RESTART_MAX}s — check wait-for-sockets stall)"
     else
         fail "controller did not return to active after restart"
     fi
