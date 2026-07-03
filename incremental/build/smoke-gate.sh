@@ -122,6 +122,16 @@ if [ "$LEVEL" -ge 5 ]; then
     grep -q 'backend *= *"gemini"' "${CHROOT}/etc/icebreaker/controller.toml" 2>/dev/null \
         && pass "QB backend=gemini configured" || fail "controller.toml missing gemini QB config"
     check_file /etc/icebreaker/locations.env "locations.env missing (API key env file)"
+    check_exec /usr/local/bin/ib-setup-key "ib-setup-key not installed"
+    PERMS="$(stat -c '%a' "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null || echo '')"
+    [ "$PERMS" = "600" ] \
+        && pass "locations.env is 0600 (BP-8)" || fail "BP-8: locations.env perms '$PERMS' != 600 (secrets file)"
+    grep -q "GEMINI_API_KEY" "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null \
+        && pass "key template present in locations.env" || fail "GEMINI_API_KEY template missing from locations.env"
+    # BP-8: no REAL key may ever ship in the ISO (template line is commented).
+    grep -qE '^GEMINI_API_KEY=' "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null \
+        && fail "BP-8 VIOLATION: uncommented GEMINI_API_KEY baked into the ISO" \
+        || pass "no live API key in the image (BP-8)"
 fi
 
 # ═══ Level 6: PB + mcpd ═══

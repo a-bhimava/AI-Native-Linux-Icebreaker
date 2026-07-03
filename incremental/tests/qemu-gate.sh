@@ -239,6 +239,18 @@ if [ "$LEVEL" -ge 4 ]; then
     fi
 fi
 
+# ═══ Level 5 ═══
+if [ "$LEVEL" -ge 5 ]; then
+    echo "[L5] QB key flow (no live key in CI — with-key half is the UTM gate)"
+    _ssh "test -x /usr/local/bin/ib-setup-key" \
+        && pass "ib-setup-key installed" || fail "ib-setup-key missing"
+    _ssh "sudo stat -c '%a %U' /etc/icebreaker/locations.env" | grep -q "600 root" \
+        && pass "locations.env 0600 root (BP-8)" || fail "locations.env perms/owner wrong (BP-8)"
+    _ssh "sudo grep -qE '^GEMINI_API_KEY=' /etc/icebreaker/locations.env" \
+        && fail "BP-8 VIOLATION: live key present in booted image" \
+        || pass "no live key in image (BP-8)"
+fi
+
 # ═══ Level 6 ═══
 if [ "$LEVEL" -ge 6 ]; then
     echo "[L6] PB + mcpd runtime"

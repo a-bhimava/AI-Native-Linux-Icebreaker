@@ -1,0 +1,42 @@
+#!/bin/bash
+# ib-setup-key — configure the Gemini API key for the Quarantined Brain (V5).
+#
+# Usage: ib-setup-key            (interactive, key input hidden)
+#
+# Writes GEMINI_API_KEY into /etc/icebreaker/locations.env (0600 root:root,
+# BP-8: value never echoed, never logged) and restarts the controller.
+
+set -euo pipefail
+
+[ "$(id -u)" = "0" ] || exec sudo "$0" "$@"
+
+ENV_FILE=/etc/icebreaker/locations.env
+
+read -rsp "Paste your Gemini API key (input hidden): " KEY
+echo
+[ -n "$KEY" ] || { echo "No key entered — nothing changed." >&2; exit 1; }
+case "$KEY" in
+    *[[:space:]]*) echo "Key contains whitespace — aborting." >&2; exit 1 ;;
+esac
+
+touch "$ENV_FILE"
+grep -v '^GEMINI_API_KEY=' "$ENV_FILE" > "${ENV_FILE}.tmp" || true
+printf 'GEMINI_API_KEY=%s\n' "$KEY" >> "${ENV_FILE}.tmp"
+mv "${ENV_FILE}.tmp" "$ENV_FILE"
+chown root:root "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+
+echo "Key installed. Restarting controller..."
+systemctl restart icebreaker-controller
+
+for _ in $(seq 1 45); do
+    systemctl is-active --quiet icebreaker-controller && break
+    sleep 1
+done
+if systemctl is-active --quiet icebreaker-controller; then
+    echo "Controller running with the new key."
+    echo 'Try:  # list the files in my home directory'
+else
+    echo "WARN: controller not active yet — check: systemctl status icebreaker-controller" >&2
+    exit 1
+fi

@@ -1,15 +1,38 @@
-# v5 — QB Gemini
-# Scope: gemini QB config in controller.toml + locations.env API-key flow + R6 no-key error message
+# v5 — QB (Gemini) live
+# Adds:
+#   - ib-setup-key at /usr/local/bin (interactive key install, BP-8: 0600
+#     root:root env file, key never echoed/logged, restarts controller)
+#   - GEMINI_API_KEY template comment in /etc/icebreaker/locations.env
+#   - locations.env hardened to 0600 root:root
+# The gemini QB backend config is already in /etc/icebreaker/controller.toml
+# (shipped by v2 from cx-distro/distro/controller.toml, backend="gemini").
+# NO key ships in the ISO — the with-key half of the gate is a manual UTM
+# step (run ib-setup-key, then `# list the files in my home directory`).
 # Gate: GROUND_TRUTH.md § 3 V5.
-#
-# STUB ON PURPOSE (rules R2 + D-4): implement version_overlay() only when
-# V4 is GREEN on the Status Board. Implementing ahead of the gate
-# recreates the big-bang integration failure this project exists to kill.
 
 VERSION_PACKAGES=""
 
 version_overlay() {
-    echo "FATAL: v5.manifest is not implemented yet." >&2
-    echo "Rule R2: implement it only after V4 is GREEN in incremental/GROUND_TRUTH.md." >&2
-    return 1
+    local chroot="$1" repo="$2"
+
+    echo "[v5] Installing ib-setup-key..."
+    install -Dm755 "${repo}/cx-distro/distro/ib-setup-key" \
+        "${chroot}/usr/local/bin/ib-setup-key"
+    bash -n "${chroot}/usr/local/bin/ib-setup-key" || \
+        { echo "FATAL[v5]: ib-setup-key has a bash syntax error" >&2; return 1; }
+
+    echo "[v5] Hardening locations.env + key template..."
+    local envf="${chroot}/etc/icebreaker/locations.env"
+    [ -f "$envf" ] || { echo "FATAL[v5]: locations.env missing (v2 should have created it)" >&2; return 1; }
+    if ! grep -q "GEMINI_API_KEY" "$envf"; then
+        {
+            echo ""
+            echo "# Quarantined Brain (Gemini) API key — install with: sudo ib-setup-key"
+            echo "# GEMINI_API_KEY=paste-your-key-here"
+        } >> "$envf"
+    fi
+    chmod 600 "$envf"
+    chroot "$chroot" chown root:root /etc/icebreaker/locations.env
+
+    echo "[v5] overlay complete"
 }
