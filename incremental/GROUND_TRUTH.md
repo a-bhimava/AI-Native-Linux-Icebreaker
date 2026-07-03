@@ -180,6 +180,7 @@ Seeded from two months of prior failures. Every new failure gets a row.
 | F-11 | 2026-07 | `cargo: command not found` under sudo on VM | sudo strips user PATH | See runbook § 5 |
 | F-12 | 2026-07 | Build "succeeded" but ISO broken | `cmd \| tee log` reports tee's exit code, not the build's | `set -o pipefail` in ALL build scripts |
 | F-13 | 2026-07-03 | V0 QEMU gate failed on `graphical.target not active` while gdm WAS active | Gate checked the target once, the instant sshd came up; under TCG the target is still activating for minutes after | qemu-gate.sh polls graphical.target with a grace period (120 s KVM / 600 s TCG). Rule: boot-time assertions must poll, never single-shot |
+| F-14 | 2026-07-03 | UTM boot: GRUB `attempt to read or write outside of disk 'cd0' / you need to load the kernel first` | ISO booted while still downloading from the build VM — truncated file | Rule: **verify sha256 against the build hash BEFORE booting** (`shasum -a 256 ISO/incremental/vN.iso`). The scp task prints it; wait for it |
 | PKG-1 | 2026-06 | ImportError/FileNotFound for schemas, prompts, catalogue.toml, styles.tcss | pip doesn't ship package data | Explicit post-install copy; smoke-gate asserts presence |
 | PKG-3 | 2026-06 | Model EACCES under systemd | `ProtectHome=yes` breaks symlinks into /home | COPY models to `/var/lib/icebreaker/models/`, never symlink |
 | PKG-4 | 2026-06 | GUI "Not connected to daemon" | socket perms 0660 root:icebreaker-users; user not in group | User in `icebreaker-users` at creation (in base); smoke gate checks |
