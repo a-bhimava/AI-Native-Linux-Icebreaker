@@ -72,6 +72,15 @@ if [ "$LEVEL" -ge 2 ]; then
         && pass "controller.toml parses" || fail "controller.toml is not valid TOML"
     in_chroot "command -v systemd-analyze && systemd-analyze verify /etc/systemd/system/icebreaker-*.service" \
         && pass "systemd-analyze verify" || echo "  [SKIP] systemd-analyze verify (not available in chroot)"
+    # Daemon spawns mcpd unconditionally — required from V2 (see v2.manifest).
+    check_exec /usr/libexec/icebreaker/mcpd "mcpd binary missing — daemon will crash-loop"
+    in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -q MCPD_FS_TEST_ROOTS" \
+        && fail "mcpd built with test-only feature (CLAUDE.md Test-Only Knobs)" || pass "mcpd has no test features"
+    check_exec /usr/libexec/icebreaker/wait-for-sockets "ExecStartPre helper missing"
+    grep -q "ICEBREAKER_SOCKET_TIMEOUT=0" "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null \
+        && pass "socket wait disabled (no pbd yet)" || { [ "$LEVEL" -ge 6 ] && pass "socket wait enabled (pbd present)" || fail "ICEBREAKER_SOCKET_TIMEOUT=0 missing — controller start stalls 60 s"; }
+    [ -f "${CHROOT}/home/icebreaker/.ssh/authorized_keys" ] \
+        && pass "authorized_keys baked (inner loop)" || echo "  [WARN] no authorized_keys — ib-update needs a password"
 fi
 
 # ═══ Level 3: terminal TUI ═══

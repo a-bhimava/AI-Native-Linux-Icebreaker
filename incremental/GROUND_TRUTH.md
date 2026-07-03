@@ -11,8 +11,8 @@
 | Version | Name | State | ISO | SHA-256 | Gate passed |
 |---------|------|-------|-----|---------|-------------|
 | V0 | Boots to GNOME | **GREEN 2026-07-03** (QEMU + UTM, commit `eb274f0`) | `ISO/incremental/v0.iso` | `fa688645…3fac` | 2026-07-03 |
-| V1 | SSH + diagnostics | **BUILDING** | — | — | — |
-| V2 | Daemon (echo) | RED — blocked by V1 | — | — | — |
+| V1 | SSH + diagnostics | **GREEN 2026-07-03** (QEMU L1 + UTM, commit `50b2293`) | `ISO/incremental/v1.iso` | `f8c9bfff…89a8` | 2026-07-03 |
+| V2 | Daemon (echo) | **IN PROGRESS** | — | — | — |
 | V3 | Dual-pane terminal | RED — blocked by V2 | — | — | — |
 | V4 | `#` trigger | RED — blocked by V3 | — | — | — |
 | V5 | QB (Gemini) | RED — blocked by V4 | — | — | — |
@@ -57,13 +57,15 @@ Each version isolates exactly ONE integration seam. When a version breaks, the c
   - [ ] UTM: `ssh icebreaker@<utm-ip>` from the Mac works; `ib-debug snapshot` runs
   - [ ] `update/ib-update.sh <utm-ip> --dry-run` connects and reports target paths
 
-### V2 — Controller daemon with echo backend
-- **Adds:** Python venv (`/opt/icebreaker/venv`) + `controller` package + package data (schemas/, prompts/, catalogue.toml — PKG-1) + `icebreaker-controller.service` + socket at `/run/icebreaker/controller.sock` (PKG-4 perms) + a new ~40-line **echo backend** registered in the `BrainBackend` registry (BP-1). No models, no API keys, no mcpd.
-- **Seam proven:** pip packaging, data files, systemd unit ordering, socket permissions — the historically worst seam, tested with zero AI complexity.
+### V2 — Controller daemon (unconfigured brains) + mcpd
+- **Adds:** Python venv **built inside the chroot** at `/opt/icebreaker/venv` + `controller` package + package data (schemas/, prompts/, grammars/, catalogue.toml — PKG-1) + `icebreaker-controller.service` (+ sysusers.d/tmpfiles.d) + socket at `/run/icebreaker/controller.sock` (PKG-4 perms) + **mcpd binary** (daemon spawns it unconditionally; dormant until V6) + Mac ssh pubkey in authorized_keys. QB = gemini **without a key** → tested `_UnconfiguredBackend` path; PB absent → same. `ICEBREAKER_SOCKET_TIMEOUT=0` so ExecStartPre doesn't stall (V6 reverts). See D-7 for why there is no echo backend.
+- **Seam proven:** pip packaging, data files, systemd unit + sysusers/tmpfiles, socket creation/perms/auth, mcpd spawn+handshake — the historically worst seam, with zero AI complexity.
 - **Gate:**
-  - [ ] `ib-debug snapshot`: controller service active, socket ping OK
-  - [ ] `echo '{"jsonrpc":"2.0","method":"run_turn","params":{"text":"hello"},"id":1}' | socat - UNIX:/run/icebreaker/controller.sock` returns an echo result
-  - [ ] `systemctl restart icebreaker-controller` → returns to active within 10 s
+  - [ ] `ib-debug snapshot`: controller service active, socket ping (daemon.status) OK
+  - [ ] socket perms `0660 root:icebreaker-users` (PKG-4)
+  - [ ] `turn.run "hello"` over the socket returns a **graceful structured error** naming GEMINI_API_KEY (R6) — and the service stays active (no crash-loop)
+  - [ ] `systemctl restart icebreaker-controller` → active again within ~10 s (no wait-for-sockets stall)
+  - [ ] passwordless `ib-update.sh <ip> --dry-run` from the Mac succeeds
 
 ### V3 — Dual-pane terminal
 - **Adds:** `terminal` package (+ styles.tcss) + `icebreaker-terminal.desktop` + autostart + `ib-wait-sock` helper. **Includes fix:** replace silent `except Exception` in `dual-brain/terminal/__main__.py:26-32` with a 20 s retry loop + visible `startup_warning` (plumbing already exists in `terminal/app.py:130-139`).
@@ -195,4 +197,5 @@ Seeded from two months of prior failures. Every new failure gets a row.
 - **D-3 User + autologin live in the base**, since they never change per version. Version overlays that need user-home changes must patch `/home/icebreaker/` explicitly (F-6).
 - **D-4 Future manifests are stubs on purpose** (R2). `version_overlay()` for Vn is implemented only when Vn-1 is GREEN. Implementing all nine up front would recreate the big-bang integration this project exists to kill.
 - **D-5 `toram` boot param for desktop profile** (same as proven v5 config); requires VM RAM ≥ squashfs size + working set → give UTM/QEMU 8 GB.
+- **D-7 No echo backend; V2 uses the unconfigured-gemini path.** An echo QB would require widening the `qb.backend` enum in `schemas/controller_config.json` (+ config-loader branches + registry import) — security-adjacent edits for a test-only pathway, and a fabricated-intent backend left configured in a later version could reach mcpd. Instead V2 ships `backend = "gemini"` with no key: the daemon starts via the already-tested `_UnconfiguredBackend` fallback (F-5), `turn.run` returns an actionable error, and V5 activates QB by just adding the key. mcpd ships in V2 (not V6) because `_run_daemon` spawns it unconditionally — a missing binary is a fatal crash-loop.
 - **D-6 We modify Ubuntu; we do not build an OS.** The base is assembled by `debootstrap` from **official signed packages at archive.ubuntu.com** plus Canonical's `ubuntu-desktop`/`ubuntu-standard` metapackages and the stock `linux-generic` kernel. Nothing is compiled from source; no custom kernel/libc/GNOME. The only hand-assembled piece is the live-boot wrapper (squashfs + isolinux/GRUB), copied verbatim from the v4/v5-proven `cx-distro/build.sh` chain. **Fallback (only if V0 fails its boot gate):** remaster Canonical's official desktop ISO — unpack `ubuntu-24.04-desktop-amd64.iso`, inject our overlay, repack. Not the default because 24.04's layered casper squashfs adds new unknowns while our current chain is already proven on UTM.

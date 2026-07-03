@@ -1,15 +1,101 @@
-# v2 — Controller daemon (echo backend)
-# Scope: venv + controller pkg + package data (PKG-1) + icebreaker-controller.service + echo backend registered in BrainBackend registry
-# Gate: GROUND_TRUTH.md § 3 V2.
+# v2 — Controller daemon (unconfigured brains) + mcpd
 #
-# STUB ON PURPOSE (rules R2 + D-4): implement version_overlay() only when
-# V1 is GREEN on the Status Board. Implementing ahead of the gate
-# recreates the big-bang integration failure this project exists to kill.
+# Scope (see GROUND_TRUTH.md § 3 V2, decision D-7):
+#   - Python venv built INSIDE the chroot at /opt/icebreaker/venv (no relocation)
+#   - controller package + PKG-1 data files (schemas/, prompts/, grammars/, catalogue.toml)
+#   - icebreaker-controller.service + sysusers.d + tmpfiles.d + wait-for-sockets
+#   - mcpd binary (daemon spawns it unconditionally — dormant until PB in V6)
+#   - QB = gemini with NO key → tested _UnconfiguredBackend path (F-5); no echo backend
+#   - ICEBREAKER_SOCKET_TIMEOUT=0 (no pbd yet — don't stall ExecStartPre 60 s)
+#   - Mac ssh pubkey → authorized_keys (passwordless ib-update inner loop)
 
 VERSION_PACKAGES=""
 
 version_overlay() {
-    echo "FATAL: v2.manifest is not implemented yet." >&2
-    echo "Rule R2: implement it only after V1 is GREEN in incremental/GROUND_TRUTH.md." >&2
-    return 1
+    local chroot="$1" repo="$2"
+
+    # ── 1. Venv inside the chroot (network via host, binds already mounted) ──
+    echo "[v2] Copying dual-brain source into chroot..."
+    rm -rf "${chroot}/tmp/ib-src"
+    mkdir -p "${chroot}/tmp/ib-src"
+    cp -a "${repo}/dual-brain/pyproject.toml" \
+          "${repo}/dual-brain/controller" \
+          "${repo}/dual-brain/terminal" \
+          "${repo}/dual-brain/gui" \
+          "${repo}/dual-brain/gui_agent" \
+          "${repo}/dual-brain/rpa_bridge" \
+          "${chroot}/tmp/ib-src/"
+    find "${chroot}/tmp/ib-src" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+
+    echo "[v2] Building venv inside chroot (pip install, ~2 min)..."
+    chroot "$chroot" bash -c "
+        set -e
+        rm -rf /opt/icebreaker/venv
+        python3 -m venv --system-site-packages /opt/icebreaker/venv
+        /opt/icebreaker/venv/bin/pip install --no-cache-dir /tmp/ib-src/ 2>&1 | tail -3
+    "
+
+    # PKG-1: pip does not ship package data — copy explicitly.
+    local sp
+    sp="$(chroot "$chroot" /opt/icebreaker/venv/bin/python3 -c \
+        'import controller,os;print(os.path.dirname(controller.__file__))')"
+    [ -n "$sp" ] || { echo "FATAL[v2]: controller not importable after pip install" >&2; return 1; }
+    cp    "${repo}/dual-brain/controller/catalogue.toml" "${chroot}${sp}/catalogue.toml"
+    cp -a "${repo}/dual-brain/controller/schemas"  "${chroot}${sp}/schemas"
+    cp -a "${repo}/dual-brain/controller/prompts"  "${chroot}${sp}/prompts"
+    cp -a "${repo}/dual-brain/controller/grammars" "${chroot}${sp}/grammars"
+    rm -rf "${chroot}/tmp/ib-src"
+
+    # ── 2. mcpd binary (prebuilt on the VM by cx-distro Stage 1; v4/v5-proven) ──
+    local mcpd_bin="${repo}/cx-distro/.build/mcpd"
+    [ -f "$mcpd_bin" ] || { echo "FATAL[v2]: mcpd binary not found at ${mcpd_bin} — run cx-distro Stage 1 or copy the binary there" >&2; return 1; }
+    install -Dm755 "$mcpd_bin" "${chroot}/usr/libexec/icebreaker/mcpd"
+
+    # ── 3. /usr/share/icebreaker: schemas (controller + mcpd), prompts, catalogue ──
+    local f
+    for f in "${repo}"/dual-brain/controller/schemas/*.json "${repo}"/src/mcpd/schemas/*.json; do
+        [ -f "$f" ] && install -Dm644 "$f" "${chroot}/usr/share/icebreaker/schemas/$(basename "$f")"
+    done
+    for f in "${repo}"/dual-brain/controller/prompts/*.txt; do
+        [ -f "$f" ] && install -Dm644 "$f" "${chroot}/usr/share/icebreaker/prompts/$(basename "$f")"
+    done
+    install -Dm644 "${repo}/dual-brain/controller/catalogue.toml" \
+        "${chroot}/usr/share/icebreaker/catalogue.toml"
+
+    # ── 4. Config ──
+    install -Dm644 "${repo}/cx-distro/distro/controller.toml" \
+        "${chroot}/etc/icebreaker/controller.toml"
+    install -Dm644 "${repo}/cx-distro/distro/locations.env" \
+        "${chroot}/etc/icebreaker/locations.env"
+    # No pbd until V6: make wait-for-sockets return immediately (V6 manifest reverts).
+    echo "ICEBREAKER_SOCKET_TIMEOUT=0" >> "${chroot}/etc/icebreaker/locations.env"
+
+    # ── 5. systemd: controller unit only (pbd/qbd arrive in V6) ──
+    install -Dm644 "${repo}/dual-brain/controller/systemd/icebreaker-controller.service" \
+        "${chroot}/etc/systemd/system/icebreaker-controller.service"
+    install -Dm644 "${repo}/dual-brain/controller/systemd/icebreaker.sysusers.d.conf" \
+        "${chroot}/etc/sysusers.d/icebreaker.conf"
+    install -Dm644 "${repo}/dual-brain/controller/systemd/icebreaker.tmpfiles.d.conf" \
+        "${chroot}/etc/tmpfiles.d/icebreaker.conf"
+    install -Dm755 "${repo}/cx-distro/distro/wait-for-sockets" \
+        "${chroot}/usr/libexec/icebreaker/wait-for-sockets"
+    mkdir -p "${chroot}/etc/systemd/system/multi-user.target.wants"
+    ln -sf /etc/systemd/system/icebreaker-controller.service \
+        "${chroot}/etc/systemd/system/multi-user.target.wants/icebreaker-controller.service"
+
+    # ── 6. Passwordless ssh for the ib-update inner loop ──
+    local pubkey="${repo}/incremental/build/authorized_keys.pub"
+    if [ -f "$pubkey" ]; then
+        install -Dm600 "$pubkey" "${chroot}/home/icebreaker/.ssh/authorized_keys"
+        chroot "$chroot" bash -c "
+            chown -R icebreaker:icebreaker /home/icebreaker/.ssh
+            chmod 700 /home/icebreaker/.ssh
+        "
+    else
+        echo "WARN[v2]: no authorized_keys.pub staged — ib-update will need a password" >&2
+    fi
+
+    # Refresh ib-debug with the daemon.status ping fix.
+    install -Dm755 "${repo}/dual-brain/scripts/ib_debug.py" \
+        "${chroot}/usr/local/bin/ib-debug"
 }

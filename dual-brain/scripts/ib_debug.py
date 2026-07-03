@@ -265,8 +265,8 @@ def collect_socket(path: str, label: str) -> SocketStatus:
             sock.settimeout(2)
             sock.connect(path)
             s.connectable = True
-            # Send a JSON-RPC ping to the controller
-            req = json.dumps({"jsonrpc": "2.0", "method": "status", "id": 1}) + "\n"
+            # Send a JSON-RPC ping to the controller (method table in daemon.py:309)
+            req = json.dumps({"jsonrpc": "2.0", "method": "daemon.status", "id": 1}) + "\n"
             sock.sendall(req.encode())
             data = sock.recv(4096)
             if data:

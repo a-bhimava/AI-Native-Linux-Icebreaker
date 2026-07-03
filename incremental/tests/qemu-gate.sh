@@ -118,9 +118,35 @@ if [ "$LEVEL" -ge 2 ]; then
         && pass "controller active" || fail "icebreaker-controller not active: $(_ssh 'systemctl status icebreaker-controller --no-pager -n 5' | tail -5)"
     _ssh "test -S /run/icebreaker/controller.sock" \
         && pass "controller.sock exists" || fail "controller.sock missing (PKG-4?)"
-    RESP="$(_ssh "echo '{\"jsonrpc\":\"2.0\",\"method\":\"status\",\"id\":1}' | timeout 5 socat - UNIX:/run/icebreaker/controller.sock" || true)"
+    PERMS="$(_ssh "stat -c '%a %U %G' /run/icebreaker/controller.sock" || true)"
+    echo "$PERMS" | grep -q "660 root icebreaker-users" \
+        && pass "socket perms 0660 root:icebreaker-users (PKG-4)" \
+        || fail "socket perms wrong: '${PERMS}' (expected 660 root icebreaker-users)"
+    RESP="$(_ssh "echo '{\"jsonrpc\":\"2.0\",\"method\":\"daemon.status\",\"id\":1}' | timeout 5 socat - UNIX:/run/icebreaker/controller.sock" || true)"
     echo "$RESP" | grep -q '"result"' \
-        && pass "daemon responds to status RPC" || fail "no RPC response from daemon (got: ${RESP:0:100})"
+        && pass "daemon.status RPC responds" || fail "no RPC response from daemon (got: ${RESP:0:100})"
+    # turn.run must return a graceful structured error (QB unconfigured until V5),
+    # never crash the daemon (R6 / F-5). Response streams notifications, then a
+    # final message carrying "id":2.
+    TURN="$(_ssh "printf '%s\n' '{\"jsonrpc\":\"2.0\",\"method\":\"turn.run\",\"params\":{\"text\":\"hello\"},\"id\":2}' | timeout 30 socat - UNIX:/run/icebreaker/controller.sock" || true)"
+    if echo "$TURN" | grep -q '"id": *2'; then
+        echo "$TURN" | grep -qi "not available\|GEMINI_API_KEY\|unconfigured" \
+            && pass "turn.run returns actionable QB-unconfigured error (R6)" \
+            || pass "turn.run returned a final response"
+    else
+        fail "turn.run produced no final response (got: ${TURN:0:120})"
+    fi
+    _ssh "systemctl is-active icebreaker-controller" | grep -q active \
+        && pass "controller still active after turn.run" || fail "controller crashed after turn.run"
+    RESTART_T0=$(date +%s)
+    if _ssh "sudo systemctl restart icebreaker-controller && systemctl is-active icebreaker-controller" | grep -q active; then
+        RESTART_DT=$(( $(date +%s) - RESTART_T0 ))
+        [ "$RESTART_DT" -le 15 ] \
+            && pass "restart → active in ${RESTART_DT}s" \
+            || fail "restart took ${RESTART_DT}s (gate: ≤15 s incl. ssh overhead — check wait-for-sockets stall)"
+    else
+        fail "controller did not return to active after restart"
+    fi
 fi
 
 # ═══ Level 6 ═══
