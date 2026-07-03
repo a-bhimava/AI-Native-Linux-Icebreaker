@@ -79,8 +79,23 @@ info "Guest up after $(( $(date +%s) - START ))s"
 
 # ═══ Level 0 ═══
 echo "[L0] Boot assertions"
-_ssh "systemctl is-active graphical.target" | grep -q active \
-    && pass "graphical.target active" || fail "graphical.target not active"
+# graphical.target keeps activating for minutes after sshd is up (especially
+# under TCG) — poll with a grace period instead of a single instant check (F-13).
+GRACE=120
+[ "${QEMU_ACCEL[0]}" = "-cpu" ] && GRACE=600   # TCG: GNOME startup is ~5x slower
+GT_OK=0
+GT_START=$(date +%s)
+while [ $(( $(date +%s) - GT_START )) -lt "$GRACE" ]; do
+    if _ssh "systemctl is-active graphical.target" | grep -qx active; then
+        GT_OK=1; break
+    fi
+    sleep 15
+done
+if [ "$GT_OK" = "1" ]; then
+    pass "graphical.target active (after $(( $(date +%s) - GT_START ))s grace)"
+else
+    fail "graphical.target not active after ${GRACE}s (state: $(_ssh 'systemctl is-active graphical.target'; _ssh 'systemctl list-jobs --no-legend' | head -3))"
+fi
 _ssh "systemctl is-active gdm" | grep -q active \
     && pass "gdm active" || fail "gdm not active"
 V="$(_ssh "cat /etc/icebreaker-version")"
