@@ -183,8 +183,13 @@ if [ "$LEVEL" -ge 3 ]; then
     _ssh "test -x /usr/libexec/icebreaker/ib-wait-sock" \
         && pass "ib-wait-sock helper installed" || fail "ib-wait-sock missing (F-9)"
     # F-7 behavioral check: with the daemon STOPPED, the TUI must print the
-    # explicit warning to stderr (headless run exits fast since no TTY).
-    F7_OUT="$(_ssh "sudo systemctl stop icebreaker-controller; timeout 60 /opt/icebreaker/venv/bin/python3 -m terminal --sock /run/icebreaker/controller.sock --connect-timeout 3 2>&1 | head -5; sudo systemctl start icebreaker-controller" || true)"
+    # explicit warning to stderr. Capture stderr ONLY (2>&1 >/dev/null): the
+    # Textual UI floods stdout with escape codes and drowned the warning in
+    # the first attempt. Timeout scales with accelerator (F-16 rule) — python
+    # + textual imports take ~30-50 s under TCG before the warning appears.
+    F7_TIMEOUT=45
+    [ "${QEMU_ACCEL[0]}" = "-cpu" ] && F7_TIMEOUT=150
+    F7_OUT="$(_ssh "sudo systemctl stop icebreaker-controller; timeout ${F7_TIMEOUT} /opt/icebreaker/venv/bin/python3 -m terminal --sock /run/icebreaker/controller.sock --connect-timeout 3 2>&1 >/dev/null | head -3; sudo systemctl start icebreaker-controller" || true)"
     echo "$F7_OUT" | grep -q "Daemon unreachable" \
         && pass "F-7: explicit daemon-unreachable warning printed" \
         || fail "F-7: no visible warning when daemon is down (got: ${F7_OUT:0:100})"
