@@ -10,8 +10,8 @@
 
 | Version | Name | State | ISO | SHA-256 | Gate passed |
 |---------|------|-------|-----|---------|-------------|
-| V0 | Boots to GNOME | **TESTING** — ISO built, smoke gate green, QEMU gate running, UTM check pending | `ISO/incremental/v0.iso` | `fa688645…3fac` | — |
-| V1 | SSH + diagnostics | RED — blocked by V0 | — | — | — |
+| V0 | Boots to GNOME | **GREEN 2026-07-03** (QEMU + UTM, commit `eb274f0`) | `ISO/incremental/v0.iso` | `fa688645…3fac` | 2026-07-03 |
+| V1 | SSH + diagnostics | **BUILDING** | — | — | — |
 | V2 | Daemon (echo) | RED — blocked by V1 | — | — | — |
 | V3 | Dual-pane terminal | RED — blocked by V2 | — | — | — |
 | V4 | `#` trigger | RED — blocked by V3 | — | — | — |
