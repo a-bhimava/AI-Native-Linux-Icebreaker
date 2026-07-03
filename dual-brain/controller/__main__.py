@@ -28,28 +28,33 @@ from .session import SessionState
 
 
 class _UnconfiguredBackend(BrainBackend):
-    """Stub QB for when the configured backend fails to initialize.
+    """Stub brain for when the configured backend fails to initialize.
 
-    Every call returns a structured error directing the user to configure
-    their API key. The daemon stays up so the chatbot can display the
-    message instead of showing "Not connected to daemon."
+    Every call returns a structured error naming WHICH brain is missing and
+    how to fix it (F-20: a PB failure must never present as a QB failure).
+    The daemon stays up so UIs can display the message instead of showing
+    "Not connected to daemon."
     """
 
-    __slots__ = ("_reason",)
+    __slots__ = ("_reason", "_brain", "_remedy")
     backend_name = "unconfigured"
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, brain: str = "Quarantined Brain",
+                 remedy: str | None = None) -> None:
         self._reason = reason
-        self._auditor = type("_NoOp", (), {"intercept": lambda self, x: None})()
+        self._brain = brain
+        self._remedy = remedy or (
+            "Set GEMINI_API_KEY in /etc/icebreaker/locations.env and "
+            "restart icebreaker-controller, or run: sudo ib-setup-key"
+        )
+        self._auditor = type("_NoOp", (), {"intercept": lambda self, x: None, "call_count": 0})()
         self._attempt_count = 0
 
     def _call_provider(
         self, envelope: RequestEnvelope
     ) -> tuple[str, int, int]:
         raise BrainProviderError(
-            f"Quarantined Brain not available: {self._reason}. "
-            "Set GEMINI_API_KEY in /etc/icebreaker/locations.env and "
-            "restart icebreaker-controller, or run: icebreaker --settings"
+            f"{self._brain} not available: {self._reason}. {self._remedy}"
         )
 
 
@@ -66,7 +71,7 @@ def _build_qb_safe(cfg: ControllerConfig) -> Any:
         reason = str(exc)
         print(f"WARN: QB backend init failed: {reason}", file=sys.stderr)
         print("WARN: Starting with unconfigured QB — user commands will return an error.", file=sys.stderr)
-        return _UnconfiguredBackend(reason)
+        return _UnconfiguredBackend(reason, brain="Quarantined Brain")
 
 
 def _build_pb(cfg: ControllerConfig) -> Any:
@@ -96,7 +101,17 @@ def _build_pb_safe(cfg: ControllerConfig) -> Any:
         reason = str(exc)
         print(f"WARN: PB backend init failed: {reason}", file=sys.stderr)
         print("WARN: Starting with unconfigured PB — tool execution unavailable.", file=sys.stderr)
-        return _UnconfiguredBackend(reason)
+        return _UnconfiguredBackend(
+            reason,
+            brain="Privileged Brain",
+            remedy=(
+                "The local execution model is not installed (arrives in V6). "
+                "Your request WAS understood by the Quarantined Brain — only "
+                "execution is unavailable. To install the PB model: sudo "
+                "/opt/icebreaker/venv/bin/python3 -m controller.model_registry "
+                "install --id qwen-2.5-coder-1.5b-instruct-q4_k_m"
+            ),
+        )
 
 
 @contextmanager
@@ -441,6 +456,12 @@ def _run_connect(socket_path: str, config_path: Path | None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import logging
+    # Enable info/debug logging by configuring the root logger level (default is WARNING)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
     parser = argparse.ArgumentParser(
         prog="python -m controller",
         description="Icebreaker Controller — natural language → safe OS operations",
