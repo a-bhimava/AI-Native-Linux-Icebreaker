@@ -10,7 +10,7 @@
 
 | Version | Name | State | ISO | SHA-256 | Gate passed |
 |---------|------|-------|-----|---------|-------------|
-| V0 | Boots to GNOME | **RED — not built** | — | — | — |
+| V0 | Boots to GNOME | **TESTING** — ISO built, smoke gate green, QEMU gate running, UTM check pending | `ISO/incremental/v0.iso` | `fa688645…3fac` | — |
 | V1 | SSH + diagnostics | RED — blocked by V0 | — | — | — |
 | V2 | Daemon (echo) | RED — blocked by V1 | — | — | — |
 | V3 | Dual-pane terminal | RED — blocked by V2 | — | — | — |
