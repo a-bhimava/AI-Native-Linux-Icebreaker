@@ -379,16 +379,68 @@ mod openat2 {
 }
 
 // ── safe_open: openat2 on Linux, canonicalize-check on macOS ─────────────────
+//
+// F-29: on Apple Silicon Rosetta 2 x86-64 emulation, openat2() returns
+// ENOSYS (syscall not implemented). The first ENOSYS latches
+// OPENAT2_UNAVAILABLE, and every subsequent call skips openat2 and takes
+// the canonicalize-check fallback (same one macOS uses in dev). The
+// fallback has a TOCTOU window between resolve and open — acceptable
+// under emulation but stricter security on real Linux is preserved
+// because openat2 works there and the flag never flips.
+
+#[cfg(target_os = "linux")]
+static OPENAT2_UNAVAILABLE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "linux")]
+fn openat2_disabled() -> bool {
+    OPENAT2_UNAVAILABLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(target_os = "linux")]
+fn note_openat2_enosys() {
+    OPENAT2_UNAVAILABLE.store(true, std::sync::atomic::Ordering::Relaxed);
+    tracing::warn!(
+        "openat2 returned ENOSYS (Rosetta 2 / old kernel?); falling back to \
+         canonicalize+open for the rest of this process's lifetime. TOCTOU \
+         window between resolve and open is now unmitigated in userspace — \
+         Landlock still enforces at the kernel level."
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn canonicalize_open_ro(root: &Path, rel: &str) -> Result<std::fs::File> {
+    let full = if rel == "." { root.to_path_buf() } else { root.join(rel) };
+    let canonical = std::fs::canonicalize(&full)
+        .map_err(|e| anyhow!("canonicalize failed: {}", e))?;
+    let root_canon = std::fs::canonicalize(root)
+        .map_err(|e| anyhow!("canonicalize root failed: {}", e))?;
+    if !canonical.starts_with(&root_canon) {
+        bail!("path escapes root after canonicalization (symlink?): {:?}", canonical);
+    }
+    std::fs::File::open(&canonical).map_err(|e| anyhow!("open failed: {}", e))
+}
 
 #[cfg(target_os = "linux")]
 fn safe_open_readonly(root: &Path, rel: &str) -> Result<std::fs::File> {
+    if openat2_disabled() {
+        return canonicalize_open_ro(root, rel);
+    }
     use std::os::fd::{AsRawFd, FromRawFd};
     let dir = std::fs::File::open(root)
         .map_err(|e| anyhow!("cannot open whitelist root '{}': {}", root.display(), e))?;
     let how = openat2::OpenHow::read_only();
-    let fd = openat2::call(dir.as_raw_fd(), rel, &how)
-        .map_err(|e| anyhow!("openat2 refused '{}': {}", rel, e))?;
-    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+    match openat2::call(dir.as_raw_fd(), rel, &how) {
+        Ok(fd) => Ok(unsafe { std::fs::File::from_raw_fd(fd) }),
+        Err(e) => {
+            // Detect ENOSYS (38) and switch modes forever.
+            if e.to_string().contains("Function not implemented") {
+                note_openat2_enosys();
+                return canonicalize_open_ro(root, rel);
+            }
+            Err(anyhow!("openat2 refused '{}': {}", rel, e))
+        }
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -405,19 +457,55 @@ fn safe_open_readonly(root: &Path, rel: &str) -> Result<std::fs::File> {
 }
 
 #[cfg(target_os = "linux")]
+fn canonicalize_write(root: &Path, rel: &str, content: &str, mode: u32) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let full = root.join(rel);
+    if let Some(parent) = full.parent() {
+        let root_canon = std::fs::canonicalize(root)
+            .map_err(|e| anyhow!("canonicalize root failed: {}", e))?;
+        let parent_canon = std::fs::canonicalize(parent)
+            .map_err(|e| anyhow!("canonicalize parent failed: {}", e))?;
+        if !parent_canon.starts_with(&root_canon) {
+            bail!("write target escapes root after canonicalization: {:?}", parent_canon);
+        }
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true).create(true).truncate(true).mode(mode)
+        .open(&full)
+        .map_err(|e| anyhow!("open(write) failed: {}", e))?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| anyhow!("write failed: {}", e))?;
+    file.sync_all().ok();
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
 fn safe_write(root: &Path, rel: &str, content: &str, mode: u32) -> Result<()> {
+    if openat2_disabled() {
+        return canonicalize_write(root, rel, content, mode);
+    }
     use std::io::Write;
     use std::os::fd::{AsRawFd, FromRawFd};
     let dir = std::fs::File::open(root)
         .map_err(|e| anyhow!("cannot open whitelist root '{}': {}", root.display(), e))?;
     let how = openat2::OpenHow::write_create_trunc(mode);
-    let fd = openat2::call(dir.as_raw_fd(), rel, &how)
-        .map_err(|e| anyhow!("openat2(write) refused '{}': {}", rel, e))?;
-    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
-    file.write_all(content.as_bytes())
-        .map_err(|e| anyhow!("write failed: {}", e))?;
-    file.sync_all().ok();
-    Ok(())
+    match openat2::call(dir.as_raw_fd(), rel, &how) {
+        Ok(fd) => {
+            let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+            file.write_all(content.as_bytes())
+                .map_err(|e| anyhow!("write failed: {}", e))?;
+            file.sync_all().ok();
+            Ok(())
+        }
+        Err(e) => {
+            if e.to_string().contains("Function not implemented") {
+                note_openat2_enosys();
+                return canonicalize_write(root, rel, content, mode);
+            }
+            Err(anyhow!("openat2(write) refused '{}': {}", rel, e))
+        }
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -450,12 +538,22 @@ fn safe_write(root: &Path, rel: &str, content: &str, mode: u32) -> Result<()> {
 
 #[cfg(target_os = "linux")]
 fn safe_open_directory(root: &Path, rel: &str) -> Result<std::fs::File> {
+    if openat2_disabled() {
+        return canonicalize_open_ro(root, rel);
+    }
     use std::os::fd::{AsRawFd, FromRawFd};
     let dir = std::fs::File::open(root)?;
     let how = openat2::OpenHow::read_only_directory();
-    let fd = openat2::call(dir.as_raw_fd(), rel, &how)
-        .map_err(|e| anyhow!("openat2(dir) refused '{}': {}", rel, e))?;
-    Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+    match openat2::call(dir.as_raw_fd(), rel, &how) {
+        Ok(fd) => Ok(unsafe { std::fs::File::from_raw_fd(fd) }),
+        Err(e) => {
+            if e.to_string().contains("Function not implemented") {
+                note_openat2_enosys();
+                return canonicalize_open_ro(root, rel);
+            }
+            Err(anyhow!("openat2(dir) refused '{}': {}", rel, e))
+        }
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
