@@ -131,8 +131,19 @@ if [ "$LEVEL" -ge 2 ]; then
     echo "[L2] Controller daemon"
     _ssh "systemctl is-active icebreaker-controller" | grep -q active \
         && pass "controller active" || fail "icebreaker-controller not active: $(_ssh 'systemctl status icebreaker-controller --no-pager -n 5' | tail -5)"
-    _ssh "test -S /run/icebreaker/controller.sock" \
-        && pass "controller.sock exists" || fail "controller.sock missing (PKG-4?)"
+    # F-13 rule: poll — the unit is 'active' (Type=exec) ~17s before the
+    # daemon's Python finishes importing and binds the socket.
+    SOCK_MAX=30
+    [ "${QEMU_ACCEL[0]}" = "-cpu" ] && SOCK_MAX=90
+    SOCK_T0=$(date +%s)
+    SOCK_OK=0
+    while [ $(( $(date +%s) - SOCK_T0 )) -lt "$SOCK_MAX" ]; do
+        if _ssh "test -S /run/icebreaker/controller.sock"; then SOCK_OK=1; break; fi
+        sleep 5
+    done
+    [ "$SOCK_OK" = "1" ] \
+        && pass "controller.sock exists (after $(( $(date +%s) - SOCK_T0 ))s)" \
+        || fail "controller.sock missing after ${SOCK_MAX}s (PKG-4?)"
     PERMS="$(_ssh "stat -c '%a %U %G' /run/icebreaker/controller.sock" || true)"
     echo "$PERMS" | grep -q "660 root icebreaker-users" \
         && pass "socket perms 0660 root:icebreaker-users (PKG-4)" \
