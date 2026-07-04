@@ -16,7 +16,7 @@
 | V3 | Dual-pane terminal | **GREEN 2026-07-03** (smoke + QEMU L3 incl. F-7 behavioral + UTM: TUI from icon, CoT stream, actionable QB error, visible daemon-down warning; commit `4e9c24e`) | `ISO/incremental/v3.iso` | `432c9757…aa6e` | 2026-07-03 |
 | V4 | `#` trigger | **GREEN 2026-07-03** (21/21 gates incl. pty end-to-end + UTM: plain cmds OK, `#hello` routed to daemon, SYSTEM HEALTHY; commit `4633363`) | `ISO/incremental/v4.iso` | `38e5e764…dcaf` | 2026-07-03 |
 | V5 | QB (Gemini) | **GREEN 2026-07-03** (25/25 QEMU gates on F-20-fixed ISO; UTM with-key: live Gemini parse → fs.list Tier 0 → full CoT pipeline to PB boundary; commit `6bed152`) | `ISO/incremental/v5.iso` | `783d44bc…5246` | 2026-07-03 |
-| V6 | PB + mcpd execution | **RED** — 23/25 gates PASS; pbd crashes at boot with `couldn't bind HTTP server socket /run/icebreaker/pbd.sock` (llama-server); root cause under investigation | `ISO/incremental/v6.iso` (hash-verified but non-functional) | `f8bffbe0…5fb4` | — |
+| V6 | PB + mcpd execution | **TESTING** — smoke + QEMU L6 gates PASS (29/29) after F-22/F-23/F-24 fixes; pbd active in 10 s, llama-server /health = ok in 12 s; UTM check pending | `ISO/incremental/v6.iso` | `fa0a5f8e…0e6d` | — |
 | V7 | Chatbot GUI | RED — blocked by V6 | — | — | — |
 | V8 | Polish + release | RED — blocked by V7 | — | — | — |
 
