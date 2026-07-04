@@ -12,8 +12,12 @@
 
 set -uo pipefail
 
-ISO="${1:?usage: qemu-gate.sh <iso> <level>}"
-LEVEL="${2:?usage: qemu-gate.sh <iso> <level>}"
+ISO="${1:?usage: qemu-gate.sh <iso> <level> [expected-version]}"
+LEVEL="${2:?usage: qemu-gate.sh <iso> <level> [expected-version]}"
+# Optional 3rd arg: expected /etc/icebreaker-version content. Defaults to
+# "v${LEVEL}"; passing "v6.1" (etc.) lets us build labeled sub-versions
+# without triggering F-18's wrong-guest abort.
+EXPECTED_VERSION="${3:-v${LEVEL}}"
 [ -f "$ISO" ] || { echo "FATAL: ISO not found: $ISO" >&2; exit 2; }
 command -v qemu-system-x86_64 >/dev/null || { echo "FATAL: qemu-system-x86_64 not installed" >&2; exit 2; }
 command -v sshpass >/dev/null || { echo "FATAL: sshpass not installed (apt-get install sshpass)" >&2; exit 2; }
@@ -109,10 +113,10 @@ _ssh "systemctl is-active gdm" | grep -q active \
 V="$(_ssh "cat /etc/icebreaker-version")"
 # F-18: a marker mismatch means we are talking to the WRONG guest (stale
 # QEMU / port collision) — every further check would be meaningless. Abort.
-if [ "$V" = "v${LEVEL}" ]; then
-    pass "version marker = v${LEVEL}"
+if [ "$V" = "${EXPECTED_VERSION}" ]; then
+    pass "version marker = ${EXPECTED_VERSION}"
 else
-    fail "version marker '$V' != expected 'v${LEVEL}' — WRONG GUEST (stale QEMU?). Aborting gate."
+    fail "version marker '$V' != expected '${EXPECTED_VERSION}' — WRONG GUEST (stale QEMU?). Aborting gate."
     exit 1
 fi
 _ssh "systemctl --failed --no-legend" | grep -q . \

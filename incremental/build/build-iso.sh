@@ -25,16 +25,21 @@ info() { echo -e "\033[0;32m[$(date +%H:%M:%S)]\033[0m $*"; }
 die()  { echo -e "\033[0;31mFATAL:\033[0m $*" >&2; exit 1; }
 
 # ── Args ────────────────────────────────────────────────────────────────
-[ $# -ge 1 ] || die "usage: build-iso.sh <version-number 0-8> [--no-compress]"
+[ $# -ge 1 ] || die "usage: build-iso.sh <version-number 0-8> [--no-compress] [--label vX.Y]"
 VN="$1"; shift
 [[ "$VN" =~ ^[0-8]$ ]] || die "version must be 0-8, got: $VN"
 COMPRESS_ARGS=(-comp zstd -Xcompression-level 3)
-for arg in "$@"; do
-    case "$arg" in
-        --no-compress) COMPRESS_ARGS=(-noI -noD -noF -noX) ;;  # D-1 escape hatch
-        *) die "unknown arg: $arg" ;;
+LABEL=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --no-compress) COMPRESS_ARGS=(-noI -noD -noF -noX); shift ;;  # D-1 escape hatch
+        --label)       LABEL="$2"; shift 2 ;;  # override version marker + ISO filename (e.g. "v6.1")
+        *) die "unknown arg: $1" ;;
     esac
 done
+# LABEL defaults to plain vN when not overridden (backwards-compatible).
+[ -z "$LABEL" ] && LABEL="v${VN}"
+[[ "$LABEL" =~ ^v[0-9]+(\.[0-9]+)?$ ]] || die "--label must match ^v[0-9]+(\.[0-9]+)?$, got: $LABEL"
 
 [ "$(id -u)" = "0" ] || die "must run as root (sudo)"
 for tool in mksquashfs xorriso zstd grub-mkstandalone mkfs.fat mcopy; do
@@ -57,7 +62,7 @@ ISO_WORK="${BUILD_DIR}/iso-work"
 CHROOT="${ISO_WORK}/chroot"
 STAGING="${ISO_WORK}/staging"
 OUT_DIR="${BUILD_DIR}/out"
-ISO_FILE="${OUT_DIR}/icebreaker-v${VN}.iso"
+ISO_FILE="${OUT_DIR}/icebreaker-${LABEL}.iso"
 
 cleanup() {
     umount "${CHROOT}/dev/pts" 2>/dev/null || true
@@ -100,7 +105,7 @@ for (( i=1; i<=VN; i++ )); do
     unset -f version_overlay
 done
 
-echo "v${VN}" > "${CHROOT}/etc/icebreaker-version"
+echo "${LABEL}" > "${CHROOT}/etc/icebreaker-version"
 
 # ── Smoke gate — build aborts on failure ────────────────────────────────
 info "Running smoke gate (level ${VN})..."
