@@ -26,6 +26,9 @@ pb_max_tokens      = 256
 # at ~2-5 min/turn). Native x86 or ARM64 does the same in <5 s; drop to 30 s
 # on real hardware via ~/.config/icebreaker/controller.toml layered override.
 pb_timeout_seconds = 600
+# F-30: mcpd's fs.rs canonicalize fallback under Rosetta emulation runs
+# slower than the 10 s default; give it 120 s of headroom.
+mcpd_timeout_seconds = 120.0
 
 [paths]
 catalogue_path    = "/usr/share/icebreaker/catalogue.toml"

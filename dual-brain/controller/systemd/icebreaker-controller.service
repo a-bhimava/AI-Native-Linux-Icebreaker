@@ -19,7 +19,17 @@ LogsDirectory=icebreaker
 # Hardening (BP-9).
 NoNewPrivileges=yes
 ProtectSystem=strict
-ProtectHome=yes
+# F-30: ProtectHome=yes masks /home/<user> at mode 0000 in the controller's
+# private mount namespace — mcpd (child process) then sees ENOENT on any
+# path under /home. Use tmpfs (empty /home) + BindReadOnlyPaths so the
+# admin-approved read root(s) are the only /home paths visible.
+ProtectHome=tmpfs
+# HOME env for the controller — inherited by mcpd via the scrubbed env.
+# Sets Landlock kernel allow list AND mcpd's fs.rs default_roots to
+# include /home/icebreaker. NOT set globally in locations.env because pbd
+# runs as _icebreaker_pb (different user, different home).
+Environment=HOME=/home/icebreaker
+BindReadOnlyPaths=/home/icebreaker
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
