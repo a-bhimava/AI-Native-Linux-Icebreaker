@@ -17,6 +17,8 @@
 | V4 | `#` trigger | **GREEN 2026-07-03** (21/21 gates incl. pty end-to-end + UTM: plain cmds OK, `#hello` routed to daemon, SYSTEM HEALTHY; commit `4633363`) | `ISO/incremental/v4.iso` | `38e5e764…dcaf` | 2026-07-03 |
 | V5 | QB (Gemini) | **GREEN 2026-07-03** (25/25 QEMU gates on F-20-fixed ISO; UTM with-key: live Gemini parse → fs.list Tier 0 → full CoT pipeline to PB boundary; commit `6bed152`) | `ISO/incremental/v5.iso` | `783d44bc…5246` | 2026-07-03 |
 | V6 | PB + mcpd execution | **GREEN 2026-07-04** — full end-to-end verified on UTM: `# list files in /home/icebreaker` returns Gemini→Qwen→mcpd→formatted natural-language listing of 18 files. F-22..F-30 all logged and fixed. Live-guest turn 2m55s under Rosetta emulation | `ISO/incremental/v6.iso` (source ready for rebuild) | pending rebuild | 2026-07-04 |
+| V6.1 | V6 Stage 1 fixes baked in (F-27..F-30) | **GREEN 2026-07-04** — 29/29 gates + hash-verified download; carries F-27 PB target, F-28 MCPD_FS_READ_ROOTS + HOME on unit only, F-29 openat2 ENOSYS fallback, F-30 ProtectHome=tmpfs + BindReadOnlyPaths + readlink seccomp + mcpd_timeout=120s + PB prompt hardening | `ISO/incremental/v6.1.iso` | `e2d97d2c…24bf` | 2026-07-04 |
+| V6.2 | V6B Stage 2: context-aware QB (cwd, recent_commands, active_window) | **LIVE-VERIFIED** on running v6 guest: `# list files here` from `/home/icebreaker` returns real listing (18 entries); `# what is in this folder` from `/home/icebreaker/Documents` targets that dir. QB prompts (all 4 variants) redrafted with CONTEXT USAGE + examples; XML-tag defense against context injection in ShellContext.render(). ISO build pending | — | — | — |
 | V7 | Chatbot GUI | RED — blocked by V6 | — | — | — |
 | V8 | Polish + release | RED — blocked by V7 | — | — | — |
 
