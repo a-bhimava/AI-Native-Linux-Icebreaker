@@ -104,7 +104,9 @@ class DaemonClient:
     # ── Public API ──────────────────────────────────────────────────────
 
     def run_turn(self, user_input: str) -> dict:
-        return self.send_request("turn.run", {"input": user_input}, timeout=120.0)
+        # F-25: 600 s so a single turn under emulated x86 (Rosetta 2) has
+        # room. Native x86-64 / arm64 completes in seconds; harmless slack.
+        return self.send_request("turn.run", {"input": user_input}, timeout=600.0)
 
     def new_session(self, backend: str | None = None) -> dict:
         params = {"backend": backend} if backend else {}
