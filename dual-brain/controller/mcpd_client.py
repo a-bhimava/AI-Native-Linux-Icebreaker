@@ -57,6 +57,10 @@ _SAFE_ENV_VARS: frozenset[str] = frozenset({
     "PATH", "HOME", "USER", "LOGNAME", "SHELL",
     "LC_ALL", "LC_CTYPE", "LANG", "TZ",
     "TERM", "COLORTERM",
+    # F-28: admin-configured extra fs read roots (colon-separated absolute
+    # paths). Populated by the Controller from controller.toml [mcpd.fs]
+    # read_roots. mcpd itself validates each entry starts with '/'.
+    "MCPD_FS_READ_ROOTS",
 })
 
 

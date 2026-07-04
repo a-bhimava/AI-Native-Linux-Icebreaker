@@ -446,7 +446,11 @@ class Controller:
             yield _cot("pb_tool_call", "active",
                         body="Privileged Brain generating MCP tool call")
             tool_schema = self._get_tool_schema(intent["action"])
-            pb_user = session.build_pb_user_turn(intent_id, intent["action"], tool_schema)
+            # F-27: pass the validated intent target so PB doesn't hallucinate
+            pb_user = session.build_pb_user_turn(
+                intent_id, intent["action"], tool_schema,
+                target=intent.get("target", ""),
+            )
             pb_system = self._prompts.get("pb")
             try:
                 pb_response = self._pb.complete(
@@ -1266,7 +1270,11 @@ class Controller:
 
         # ── Step 6: PB → tool call ────────────────────────────────────────────
         tool_schema = self._get_tool_schema(intent["action"])
-        pb_user = session.build_pb_user_turn(intent_id, intent["action"], tool_schema)
+        # F-27: pass the validated intent target so PB doesn't hallucinate
+        pb_user = session.build_pb_user_turn(
+            intent_id, intent["action"], tool_schema,
+            target=intent.get("target", ""),
+        )
         pb_system = self._prompts.get("pb")
         try:
             pb_response = self._pb.complete(

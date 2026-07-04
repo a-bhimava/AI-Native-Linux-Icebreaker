@@ -58,6 +58,23 @@
         }
       }
     },
+    "mcpd": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read_roots": {
+              "type": "array",
+              "items": {"type": "string", "pattern": "^/"},
+              "description": "F-28: extra absolute-path read roots passed to mcpd via MCPD_FS_READ_ROOTS. Landlock + validate() honour these on top of STATIC_ROOTS + $HOME."
+            }
+          }
+        }
+      }
+    },
     "run": {
       "type": "object",
       "additionalProperties": false,

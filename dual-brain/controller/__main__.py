@@ -58,6 +58,20 @@ class _UnconfiguredBackend(BrainBackend):
         )
 
 
+def _mcpd_extra_env(cfg: ControllerConfig) -> dict[str, str]:
+    """F-28: build extra env for mcpd from RunConfig.
+
+    Currently: MCPD_FS_READ_ROOTS (config-driven read allowlist). Landlock
+    honours these at the kernel level and mcpd's userspace validate() accepts
+    them as additional roots on top of STATIC_ROOTS + $HOME.
+    """
+    env: dict[str, str] = {}
+    read_roots = getattr(cfg.run, "mcpd_fs_read_roots", "") or ""
+    if read_roots:
+        env["MCPD_FS_READ_ROOTS"] = read_roots
+    return env
+
+
 def _build_qb(cfg: ControllerConfig) -> Any:
     from .backends import anthropic_backend, gemini_backend, llama_local_backend, openai_backend  # noqa: F401
     return make_backend(cfg)
@@ -140,6 +154,7 @@ def _build_controller(
         mcpd = McpdClient.spawn(
             Path(cfg.run.mcpd_binary).expanduser(),
             default_timeout=cfg.run.mcpd_timeout_seconds,
+            extra_env=_mcpd_extra_env(cfg),
         )
         store = IntentStore()
         prompts = PromptLoader(cfg.prompts)
@@ -244,6 +259,7 @@ def _run_daemon(config_path: Path | None) -> int:
             mcpd = McpdClient.spawn(
                 Path(cfg.run.mcpd_binary).expanduser(),
                 default_timeout=cfg.run.mcpd_timeout_seconds,
+                extra_env=_mcpd_extra_env(cfg),
             )
             store = IntentStore()
             prompts = PromptLoader(cfg.prompts)
@@ -302,6 +318,7 @@ def _run_terminal(config_path: Path | None) -> int:
         mcpd = McpdClient.spawn(
             Path(cfg.run.mcpd_binary).expanduser(),
             default_timeout=cfg.run.mcpd_timeout_seconds,
+            extra_env=_mcpd_extra_env(cfg),
         )
         store = IntentStore()
         prompts = PromptLoader(cfg.prompts)
@@ -392,6 +409,7 @@ def _run_gui(mode: str, config_path: Path | None) -> int:
         mcpd = McpdClient.spawn(
             Path(cfg.run.mcpd_binary).expanduser(),
             default_timeout=cfg.run.mcpd_timeout_seconds,
+            extra_env=_mcpd_extra_env(cfg),
         )
         store = IntentStore()
         prompts = PromptLoader(cfg.prompts)

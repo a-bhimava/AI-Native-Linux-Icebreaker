@@ -153,6 +153,11 @@ class RunConfig:
     qb_max_retries: int = 3
     mcpd_schemas_dir: str = ""  # empty = auto-detect from mcpd_binary path
     pb_transport: str = "http"  # "http" or "unix"; used by _build_pb()
+    # F-28: colon-joined extra fs read roots passed to mcpd via
+    # MCPD_FS_READ_ROOTS. Populated from controller.toml [mcpd.fs] read_roots
+    # (list of absolute paths). Landlock allows these at the kernel level and
+    # userspace fs.list/fs.read validate() accepts them as additional roots.
+    mcpd_fs_read_roots: str = ""
 
 
 @dataclass(frozen=True)
@@ -472,6 +477,15 @@ def _build_run_config(raw: dict) -> RunConfig:
             mcpd_binary = str(distro_binary)
         else:
             mcpd_binary = "src/mcpd/target/release/mcpd"
+    # F-28: [mcpd.fs] read_roots = ["/abs/path", ...] → colon-joined string
+    fs_section = raw.get("mcpd", {}).get("fs", {}) if isinstance(raw.get("mcpd"), dict) else {}
+    fs_read_roots_list = fs_section.get("read_roots", []) if isinstance(fs_section, dict) else []
+    if not isinstance(fs_read_roots_list, list):
+        fs_read_roots_list = []
+    fs_read_roots = ":".join(
+        str(p) for p in fs_read_roots_list
+        if isinstance(p, str) and p.startswith("/")
+    )
     return RunConfig(
         mcpd_binary=mcpd_binary,
         audit_log=section.get("audit_log", "~/.local/state/icebreaker/controller-audit.log"),
@@ -483,6 +497,7 @@ def _build_run_config(raw: dict) -> RunConfig:
         qb_max_retries=section.get("qb_max_retries", 3),
         mcpd_schemas_dir=section.get("mcpd_schemas_dir", ""),
         pb_transport=section.get("pb_transport", "http"),
+        mcpd_fs_read_roots=fs_read_roots,
     )
 
 

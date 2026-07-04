@@ -66,12 +66,26 @@ class SessionState:
     def get_qb_history(self) -> list:
         return [dict(msg) for msg in self._qb_messages]
 
-    def build_pb_user_turn(self, intent_id: str, allowed_tool: str, tool_schema: dict) -> str:
-        """INV-2: PB receives ONLY intent_id + tool scaffold. Never raw user text."""
-        return json.dumps(
-            {"intent_id": intent_id, "allowed_tool": allowed_tool, "tool_schema": tool_schema},
-            separators=(",", ":"),
-        )
+    def build_pb_user_turn(
+        self,
+        intent_id: str,
+        allowed_tool: str,
+        tool_schema: dict,
+        target: str = "",
+    ) -> str:
+        """F-27: PB receives intent_id + tool scaffold + the VALIDATED target
+        from the intent. Never raw user text. Per INV-1, the schema-validated
+        Intent Object (which includes target) flows to PB; only free-form user
+        text is forbidden. Without target PB has to invent params from nothing
+        and consistently hallucinates /tmp regardless of what the user asked."""
+        payload = {
+            "intent_id": intent_id,
+            "allowed_tool": allowed_tool,
+            "tool_schema": tool_schema,
+        }
+        if target:
+            payload["target"] = target
+        return json.dumps(payload, separators=(",", ":"))
 
     def add_cost(self, usd: float) -> None:
         self._accumulated_cost_usd += usd

@@ -31,6 +31,14 @@ pb_timeout_seconds = 600
 catalogue_path    = "/usr/share/icebreaker/catalogue.toml"
 model_search_dirs = ["/var/lib/icebreaker/models", "~/.local/share/icebreaker/models"]
 
+# F-28: extra filesystem read roots for mcpd. mcpd's built-in allowlist is
+# STATIC_ROOTS (/proc /sys /tmp /var/log /etc) + $HOME. Under systemd the
+# controller daemon has an empty $HOME so /home/<user> is not in the default
+# allowlist. Add each ISO user's home directly. Landlock enforces the same
+# list at the kernel level (defense in depth).
+[mcpd.fs]
+read_roots = ["/home/icebreaker"]
+
 [prompts]
 prompts_dir = "/usr/share/icebreaker/prompts"
 

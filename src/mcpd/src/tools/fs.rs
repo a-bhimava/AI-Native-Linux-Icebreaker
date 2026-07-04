@@ -64,6 +64,19 @@ fn home() -> &'static PathBuf {
 fn default_roots() -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = STATIC_ROOTS.iter().map(PathBuf::from).collect();
     v.push(home().clone());
+    // F-28 (production): admin-configurable extra read roots via
+    // MCPD_FS_READ_ROOTS (colon-separated absolute paths). The Controller
+    // populates this from controller.toml [mcpd.fs] read_roots and passes it
+    // in the scrubbed env. This lets a distro allow /home/<user> without
+    // relying on $HOME being set correctly under systemd. NOT feature-gated
+    // — Landlock still enforces the kernel-level allow list on top.
+    if let Ok(extra) = std::env::var("MCPD_FS_READ_ROOTS") {
+        for p in extra.split(':').filter(|s| !s.is_empty()) {
+            if p.starts_with('/') {
+                v.push(PathBuf::from(p));
+            }
+        }
+    }
     // Test-only widening for the M1.3 Landlock kernel-enforcement test.
     // Behind a cargo feature so production release binaries cannot honour
     // MCPD_FS_TEST_ROOTS even if it is set. Landlock's allow list is NOT

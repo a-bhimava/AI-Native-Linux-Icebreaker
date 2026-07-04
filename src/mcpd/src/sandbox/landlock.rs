@@ -69,6 +69,21 @@ pub fn apply() -> Result<()> {
         }
     }
 
+    // F-28: extra admin-configured read roots. Populated from
+    // controller.toml [mcpd.fs] read_roots by the Controller and passed via
+    // the scrubbed env. Kernel-level allow list matches userspace validate().
+    if let Ok(extra) = std::env::var("MCPD_FS_READ_ROOTS") {
+        for p in extra.split(':').filter(|s| !s.is_empty()) {
+            if !p.starts_with('/') { continue; }
+            let path = PathBuf::from(p);
+            if !path.exists() { continue; }
+            match PathFd::new(&path) {
+                Ok(fd) => rules.push(Ok(PathBeneath::new(fd, AccessFs::from_read(abi)))),
+                Err(e) => warn!("landlock: skipping read root '{}': {}", p, e),
+            }
+        }
+    }
+
     let status = Ruleset::default()
         .handle_access(AccessFs::from_all(abi))?
         .create()?
