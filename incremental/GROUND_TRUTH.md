@@ -15,7 +15,7 @@
 | V2 | Daemon (QB-unconfigured path) | **GREEN 2026-07-03** (smoke + QEMU L2 + live-guest turn.run/restart + UTM boot w/ SYSTEM HEALTHY, commit `8b4593b`) | `ISO/incremental/v2.iso` | `5cc74e1f…46a3` | 2026-07-03 |
 | V3 | Dual-pane terminal | **GREEN 2026-07-03** (smoke + QEMU L3 incl. F-7 behavioral + UTM: TUI from icon, CoT stream, actionable QB error, visible daemon-down warning; commit `4e9c24e`) | `ISO/incremental/v3.iso` | `432c9757…aa6e` | 2026-07-03 |
 | V4 | `#` trigger | **GREEN 2026-07-03** (21/21 gates incl. pty end-to-end + UTM: plain cmds OK, `#hello` routed to daemon, SYSTEM HEALTHY; commit `4633363`) | `ISO/incremental/v4.iso` | `38e5e764…dcaf` | 2026-07-03 |
-| V5 | QB (Gemini) | **TESTING** — 24/24 gates PASS first-try (incl. BP-8 no-key tripwire); UTM with-key check pending | downloading → `ISO/incremental/v5.iso` | `83b6b66c…0be4` | — |
+| V5 | QB (Gemini) | **GREEN 2026-07-03** (25/25 QEMU gates on F-20-fixed ISO; UTM with-key: live Gemini parse → fs.list Tier 0 → full CoT pipeline to PB boundary; commit `6bed152`) | `ISO/incremental/v5.iso` | `783d44bc…5246` | 2026-07-03 |
 | V6 | PB + mcpd execution | RED — blocked by V5 | — | — | — |
 | V7 | Chatbot GUI | RED — blocked by V6 | — | — | — |
 | V8 | Polish + release | RED — blocked by V7 | — | — | — |
