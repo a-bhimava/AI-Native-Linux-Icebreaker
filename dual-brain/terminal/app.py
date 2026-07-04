@@ -279,8 +279,16 @@ class AiTerminalApp(App):
         input_bar.set_working(True)
         companion.clear()
 
+        # V6B Stage 2: snapshot shell state (cwd, recent commands, user)
+        # from the ExecutionPanel so QB can resolve "here" / "this folder"
+        # / relative paths against the actual environment.
+        try:
+            ctx = execution.shell_context()
+        except Exception:
+            ctx = None
+
         def _do_turn() -> dict:
-            return self._daemon_client.run_turn(text)
+            return self._daemon_client.run_turn(text, context=ctx)
 
         try:
             resp = await asyncio.to_thread(_do_turn)

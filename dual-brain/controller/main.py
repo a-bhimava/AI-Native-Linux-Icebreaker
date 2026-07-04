@@ -85,6 +85,36 @@ _STEP_INDEX: dict[str, int] = {
 }
 
 
+def _build_qb_input(session: Any, user_input: str) -> str:
+    """V6B Stage 2: prepend a <context> XML block to the user query when
+    the daemon received a ShellContext for this turn.
+
+    Absent context: return user_input unchanged (backwards-compatible with
+    every call path that never sets shell_context).
+    Present context: return
+        <context>...</context>
+        <query>
+        <user_input>
+        </query>
+    XML tags are the pattern QB prompts (see prompts/qb_*.txt "CONTEXT USAGE")
+    are trained to key off; wrapping the user's raw text in <query> defends
+    against context injection by an untrusted terminal.
+    """
+    ctx = getattr(session, "shell_context", None)
+    if ctx is None:
+        return user_input
+    preamble = ""
+    render = getattr(ctx, "render", None)
+    if callable(render):
+        try:
+            preamble = render() or ""
+        except Exception:
+            preamble = ""
+    if not preamble:
+        return user_input
+    return f"{preamble}\n<query>\n{user_input}\n</query>"
+
+
 @dataclass(frozen=True)
 class TurnResult:
     success: bool
@@ -235,8 +265,12 @@ class Controller:
             yield _cot("qb_intent", "active",
                         body="Parsing natural language into structured intent")
             session.add_user_message(user_input)
+            # V6B Stage 2: prepend a <context> block if the caller provided
+            # shell state (cwd, recent commands). Lets QB resolve "here",
+            # "this folder", relative paths against the actual environment.
+            qb_input = _build_qb_input(session, user_input)
             qb_response = self._qb.complete(
-                system=qb_system, user=user_input,
+                system=qb_system, user=qb_input,
                 schema=self._intent_schema,
                 max_retries=self._cfg.run.qb_max_retries,
             )
@@ -1110,9 +1144,11 @@ class Controller:
 
         # ── Step 1: QB → Intent Object ────────────────────────────────────────
         session.add_user_message(user_input)
+        # V6B Stage 2: prepend <context> block (see run_turn_streaming twin).
+        qb_input = _build_qb_input(session, user_input)
         qb_response = self._qb.complete(
             system=qb_system,
-            user=user_input,
+            user=qb_input,
             schema=self._intent_schema,
             max_retries=self._cfg.run.qb_max_retries,
         )

@@ -28,6 +28,22 @@ class ExecutionPanel(Static):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._proc: asyncio.subprocess.Process | None = None
+        # V6B Stage 2: track the shell state we'll forward to QB on NL
+        # turns. `cwd` starts at the process cwd and updates whenever the
+        # user runs a `cd` command; `recent` keeps the last 5 non-empty
+        # commands, newest last (matches the QB prompt's "oldest first").
+        self._cwd: str = os.getcwd()
+        self._recent: list[str] = []
+
+    def shell_context(self) -> dict:
+        """Snapshot of shell state for the daemon run_turn RPC."""
+        import socket as _socket
+        return {
+            "cwd": self._cwd,
+            "recent_commands": list(self._recent),
+            "user": os.environ.get("USER") or os.environ.get("LOGNAME") or "",
+            "hostname": _socket.gethostname(),
+        }
 
     def compose(self) -> ComposeResult:
         yield RichLog(
@@ -50,6 +66,22 @@ class ExecutionPanel(Static):
         prompt = Text(f"$ {command}", style=f"bold {_PS1_COLOR}")
         log.write(prompt)
 
+        # V6B Stage 2: intercept `cd` so the panel's tracked cwd updates
+        # (each subprocess runs in a fresh child — its cd wouldn't persist).
+        stripped = command.strip()
+        cd_target = self._cd_target(stripped)
+        if cd_target is not None:
+            new_cwd = self._resolve_cd(cd_target)
+            if new_cwd is not None:
+                self._cwd = new_cwd
+                self._push_recent(stripped)
+                log.write(Text(new_cwd, style="dim"))
+                return
+            log.write(Text(f"cd: {cd_target}: No such directory", style="bold red"))
+            return
+
+        self._push_recent(stripped)
+
         shell = os.environ.get("SHELL", "/bin/sh")
         try:
             self._proc = await asyncio.create_subprocess_exec(
@@ -57,6 +89,7 @@ class ExecutionPanel(Static):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env=self._scrubbed_env(),
+                cwd=self._cwd,
             )
         except OSError as exc:
             log.write(Text(f"Error: {exc}", style="bold red"))
@@ -76,6 +109,46 @@ class ExecutionPanel(Static):
             log.write(
                 Text(f"[exit {returncode}]", style="dim")
             )
+
+    # ── V6B Stage 2 helpers ─────────────────────────────────────────────
+    def _push_recent(self, cmd: str) -> None:
+        if not cmd:
+            return
+        # Cap length; keep last 5.
+        self._recent.append(cmd[:200])
+        if len(self._recent) > 5:
+            self._recent = self._recent[-5:]
+
+    def _cd_target(self, command: str) -> str | None:
+        """If command is a bare `cd [dir]`, return the target (or '' for HOME)."""
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            return None
+        if not parts or parts[0] != "cd":
+            return None
+        if len(parts) == 1:
+            return ""       # bare 'cd' → $HOME
+        if len(parts) == 2:
+            return parts[1]
+        return None         # 'cd a b' → let the subshell error
+
+    def _resolve_cd(self, target: str) -> str | None:
+        if target == "" or target == "~":
+            candidate = os.environ.get("HOME") or ""
+        elif target.startswith("~/"):
+            candidate = os.path.join(os.environ.get("HOME") or "", target[2:])
+        elif target == "-":
+            # Not tracking OLDPWD in-panel; skip the trick and let subshell handle it
+            return None
+        elif os.path.isabs(target):
+            candidate = target
+        else:
+            candidate = os.path.join(self._cwd, target)
+        candidate = os.path.normpath(candidate)
+        if not candidate or not os.path.isdir(candidate):
+            return None
+        return candidate
 
     def _scrubbed_env(self) -> dict[str, str]:
         """Return environment with sensitive vars removed (BP-8)."""

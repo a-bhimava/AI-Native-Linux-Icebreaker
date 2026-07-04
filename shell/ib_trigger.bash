@@ -46,7 +46,15 @@ _ib_prompt_hook() {
     [[ -n "$query" ]] || return 0
 
     printf '\033[1;36m[icebreaker]\033[0m %s\n' "$query"
-    "${_IB_VENV_PYTHON}" "${_IB_RUN}" "$query" "$_IB_SOCK"
+
+    # V6B Stage 2: collect shell context and export it for ib_run.py to
+    # forward in the run_turn RPC. Lets QB resolve "here", "this folder",
+    # "the file I was editing" against the actual environment.
+    local ib_recent
+    ib_recent="$(HISTTIMEFORMAT= builtin history 6 2>/dev/null | head -5 | sed 's/^ *[0-9]\{1,\} *//')"
+    IB_CWD="$PWD" \
+    IB_RECENT="$ib_recent" \
+        "${_IB_VENV_PYTHON}" "${_IB_RUN}" "$query" "$_IB_SOCK"
 }
 
 # Prepend to PROMPT_COMMAND (runs before each prompt is drawn).

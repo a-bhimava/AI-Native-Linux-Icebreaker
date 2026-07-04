@@ -103,10 +103,17 @@ class DaemonClient:
 
     # ── Public API ──────────────────────────────────────────────────────
 
-    def run_turn(self, user_input: str) -> dict:
+    def run_turn(self, user_input: str, context: dict | None = None) -> dict:
         # F-25: 600 s so a single turn under emulated x86 (Rosetta 2) has
         # room. Native x86-64 / arm64 completes in seconds; harmless slack.
-        return self.send_request("turn.run", {"input": user_input}, timeout=600.0)
+        # V6B Stage 2: optional context (cwd, recent_commands, active_window)
+        # captured by the caller (Terminal / ib_run.py) — rendered by the
+        # Controller into a <context> preamble in front of the user query
+        # so QB can resolve ambiguous references like "here" or "this folder".
+        params: dict = {"input": user_input}
+        if context is not None:
+            params["context"] = context
+        return self.send_request("turn.run", params, timeout=600.0)
 
     def new_session(self, backend: str | None = None) -> dict:
         params = {"backend": backend} if backend else {}

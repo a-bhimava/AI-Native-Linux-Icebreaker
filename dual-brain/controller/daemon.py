@@ -324,6 +324,14 @@ class Daemon:
             session.transport.send(resp.to_bytes())
             return
 
+        # V6B Stage 2: optional context from the Terminal (cwd, recent
+        # commands, active_window). Sanitized in ShellContext.from_params;
+        # rendered into the QB preamble at the call site in main.py.
+        from .session import ShellContext
+        session.session_state.shell_context = ShellContext.from_params(
+            params.get("context")
+        )
+
         if not session._turn_lock.acquire(blocking=False):
             resp = make_error(msg_id, INTERNAL_ERROR, "turn already in progress")
             session.transport.send(resp.to_bytes())
