@@ -18,7 +18,7 @@ VERSION_PACKAGES=""
 # Expected model hash from the repo manifest (single source of truth).
 _V6_MODEL="run7_cot_q4km.gguf"
 _V6_MODEL_SRC="/home/aditya/models/run7_cot_q4km.gguf"
-_V6_LLAMA_STATIC="/home/aditya/icebreaker/cx-distro/.build/llama.cpp/build-static/bin/llama-server"
+_V6_LLAMA_STATIC="/home/aditya/icebreaker/cx-distro/.build/llama.cpp/build-portable/bin/llama-server"
 
 version_overlay() {
     local chroot="$1" repo="$2"
@@ -41,8 +41,8 @@ version_overlay() {
 
     # ── 2. llama-server (static, F-21) ──
     [ -f "$_V6_LLAMA_STATIC" ] || {
-        echo "FATAL[v6]: static llama-server not built at ${_V6_LLAMA_STATIC}" >&2
-        echo "  Build it: cd cx-distro/.build/llama.cpp && cmake -B build-static -DBUILD_SHARED_LIBS=OFF ... && cmake --build build-static --target llama-server" >&2
+        echo "FATAL[v6]: portable llama-server not built at ${_V6_LLAMA_STATIC}" >&2
+        echo "  Build it: sudo bash /tmp/build-llama-portable.sh (see F-24)" >&2
         return 1
     }
     install -Dm755 "$_V6_LLAMA_STATIC" "${chroot}/usr/libexec/icebreaker/llama-server"
@@ -51,6 +51,17 @@ version_overlay() {
         echo "FATAL[v6]: F-21 — llama-server has unresolved shared libs in the chroot:" >&2
         chroot "$chroot" ldd /usr/libexec/icebreaker/llama-server | grep "not found" >&2
         return 1
+    fi
+    # F-24 tripwire: llama-server must NOT contain AVX-512 (zmm registers) —
+    # Apple Silicon UTM's x86-64 emulation only supports up to AVX2. This
+    # binary is built for portability (-DGGML_NATIVE=OFF, AVX512=OFF); a
+    # future accidental native build would be caught here.
+    if command -v objdump >/dev/null 2>&1; then
+        if objdump -d "${chroot}/usr/libexec/icebreaker/llama-server" 2>/dev/null | grep -qE 'zmm[0-9]'; then
+            echo "FATAL[v6]: F-24 — llama-server contains AVX-512 (zmm) instructions;" >&2
+            echo "  will SIGILL on Apple Silicon UTM. Rebuild with -DGGML_AVX512=OFF." >&2
+            return 1
+        fi
     fi
 
     # ── 3. start-pbd + pbd unit, enabled ──
