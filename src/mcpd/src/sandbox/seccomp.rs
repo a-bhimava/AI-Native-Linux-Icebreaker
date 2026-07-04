@@ -218,6 +218,7 @@ pub(crate) fn allowed_syscalls() -> Vec<i64> {
         libc::SYS_fstatfs,
         libc::SYS_statx,
         libc::SYS_getcwd,
+        libc::SYS_readlink,         // F-29 fallback: std::fs::canonicalize
         libc::SYS_readlinkat,
         libc::SYS_mkdir,            // audit log dir creation (older path)
         libc::SYS_mkdirat,          // audit log dir creation (modern path)
