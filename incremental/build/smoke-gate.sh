@@ -124,8 +124,11 @@ if [ "$LEVEL" -ge 5 ]; then
     check_file /etc/icebreaker/locations.env "locations.env missing (API key env file)"
     check_exec /usr/local/bin/ib-setup-key "ib-setup-key not installed"
     PERMS="$(stat -c '%a' "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null || echo '')"
-    [ "$PERMS" = "600" ] \
-        && pass "locations.env is 0600 (BP-8)" || fail "BP-8: locations.env perms '$PERMS' != 600 (secrets file)"
+    # F-22: 0640 root:icebreaker-users — world unreadable (BP-8) AND pbd/qbd
+    # can source the env file via group membership.
+    [ "$PERMS" = "640" ] \
+        && pass "locations.env is 0640 (BP-8 + F-22)" \
+        || fail "F-22/BP-8: locations.env perms '$PERMS' != 640 (needs group read for pbd)"
     grep -q "GEMINI_API_KEY" "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null \
         && pass "key template present in locations.env" || fail "GEMINI_API_KEY template missing from locations.env"
     # BP-8: no REAL key may ever ship in the ISO (template line is commented).
@@ -147,6 +150,25 @@ if [ "$LEVEL" -ge 6 ]; then
     done
     [ "$MODEL_OK" = "1" ] && pass "PB model embedded" || fail "no .gguf in /var/lib/icebreaker/models (INV-7)"
     check_file /var/lib/icebreaker/models/checksums.sha256 "model checksums manifest missing (INV-7)"
+    # INV-7: verify the EMBEDDED model against the EMBEDDED manifest (the pair
+    # that actually ships — defense in depth over the manifest's source check).
+    in_chroot "cd /var/lib/icebreaker/models && sha256sum -c checksums.sha256 --quiet" \
+        && pass "embedded model checksum verified (INV-7)" \
+        || fail "INV-7: embedded model fails checksum against embedded manifest"
+    # F-21: llama-server must have zero unresolved shared libs AND must exec.
+    in_chroot "ldd /usr/libexec/icebreaker/llama-server | grep -q 'not found'" \
+        && fail "F-21: llama-server has unresolved shared libraries in the image" \
+        || pass "llama-server shared libs all resolve (F-21)"
+    in_chroot "/usr/libexec/icebreaker/llama-server --version" \
+        && pass "llama-server executes (--version)" \
+        || fail "F-21: llama-server does not execute in the chroot"
+    [ -L "${CHROOT}/etc/systemd/system/multi-user.target.wants/icebreaker-pbd.service" ] \
+        && pass "pbd unit enabled" || fail "icebreaker-pbd.service not enabled"
+    grep -q "^ICEBREAKER_SOCKET_TIMEOUT=0$" "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null \
+        && fail "v2's SOCKET_TIMEOUT=0 bypass still present — v6 must revert it" \
+        || pass "wait-for-sockets bypass reverted"
+    grep -q "_icebreaker_pb" "${CHROOT}/etc/sysusers.d/icebreaker.conf" 2>/dev/null \
+        && pass "_icebreaker_pb in sysusers.d" || fail "_icebreaker_pb missing from sysusers.d (pbd unit will fail)"
     # INV-3 static check: mcpd must not link TCP listeners — verified at runtime by qemu-gate
     in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -q MCPD_FS_TEST_ROOTS" \
         && fail "mcpd built with test-only feature (CLAUDE.md Test-Only Knobs)" || pass "mcpd has no test features"

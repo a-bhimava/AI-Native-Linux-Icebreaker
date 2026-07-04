@@ -23,8 +23,8 @@ touch "$ENV_FILE"
 grep -v '^GEMINI_API_KEY=' "$ENV_FILE" > "${ENV_FILE}.tmp" || true
 printf 'GEMINI_API_KEY=%s\n' "$KEY" >> "${ENV_FILE}.tmp"
 mv "${ENV_FILE}.tmp" "$ENV_FILE"
-chown root:root "$ENV_FILE"
-chmod 600 "$ENV_FILE"
+chown root:icebreaker-users "$ENV_FILE"
+chmod 640 "$ENV_FILE"
 
 echo "Key installed. Restarting controller..."
 systemctl restart icebreaker-controller

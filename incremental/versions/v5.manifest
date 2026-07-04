@@ -1,9 +1,12 @@
 # v5 — QB (Gemini) live
 # Adds:
-#   - ib-setup-key at /usr/local/bin (interactive key install, BP-8: 0600
-#     root:root env file, key never echoed/logged, restarts controller)
+#   - ib-setup-key at /usr/local/bin (interactive key install, key never
+#     echoed/logged, restarts controller)
 #   - GEMINI_API_KEY template comment in /etc/icebreaker/locations.env
-#   - locations.env hardened to 0600 root:root
+#   - locations.env hardened to 0640 root:icebreaker-users (F-22: 0600
+#     root:root broke V6's pbd — runs as _icebreaker_pb, in icebreaker-users
+#     group, needs read access. 0640 keeps world unreadable while allowing
+#     controller + pbd services to source the env file)
 # The gemini QB backend config is already in /etc/icebreaker/controller.toml
 # (shipped by v2 from cx-distro/distro/controller.toml, backend="gemini").
 # NO key ships in the ISO — the with-key half of the gate is a manual UTM
@@ -31,8 +34,8 @@ version_overlay() {
             echo "# GEMINI_API_KEY=paste-your-key-here"
         } >> "$envf"
     fi
-    chmod 600 "$envf"
-    chroot "$chroot" chown root:root /etc/icebreaker/locations.env
+    chmod 640 "$envf"
+    chroot "$chroot" chown root:icebreaker-users /etc/icebreaker/locations.env
 
     echo "[v5] overlay complete"
 }

@@ -255,8 +255,9 @@ if [ "$LEVEL" -ge 5 ]; then
     echo "[L5] QB key flow (no live key in CI — with-key half is the UTM gate)"
     _ssh "test -x /usr/local/bin/ib-setup-key" \
         && pass "ib-setup-key installed" || fail "ib-setup-key missing"
-    _ssh "sudo stat -c '%a %U' /etc/icebreaker/locations.env" | grep -q "600 root" \
-        && pass "locations.env 0600 root (BP-8)" || fail "locations.env perms/owner wrong (BP-8)"
+    _ssh "sudo stat -c '%a %U %G' /etc/icebreaker/locations.env" | grep -q "640 root icebreaker-users" \
+        && pass "locations.env 0640 root:icebreaker-users (BP-8 + F-22)" \
+        || fail "F-22/BP-8: locations.env perms/owner wrong (need 640 root:icebreaker-users so pbd can read)"
     _ssh "sudo grep -qE '^GEMINI_API_KEY=' /etc/icebreaker/locations.env" \
         && fail "BP-8 VIOLATION: live key present in booted image" \
         || pass "no live key in image (BP-8)"
@@ -265,12 +266,40 @@ fi
 # ═══ Level 6 ═══
 if [ "$LEVEL" -ge 6 ]; then
     echo "[L6] PB + mcpd runtime"
-    _ssh "systemctl is-active icebreaker-pbd" | grep -q active \
-        && pass "pbd active" || fail "icebreaker-pbd not active"
-    _ssh "test -S /run/icebreaker/pbd.sock" \
-        && pass "pbd.sock exists" || fail "pbd.sock missing"
+    # F-13 rule: pbd loads a 940 MB model before binding its socket — poll,
+    # scaled for the accelerator (model load under TCG is minutes).
+    PBD_MAX=240
+    [ "${QEMU_ACCEL[0]}" = "-cpu" ] && PBD_MAX=900
+    PBD_T0=$(date +%s)
+    PBD_OK=0
+    while [ $(( $(date +%s) - PBD_T0 )) -lt "$PBD_MAX" ]; do
+        if _ssh "systemctl is-active --quiet icebreaker-pbd && test -S /run/icebreaker/pbd.sock"; then
+            PBD_OK=1; break
+        fi
+        # Fail fast if the unit is crash-looping rather than starting.
+        if _ssh "systemctl is-failed --quiet icebreaker-pbd"; then break; fi
+        sleep 15
+    done
+    if [ "$PBD_OK" = "1" ]; then
+        pass "pbd active + pbd.sock bound (after $(( $(date +%s) - PBD_T0 ))s)"
+        # llama-server /health over the UNIX socket → model actually loaded.
+        HL_T0=$(date +%s)
+        HL_OK=0
+        while [ $(( $(date +%s) - HL_T0 )) -lt "$PBD_MAX" ]; do
+            H="$(_ssh "sudo curl -s --max-time 10 --unix-socket /run/icebreaker/pbd.sock http://localhost/health" || true)"
+            echo "$H" | grep -q '"ok"' && { HL_OK=1; break; }
+            sleep 15
+        done
+        [ "$HL_OK" = "1" ] \
+            && pass "llama-server /health = ok — model loaded (after $(( $(date +%s) - HL_T0 ))s)" \
+            || fail "llama-server /health never returned ok in ${PBD_MAX}s (last: ${H:0:80})"
+    else
+        fail "icebreaker-pbd not up in ${PBD_MAX}s: $(_ssh 'systemctl status icebreaker-pbd --no-pager -n 3 2>&1' | tail -3 | tr '\n' ' | ')"
+    fi
     _ssh "ss -tlnp 2>/dev/null | grep -q mcpd" \
         && fail "INV-3 VIOLATION: mcpd has a TCP listener" || pass "mcpd has no TCP listeners (INV-3)"
+    _ssh "id _icebreaker_pb" >/dev/null \
+        && pass "_icebreaker_pb user created (sysusers)" || fail "_icebreaker_pb user missing"
 fi
 
 # ── Verdict ─────────────────────────────────────────────────────────────
