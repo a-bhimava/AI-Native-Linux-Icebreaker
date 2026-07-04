@@ -22,9 +22,10 @@ pb_endpoint        = "unix:///run/icebreaker/pbd.sock"
 pb_transport       = "unix"
 pb_model_id        = "qwen-2.5-coder-1.5b-instruct-q4_k_m"
 pb_max_tokens      = 256
-# F-25: generous for emulated x86 (Apple Silicon / Rosetta 2). Native x86 or
-# ARM64 native runs the same request in <5 s; drop to 30 s on real hardware.
-pb_timeout_seconds = 120
+# F-25: generous for emulated x86 (Apple Silicon / Rosetta 2 runs Qwen 1.5B
+# at ~2-5 min/turn). Native x86 or ARM64 does the same in <5 s; drop to 30 s
+# on real hardware via ~/.config/icebreaker/controller.toml layered override.
+pb_timeout_seconds = 600
 
 [paths]
 catalogue_path    = "/usr/share/icebreaker/catalogue.toml"
