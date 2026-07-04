@@ -266,10 +266,12 @@ fi
 # ═══ Level 6 ═══
 if [ "$LEVEL" -ge 6 ]; then
     echo "[L6] PB + mcpd runtime"
-    # F-13 rule: pbd loads a 940 MB model before binding its socket — poll,
-    # scaled for the accelerator (model load under TCG is minutes).
-    PBD_MAX=240
-    [ "${QEMU_ACCEL[0]}" = "-cpu" ] && PBD_MAX=900
+    # F-13 rule: pbd computes a full sha256 of the 940 MB model (INV-7 in
+    # model_registry.resolve) THEN loads the weights into memory before
+    # binding its socket. Native: seconds. TCG: minutes (F-23 halved this
+    # by removing a duplicate hash pass).
+    PBD_MAX=300
+    [ "${QEMU_ACCEL[0]}" = "-cpu" ] && PBD_MAX=1500
     PBD_T0=$(date +%s)
     PBD_OK=0
     while [ $(( $(date +%s) - PBD_T0 )) -lt "$PBD_MAX" ]; do
