@@ -29,7 +29,7 @@ ProtectHome=tmpfs
 # include /home/icebreaker. NOT set globally in locations.env because pbd
 # runs as _icebreaker_pb (different user, different home).
 Environment=HOME=/home/icebreaker
-BindReadOnlyPaths=/home/icebreaker
+BindPaths=/home/icebreaker
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
