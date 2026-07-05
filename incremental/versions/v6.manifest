@@ -81,5 +81,10 @@ version_overlay() {
     # ── 4. Revert v2's wait-for-sockets bypass ──
     sed -i '/^ICEBREAKER_SOCKET_TIMEOUT=0$/d' "${chroot}/etc/icebreaker/locations.env"
 
+    # ── 5. Autostart Terminal (Iterative Build Rule 2) ──
+    mkdir -p "${chroot}/etc/xdg/autostart"
+    ln -sf /usr/share/applications/icebreaker-terminal.desktop \
+        "${chroot}/etc/xdg/autostart/icebreaker-terminal.desktop"
+
     echo "[v6] overlay complete"
 }
