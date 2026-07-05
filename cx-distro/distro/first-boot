@@ -84,8 +84,13 @@ poll_health() {
     return 1
 }
 
-poll_health "PB" "${ICEBREAKER_SOCKET_DIR}/pbd.sock" || true
-poll_health "QB" "${ICEBREAKER_SOCKET_DIR}/qbd.sock" || true
+if systemctl is-enabled icebreaker-pbd.service >/dev/null 2>&1; then
+    poll_health "PB" "${ICEBREAKER_SOCKET_DIR}/pbd.sock" || true
+fi
+
+if systemctl is-enabled icebreaker-qbd.service >/dev/null 2>&1; then
+    poll_health "QB" "${ICEBREAKER_SOCKET_DIR}/qbd.sock" || true
+fi
 
 # ── Step 3: Add first human user to icebreaker-users ────────────────────
 FIRST_USER=$(getent passwd 1000 2>/dev/null | cut -d: -f1 || true)

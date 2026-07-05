@@ -34,12 +34,10 @@ gui = ["*.css", "*.ui"]
 [project.optional-dependencies]
 gui = [
     "PyGObject>=3.42",
-    "seccomp>=0.5",
     "websockets>=12.0",
 ]
 rpa = [
     "robotframework>=7.0",
     "rpaframework>=28.0",
     "Pillow>=10.0",
-    "seccomp>=0.5",
 ]

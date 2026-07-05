@@ -5,7 +5,7 @@ set -e
 
 # Enable services for boot.
 systemctl enable icebreaker-pbd.service
-systemctl enable icebreaker-qbd.service
+# systemctl enable icebreaker-qbd.service # Quarantined Brain disabled per component selection constraint
 systemctl enable icebreaker-controller.service
 systemctl enable icebreaker-first-boot.service
 

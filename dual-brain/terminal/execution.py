@@ -43,7 +43,29 @@ class ExecutionPanel(Static):
             "recent_commands": list(self._recent),
             "user": os.environ.get("USER") or os.environ.get("LOGNAME") or "",
             "hostname": _socket.gethostname(),
+            "active_window": self._active_window(),
         }
+
+    @staticmethod
+    def _active_window() -> str:
+        """V6B Stage 3: best-effort focused window title via xdotool.
+
+        Returns "" when no X display is available or xdotool isn't installed.
+        Failure MUST be silent — this is a soft signal to QB, not a
+        critical field. 500 ms hard cap so a stuck xdotool never blocks
+        the NL turn.
+        """
+        if not os.environ.get("DISPLAY"):
+            return ""
+        try:
+            import subprocess as _sp
+            r = _sp.run(
+                ["xdotool", "getactivewindow", "getwindowname"],
+                capture_output=True, text=True, timeout=0.5,
+            )
+            return (r.stdout or "").strip()
+        except Exception:
+            return ""
 
     def compose(self) -> ComposeResult:
         yield RichLog(

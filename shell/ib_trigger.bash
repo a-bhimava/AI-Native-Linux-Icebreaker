@@ -50,10 +50,18 @@ _ib_prompt_hook() {
     # V6B Stage 2: collect shell context and export it for ib_run.py to
     # forward in the run_turn RPC. Lets QB resolve "here", "this folder",
     # "the file I was editing" against the actual environment.
-    local ib_recent
+    local ib_recent ib_win
     ib_recent="$(HISTTIMEFORMAT= builtin history 6 2>/dev/null | head -5 | sed 's/^ *[0-9]\{1,\} *//')"
+    # V6B Stage 3: best-effort active window title via xdotool. Only makes
+    # sense with an X display (bare TTY logins skip it silently).
+    if [ -n "${DISPLAY:-}" ] && command -v xdotool >/dev/null 2>&1; then
+        ib_win="$(xdotool getactivewindow getwindowname 2>/dev/null || true)"
+    else
+        ib_win=""
+    fi
     IB_CWD="$PWD" \
     IB_RECENT="$ib_recent" \
+    IB_ACTIVE_WINDOW="$ib_win" \
         "${_IB_VENV_PYTHON}" "${_IB_RUN}" "$query" "$_IB_SOCK"
 }
 

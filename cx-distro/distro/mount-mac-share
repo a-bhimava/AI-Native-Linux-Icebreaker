@@ -19,7 +19,7 @@ if mount -t 9p -o trans=virtio,version=9p2000.L,msize=1048576 share "$MOUNT_POIN
     zenity --info --title="Icebreaker" --text="Mac shared folder successfully mounted at $MOUNT_POINT" 2>/dev/null
     
     # Optional: open Thunar to show the mounted folder
-    if -n "$SUDO_USER"; then
+    if [ -n "$SUDO_USER" ]; then
         su - "$SUDO_USER" -c "thunar $MOUNT_POINT &"
     fi
 else

@@ -14,13 +14,13 @@ TAG="wait-for-sockets"
 deadline=$((SECONDS + ICEBREAKER_SOCKET_TIMEOUT))
 
 echo "[${TAG}] Waiting for pbd.sock (timeout ${ICEBREAKER_SOCKET_TIMEOUT}s)..."
-while [ $SECONDS -lt $deadline ]; do
-    if [ -S "${ICEBREAKER_SOCKET_DIR}/pbd.sock" ]; then
-        echo "[${TAG}] PB socket ready."
-        exit 0
-    fi
-    sleep 1
-done
+    while [ $SECONDS -lt $deadline ]; do
+        if [ -S "${ICEBREAKER_SOCKET_DIR}/pbd.sock" ] && curl --unix-socket "${ICEBREAKER_SOCKET_DIR}/pbd.sock" --connect-timeout 2 --max-time 5 --silent --fail http://localhost/health >/dev/null; then
+            echo "[${TAG}] PB socket ready and healthy."
+            exit 0
+        fi
+        sleep 1
+    done
 
 echo "[${TAG}] WARN: pbd.sock not ready after ${ICEBREAKER_SOCKET_TIMEOUT}s — proceeding anyway" >&2
 exit 0
