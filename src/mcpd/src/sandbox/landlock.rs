@@ -64,7 +64,11 @@ pub fn apply() -> Result<()> {
     }
     if home_path.exists() {
         match PathFd::new(&home_path) {
-            Ok(fd) => rules.push(Ok(PathBeneath::new(fd, AccessFs::from_read(abi)))),
+            // F-31: read+write on $HOME. fs.write inside home is a
+            // supported Tier-1 op; SENSITIVE_HOME_SUBDIRS still get routed
+            // through the COW gate in tools/fs.rs, and mcpd's safe_write
+            // enforces MAX_WRITE_BYTES.
+            Ok(fd) => rules.push(Ok(PathBeneath::new(fd, AccessFs::from_all(abi)))),
             Err(e) => warn!("landlock: skipping $HOME '{}': {}", home_path.display(), e),
         }
     }

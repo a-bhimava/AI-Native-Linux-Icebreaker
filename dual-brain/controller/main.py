@@ -84,6 +84,14 @@ _STEP_INDEX: dict[str, int] = {
     name: i for i, (name, _) in enumerate(_PIPELINE_STEPS)
 }
 
+# F-32: actions whose params require a concrete target path — if QB ships
+# an empty target or "/" for any of these, the Controller short-circuits with
+# a friendly error before hitting the sandbox's cryptic whitelist rejection.
+_PATH_REQUIRING_ACTIONS = frozenset({
+    "fs.list", "fs.read", "fs.stat", "fs.write", "fs.delete",
+    "service.logs", "process.inspect", "package.query",
+})
+
 
 def _build_qb_input(session: Any, user_input: str) -> str:
     """V6B Stage 2: prepend a <context> XML block to the user query when
@@ -304,6 +312,33 @@ class Controller:
                 intent["target_realpath"] = os.path.realpath(raw_target)
             else:
                 intent["target_realpath"] = ""
+
+            # F-32: QB sometimes emits target="" or target="/" for queries too
+            # ambiguous to resolve via context, which then fails downstream at
+            # mcpd with a cryptic "not under any whitelisted root" error.
+            # Short-circuit here with a friendly, actionable message before
+            # spending PB tokens or hitting the sandbox.
+            if intent["action"] in _PATH_REQUIRING_ACTIONS and raw_target in ("", "/"):
+                friendly = (
+                    "Query too ambiguous to route safely. Try naming a "
+                    "specific directory (e.g. 'here', 'my Documents folder', "
+                    "'/tmp'). Received target: "
+                    + (repr(raw_target) if raw_target else "(empty)")
+                )
+                yield _cot("schema_validation", "failed", body=friendly)
+                duration = (time.monotonic() - t0) * 1000
+                self._audit.write_fields(self._make_error_fields(
+                    session, friendly, duration))
+                yield ResultEvent(result=TurnResult(
+                    success=False,
+                    output=friendly,
+                    outcome=Outcome.SCHEMA_REJECTED,
+                    tier=0,
+                    backend=session.backend, duration_ms=duration,
+                    cost_usd=qb_cost if qb_cost > 0 else None,
+                    tokens_in=qb_tokens_in, tokens_out=qb_tokens_out,
+                ))
+                return
 
             try:
                 self._system_logger.log("controller", "intent_generated", {"intent": intent})
@@ -1172,6 +1207,16 @@ class Controller:
             intent["target_realpath"] = os.path.realpath(raw_target)
         else:
             intent["target_realpath"] = ""
+
+        # F-32: short-circuit ambiguous targets before spending PB tokens.
+        if intent["action"] in _PATH_REQUIRING_ACTIONS and raw_target in ("", "/"):
+            friendly = (
+                "Query too ambiguous to route safely. Try naming a specific "
+                "directory (e.g. 'here', 'my Documents folder', '/tmp'). "
+                "Received target: "
+                + (repr(raw_target) if raw_target else "(empty)")
+            )
+            return self._schema_rejected(session, friendly, qb_response, t0)
 
         # ── Step 3: Risk classification ───────────────────────────────────────
         cls_result = classify(intent)

@@ -29,6 +29,12 @@ ProtectHome=tmpfs
 # include /home/icebreaker. NOT set globally in locations.env because pbd
 # runs as _icebreaker_pb (different user, different home).
 Environment=HOME=/home/icebreaker
+# F-31: writable bind of the user's home. fs.write inside $HOME is a
+# documented Tier-1 supported operation (risk_level=low in the catalogue);
+# read-only here made every write fail EROFS at Tool Execution. Security
+# for writes is enforced upstream by (a) validated intents, (b) COW gate
+# for SENSITIVE_HOME_SUBDIRS + writes outside home, (c) HITL for higher
+# tiers, (d) MAX_WRITE_BYTES cap in mcpd.
 BindPaths=/home/icebreaker
 PrivateTmp=yes
 ProtectKernelTunables=yes

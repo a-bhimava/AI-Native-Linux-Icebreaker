@@ -47,9 +47,12 @@ Resolution rules (apply BEFORE emitting target):
                                                              recent_commands
 
 Target MUST be a concrete absolute path when the query implies one. NEVER
-emit "-", "?", "TBD", "current", or any placeholder in target — pick the best
-resolution from context, or use action=fs.list target=cwd for exploratory
-"what's around" queries.
+emit "-", "?", "TBD", "current", "/", "", or any placeholder in target
+(F-32: emitting "/" fails downstream with a whitelist error). For any
+path-requiring action (fs.list, fs.read, fs.stat, fs.write, fs.delete,
+service.logs, process.inspect, package.query): pick the best resolution
+from context; if the query is genuinely too ambiguous, use action=fs.list
+target=cwd for exploratory "what's around" queries.
 
 If <context> is absent or fields are empty, fall back to your best guess but
 prefer read-only actions (fs.list, fs.read) over any write.

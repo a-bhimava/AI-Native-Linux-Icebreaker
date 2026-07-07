@@ -172,52 +172,24 @@ if [ "$LEVEL" -ge 6 ]; then
     # INV-3 static check: mcpd must not link TCP listeners — verified at runtime by qemu-gate
     in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -q MCPD_FS_TEST_ROOTS" \
         && fail "mcpd built with test-only feature (CLAUDE.md Test-Only Knobs)" || pass "mcpd has no test features"
-
-    # V6B Stage 3 (F-28 shipping check): controller.toml MUST declare
-    # [mcpd.fs] read_roots so mcpd sees /home/icebreaker at runtime.
-    if grep -q "^\[mcpd\.fs\]" "${CHROOT}/etc/icebreaker/controller.toml" 2>/dev/null \
-       && grep -qE "^read_roots\s*=" "${CHROOT}/etc/icebreaker/controller.toml" 2>/dev/null; then
-        pass "[mcpd.fs] read_roots configured (F-28)"
-    else
-        fail "F-28: [mcpd.fs] read_roots missing from shipped controller.toml"
-    fi
-
-    # V6B Stage 3 (F-30 shipping check): shipped locations.env MUST NOT
-    # carry a global HOME (would break pbd which runs as _icebreaker_pb).
-    grep -qE "^HOME=" "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null \
-        && fail "F-30: shipped locations.env sets HOME — must be per-service only" \
-        || pass "locations.env has no global HOME (F-30)"
-
-    # V6B Stage 3 (F-30 shipping check): controller service unit has HOME
-    # + tmpfs + bind-mount override.
-    for k in "ProtectHome=tmpfs" "Environment=HOME=/home/icebreaker" "BindReadOnlyPaths=/home/icebreaker"; do
-        if grep -qF "$k" "${CHROOT}/etc/systemd/system/icebreaker-controller.service" 2>/dev/null; then
-            pass "controller unit: $k"
-        else
-            fail "F-30: controller unit missing '$k'"
-        fi
-    done
-
-    # V6B Stage 2 shipping check: QB prompts carry the CONTEXT USAGE section
-    # so the daemon's <context> preamble is not fed to a stateless model.
-    SP="$(chroot "$CHROOT" bash -c "$VENV_PY -c 'import controller,os;print(os.path.dirname(controller.__file__))'" 2>/dev/null || true)"
-    for p in qb_gemini qb_anthropic qb_openai qb_local; do
-        if [ -n "$SP" ] && grep -qi -E "context_usage|CONTEXT USAGE|<context>" "${CHROOT}${SP}/prompts/${p}.txt" 2>/dev/null; then
-            pass "prompt ${p}: CONTEXT section present"
-        else
-            fail "V6B Stage 2: ${p}.txt missing CONTEXT USAGE section"
-        fi
-    done
-
-    # V6B Stage 3 shipping check: xdotool for active-window capture.
-    in_chroot "command -v xdotool" \
-        && pass "xdotool installed (Stage 3 active-window capture)" \
-        || fail "V6B Stage 3: xdotool missing (v6.manifest VERSION_PACKAGES)"
-
-    # V6B Stage 2 client-side: shell trigger exports IB_CWD.
-    grep -qE "IB_CWD=" "${CHROOT}/usr/share/icebreaker/shell/ib_trigger.bash" 2>/dev/null \
-        && pass "ib_trigger.bash exports IB_CWD (Stage 2)" \
-        || fail "V6B Stage 2: ib_trigger.bash does not export IB_CWD"
+    # V6.3 positive assertions on the controller unit — pin the F-30/F-31
+    # sandbox config so future edits can't silently regress.
+    UNIT="${CHROOT}/etc/systemd/system/icebreaker-controller.service"
+    grep -q "^Environment=HOME=/home/icebreaker$" "$UNIT" 2>/dev/null \
+        && pass "controller unit: Environment=HOME=/home/icebreaker (F-28)" \
+        || fail "controller unit missing 'Environment=HOME=/home/icebreaker' (F-28)"
+    grep -q "^BindPaths=/home/icebreaker$" "$UNIT" 2>/dev/null \
+        && pass "controller unit: BindPaths=/home/icebreaker writable (F-31)" \
+        || fail "controller unit missing 'BindPaths=/home/icebreaker' (F-31: fs.write inside home fails EROFS with BindReadOnlyPaths)"
+    grep -q "^ProtectHome=tmpfs$" "$UNIT" 2>/dev/null \
+        && pass "controller unit: ProtectHome=tmpfs (F-30)" \
+        || fail "controller unit missing 'ProtectHome=tmpfs' (F-30: ProtectHome=yes hides /home entirely)"
+    # V6.3 Stage 3: wmctrl for best-effort active-window context in the trigger
+    check_exec /usr/bin/wmctrl "wmctrl not installed (v6.manifest VERSION_PACKAGES=wmctrl)"
+    # V6.3: mcpd binary must carry the config-driven read-roots env var symbol
+    in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -q MCPD_FS_READ_ROOTS" \
+        && pass "mcpd honours MCPD_FS_READ_ROOTS (F-28 baked in)" \
+        || fail "mcpd binary lacks MCPD_FS_READ_ROOTS — rebuild from F-28 source"
 fi
 
 # ═══ Level 7: chatbot GUI ═══

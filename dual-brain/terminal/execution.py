@@ -38,34 +38,32 @@ class ExecutionPanel(Static):
     def shell_context(self) -> dict:
         """Snapshot of shell state for the daemon run_turn RPC."""
         import socket as _socket
-        return {
+        ctx = {
             "cwd": self._cwd,
             "recent_commands": list(self._recent),
             "user": os.environ.get("USER") or os.environ.get("LOGNAME") or "",
             "hostname": _socket.gethostname(),
-            "active_window": self._active_window(),
         }
-
-    @staticmethod
-    def _active_window() -> str:
-        """V6B Stage 3: best-effort focused window title via xdotool.
-
-        Returns "" when no X display is available or xdotool isn't installed.
-        Failure MUST be silent — this is a soft signal to QB, not a
-        critical field. 500 ms hard cap so a stuck xdotool never blocks
-        the NL turn.
-        """
-        if not os.environ.get("DISPLAY"):
-            return ""
+        # V6.3 Stage 3: best-effort focused window title via wmctrl.
+        # Fails silently on non-X11 sessions, missing wmctrl, or timeouts —
+        # empty string never harms the QB preamble.
         try:
             import subprocess as _sp
             r = _sp.run(
-                ["xdotool", "getactivewindow", "getwindowname"],
-                capture_output=True, text=True, timeout=0.5,
+                ["wmctrl", "-l"], capture_output=True, text=True,
+                timeout=0.5,
             )
-            return (r.stdout or "").strip()
+            if r.returncode == 0 and r.stdout:
+                # Simplest heuristic: the first line is often the topmost/focused
+                # window under a stacking WM. Good-enough hint for QB context.
+                first = r.stdout.splitlines()[0]
+                # Format: "0x0400002 0 hostname Terminal – ~"
+                parts = first.split(None, 3)
+                if len(parts) == 4:
+                    ctx["active_window"] = parts[3].strip()[:200]
         except Exception:
-            return ""
+            pass
+        return ctx
 
     def compose(self) -> ComposeResult:
         yield RichLog(

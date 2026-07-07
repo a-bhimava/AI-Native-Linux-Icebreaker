@@ -13,10 +13,10 @@
 # mcpd + schemas already installed by v2. HITL flow is in the controller code.
 # Gate: GROUND_TRUTH.md § 3 V6.
 
-# V6B Stage 3: xdotool for active-window title capture (~200 KB). Installing
-# via VERSION_PACKAGES keeps the cached base tarball valid — bumping
-# packages-desktop.txt would force a ~60-min base rebuild for a single tool.
-VERSION_PACKAGES="xdotool"
+# V6.3 Stage 3: wmctrl for best-effort active-window context. Tiny (<50 KB)
+# X11 utility; empty output on non-X11 fallback so ib_trigger + Textual TUI
+# degrade gracefully.
+VERSION_PACKAGES="wmctrl"
 
 # Expected model hash from the repo manifest (single source of truth).
 _V6_MODEL="run7_cot_q4km.gguf"
@@ -80,11 +80,6 @@ version_overlay() {
 
     # ── 4. Revert v2's wait-for-sockets bypass ──
     sed -i '/^ICEBREAKER_SOCKET_TIMEOUT=0$/d' "${chroot}/etc/icebreaker/locations.env"
-
-    # ── 5. Autostart Terminal (Iterative Build Rule 2) ──
-    mkdir -p "${chroot}/etc/xdg/autostart"
-    ln -sf /usr/share/applications/icebreaker-terminal.desktop \
-        "${chroot}/etc/xdg/autostart/icebreaker-terminal.desktop"
 
     echo "[v6] overlay complete"
 }

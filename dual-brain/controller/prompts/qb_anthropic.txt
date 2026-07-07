@@ -42,7 +42,8 @@ Resolve ambiguous query terms against context BEFORE choosing target:
 - "the previous command"                     → the LAST recent_commands entry
 
 target MUST be a concrete absolute path when the query implies one. Never emit
-placeholders like "-", "?", "TBD" — if genuinely ambiguous, use action=fs.list
+placeholders like "-", "?", "TBD", "/", or "" (F-32: emitting "/" fails
+downstream with a whitelist error). If genuinely ambiguous, use action=fs.list
 target=cwd (the user probably wants to see what's around).
 
 If &lt;context&gt; is missing or empty, guess reasonably but prefer read-only actions.
