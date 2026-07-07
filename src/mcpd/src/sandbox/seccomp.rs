@@ -200,6 +200,8 @@ pub(crate) fn allowed_syscalls() -> Vec<i64> {
         libc::SYS_pwrite64,
         libc::SYS_readv,
         libc::SYS_writev,
+        libc::SYS_fsync,            // F-33: safe_write / canonicalize_write call file.sync_all()
+        libc::SYS_fdatasync,        // sibling of fsync — data-only sync sibling
         libc::SYS_openat,
         libc::SYS_openat2,
         libc::SYS_close,
@@ -337,6 +339,7 @@ mod tests {
         for nr in [
             libc::SYS_read,
             libc::SYS_write,
+            libc::SYS_fsync,           // F-33: safe_write durability sync
             libc::SYS_openat2,
             libc::SYS_close,
             libc::SYS_futex,

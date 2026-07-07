@@ -190,6 +190,15 @@ if [ "$LEVEL" -ge 6 ]; then
     in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -q MCPD_FS_READ_ROOTS" \
         && pass "mcpd honours MCPD_FS_READ_ROOTS (F-28 baked in)" \
         || fail "mcpd binary lacks MCPD_FS_READ_ROOTS — rebuild from F-28 source"
+    # V6.4 (F-33): mcpd must link fsync — safe_write / canonicalize_write call
+    # file.sync_all() which translates to fsync(2). Without SYS_fsync in the
+    # seccomp allowlist, the write path dies with SIGSYS mid-response.
+    # The real invariant is the allowlist entry (locked by cargo unit test);
+    # this strings check is a cheap defense-in-depth signal that the write
+    # code path is actually in the shipped binary.
+    in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -qE '(^|[^a-z])fsync([^a-z]|$)'" \
+        && pass "mcpd links fsync (F-33 write path present)" \
+        || fail "mcpd binary lacks fsync symbol — safe_write dropped, or wrong binary shipped (F-33)"
 fi
 
 # ═══ Level 7: chatbot GUI ═══

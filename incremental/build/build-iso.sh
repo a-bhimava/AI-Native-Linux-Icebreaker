@@ -50,6 +50,23 @@ done
 FREE_GB=$(df -BG --output=avail "$INC_ROOT" 2>/dev/null | tail -1 | tr -dc '0-9' || echo 0)
 [ "${FREE_GB:-0}" -ge 12 ] || die "only ${FREE_GB}G free under ${BUILD_DIR} — need ≥12G. Clean old chroots/ISOs first (see GROUND_TRUTH F-15)."
 
+# ── R8 / F-33: mcpd seccomp harvest gate — MUST PASS before any cloud cost ──
+# Runs the mcpd binary against a scratch $HOME with the real seccomp filter
+# AND with MCPD_SECCOMP_LOG_ONLY=1, exercising every documented tool. If any
+# syscall is outside the allowlist or mcpd dies with SIGSYS, the build aborts
+# before we spend 15 min of ISO packaging + 15 min of QEMU gate time.
+#
+# For V ≥ 6 (mcpd shipped in the ISO) this is mandatory. Below V6 mcpd isn't
+# installed so the gate is a no-op — check binary presence first.
+HARVEST_MCPD="${REPO_ROOT}/cx-distro/.build/mcpd"
+if [ "${VN}" -ge 6 ] && [ -x "${HARVEST_MCPD}" ]; then
+    info "Running mcpd seccomp harvest gate (F-33, R8)..."
+    bash "${SCRIPT_DIR}/mcpd-harvest.sh" --mcpd "${HARVEST_MCPD}" || \
+        die "HARVEST GATE FAILED — refusing to ship an ISO with a broken mcpd syscall surface (F-33 / R8). Fix the allowlist in src/mcpd/src/sandbox/seccomp.rs, rebuild mcpd, and retry."
+elif [ "${VN}" -ge 6 ]; then
+    info "WARN: V${VN} expects mcpd at ${HARVEST_MCPD} but binary missing — harvest gate skipped (build will fail later in v6.manifest overlay)"
+fi
+
 # ── Locate cached base ──────────────────────────────────────────────────
 PKG_LIST="$(grep -vE '^\s*(#|$)' "$PKG_FILE")"
 BASE_HASH="$(printf '%s\n%s' "$PKG_LIST" "$UBUNTU_BASE" | sha256sum | cut -c1-12)"
