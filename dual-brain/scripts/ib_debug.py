@@ -60,6 +60,15 @@ SOCKETS = [
     ("/run/icebreaker/pbd.sock",        "PB llama-server"),
 ]
 
+# F-34: which probe protocol each socket speaks. controller.sock is JSON-RPC;
+# pbd.sock is HTTP (llama.cpp OpenAI-compatible server). Sending JSON-RPC to
+# an HTTP endpoint gets connection reset by the parser — reads as "conn
+# refused" and mis-reports a healthy pbd as broken.
+SOCKET_PROBES = {
+    "/run/icebreaker/controller.sock": "jsonrpc",
+    "/run/icebreaker/pbd.sock":        "http",
+}
+
 # Incremental-ladder awareness: components below the system's version level
 # are reported as "not expected yet" instead of failures. Keyed to
 # /etc/icebreaker-version (see incremental/GROUND_TRUTH.md § 3).
@@ -281,23 +290,39 @@ def collect_socket(path: str, label: str) -> SocketStatus:
     s.exists = Path(path).exists()
     if not s.exists:
         return s
+    # F-34: dispatch per-endpoint. HTTP endpoints (llama.cpp pbd.sock) get an
+    # HTTP GET /health probe; JSON-RPC endpoints (controller.sock) get a
+    # daemon.status ping. Sending the wrong protocol closes the connection
+    # server-side and gets misread as "conn refused".
+    proto = SOCKET_PROBES.get(path, "jsonrpc")
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-            sock.settimeout(2)
+            # 5s covers Rosetta 2 warmup on Apple Silicon (v6.3 users saw
+            # false "conn refused" at 2s — F-34).
+            sock.settimeout(5)
             sock.connect(path)
             s.connectable = True
-            # Send a JSON-RPC ping to the controller (method table in daemon.py:309)
-            req = json.dumps({"jsonrpc": "2.0", "method": "daemon.status", "id": 1}) + "\n"
-            sock.sendall(req.encode())
-            data = sock.recv(4096)
-            if data:
-                resp = json.loads(data.decode())
-                if "result" in resp or resp.get("id") == 1:
+            if proto == "http":
+                req = b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+                sock.sendall(req)
+                data = sock.recv(4096)
+                # Any HTTP response with a 2xx status line is healthy. We don't
+                # parse JSON — llama.cpp's /health returns {"status":"ok"} but
+                # older builds returned just "ok". Both count.
+                if data and (b"200 OK" in data or b"HTTP/1.1 2" in data):
                     s.ping_ok = True
+            else:
+                req = json.dumps({"jsonrpc": "2.0", "method": "daemon.status", "id": 1}) + "\n"
+                sock.sendall(req.encode())
+                data = sock.recv(4096)
+                if data:
+                    resp = json.loads(data.decode())
+                    if "result" in resp or resp.get("id") == 1:
+                        s.ping_ok = True
     except (ConnectionRefusedError, OSError):
         s.connectable = False
     except json.JSONDecodeError:
-        s.connectable = True   # connected but not a JSON-RPC socket (e.g. pbd)
+        s.connectable = True   # connected but not a JSON-RPC socket
         s.ping_ok = True
     except Exception as exc:
         s.error = str(exc)

@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.unsupported",
+  "description": "Emitted by QB when the user's request has no matching tool in the catalogue. mcpd echoes it back with the payload intact so the Controller can render a helpful CoT card without invoking PB. Never a lookalike (F-35).",
+  "type": "object",
+  "properties": {
+    "requested_intent": {
+      "type": "string",
+      "maxLength": 512,
+      "description": "The user's raw query (or QB's paraphrase). Displayed to the user in the UNSUPPORTED card."
+    },
+    "suggestion": {
+      "type": "string",
+      "maxLength": 512,
+      "description": "QB's suggestion — either a supported adjacent action, or a shell command the user could run manually. Displayed to the user."
+    },
+    "alternative_actions": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "string",
+        "maxLength": 32,
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+      },
+      "description": "Optional list of catalogue action names QB thinks are adjacent to the user's request."
+    }
+  },
+  "required": ["requested_intent"],
+  "additionalProperties": false
+}

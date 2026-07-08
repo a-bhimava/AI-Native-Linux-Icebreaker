@@ -17,10 +17,11 @@ from textual.containers import VerticalScroll
 from textual.widgets import Label, Static
 
 _STATE_GLYPHS = {
-    "pending": "○",
-    "active":  "◉",
-    "done":    "✓",
-    "failed":  "✗",
+    "pending":     "○",
+    "active":      "◉",
+    "done":        "✓",
+    "failed":      "✗",
+    "unsupported": "ⓘ",  # F-35: informative, not an error
 }
 
 _TIER_LABELS = {
@@ -151,11 +152,17 @@ class CompanionPanel(Static):
         badge_card = Static(badge_text, classes="cot-card s-pending")
         container.mount(badge_card)
 
-        glyph = "✓" if success else "✗"
-        style = "#5e8787" if success else "#f87171"
+        # F-35: UNSUPPORTED is neither success nor error — it's an informative
+        # "I can't do that, here's what I can" outcome. Yellow glyph + border.
+        if outcome == "unsupported":
+            glyph, style, css = "ⓘ", "#f4c430", "cot-card s-unsupported"
+        elif success:
+            glyph, style, css = "✓", "#5e8787", "cot-card s-done"
+        else:
+            glyph, style, css = "✗", "#f87171", "cot-card s-failed"
         summary_card = Static(
             Text(f"{glyph} {outcome}", style=f"bold {style}"),
-            classes="cot-card s-done" if success else "cot-card s-failed",
+            classes=css,
         )
         container.mount(summary_card)
 

@@ -200,6 +200,13 @@ async fn dispatch(mut req: JsonRpcRequest) -> Result<JsonRpcResponse> {
         "system.cpu"     => tools::system::cpu().await,
         "system.memory"  => tools::system::memory().await,
         "system.disk"    => tools::system::disk().await,
+        // F-35: catalogue landing pad. Params validated above; safe to access.
+        "system.unsupported" => {
+            let requested = req.params["requested_intent"].as_str().expect("schema-validated required field");
+            let suggestion = req.params.get("suggestion").and_then(|v| v.as_str());
+            let alt = req.params.get("alternative_actions");
+            tools::system::unsupported(requested, suggestion, alt).await
+        },
 
         // Process read-only tools
         "process.list"    => tools::process::list().await,
@@ -295,6 +302,7 @@ fn is_known_method(method: &str) -> bool {
     matches!(method,
         "tools/list"
         | "system.status" | "system.uptime" | "system.cpu" | "system.memory" | "system.disk"
+        | "system.unsupported"  // F-35 catalogue landing pad
         | "process.list" | "process.inspect"
         | "fs.read" | "fs.list" | "fs.stat" | "fs.write" | "fs.delete"
         | "service.start" | "service.stop" | "service.restart" | "service.logs"

@@ -92,6 +92,30 @@ _PATH_REQUIRING_ACTIONS = frozenset({
     "service.logs", "process.inspect", "package.query",
 })
 
+# F-35: single source of truth for actions QB is allowed to emit.
+# Must stay in sync with src/mcpd/src/tools/mod.rs TOOLS + system.unsupported.
+# If QB emits an action outside this set, the Controller REWRITES the intent
+# into system.unsupported before risk-classification — never silently invokes
+# a bogus tool.
+_SUPPORTED_ACTIONS = frozenset({
+    # Read-only Tier 0
+    "system.status", "system.uptime", "system.cpu", "system.memory", "system.disk",
+    "process.list", "process.inspect",
+    "fs.read", "fs.list", "fs.stat",
+    "service.logs",
+    "network.status", "network.dns.read",
+    "package.query",
+    # Write Tier 1 (home) / Tier 3 (elsewhere)
+    "fs.write",
+    # System changes Tier 2
+    "package.install", "package.remove", "package.upgrade",
+    "service.start", "service.stop", "service.restart",
+    # Destructive Tier 3
+    "fs.delete",
+    # F-35: catalogue landing pad — never a lookalike
+    "system.unsupported",
+})
+
 
 def _build_qb_input(session: Any, user_input: str) -> str:
     """V6B Stage 2: prepend a <context> XML block to the user query when
@@ -338,6 +362,21 @@ class Controller:
                     cost_usd=qb_cost if qb_cost > 0 else None,
                     tokens_in=qb_tokens_in, tokens_out=qb_tokens_out,
                 ))
+                return
+
+            # F-35: catalogue landing pad. If QB emitted an action not in the
+            # supported set (either the explicit system.unsupported, or an
+            # unlisted action that slipped past syntax-only schema validation),
+            # short-circuit here with a friendly UNSUPPORTED card. Never invoke
+            # PB or mcpd — the point is to tell the user "I can't do that"
+            # instead of silently substituting a lookalike.
+            if (intent["action"] == "system.unsupported"
+                    or intent["action"] not in _SUPPORTED_ACTIONS):
+                for ev in self._emit_unsupported(
+                    session, intent, user_input, qb_response,
+                    qb_cost, qb_tokens_in, qb_tokens_out, t0,
+                ):
+                    yield ev
                 return
 
             try:
@@ -1218,6 +1257,15 @@ class Controller:
             )
             return self._schema_rejected(session, friendly, qb_response, t0)
 
+        # F-35: catalogue landing pad — see run_turn_streaming twin comment.
+        # Non-streaming path returns a TurnResult directly (no CoT events).
+        if (intent["action"] == "system.unsupported"
+                or intent["action"] not in _SUPPORTED_ACTIONS):
+            return self._unsupported_result(
+                session, intent, user_input, qb_response,
+                qb_cost, qb_tokens_in, qb_tokens_out, t0,
+            )
+
         # ── Step 3: Risk classification ───────────────────────────────────────
         cls_result = classify(intent)
 
@@ -2055,6 +2103,98 @@ class Controller:
             duration_ms=duration, cost_usd=cost if cost > 0 else None,
             tokens_in=qb_response.tokens_in, tokens_out=qb_response.tokens_out,
         )
+
+    # ── F-35: system.unsupported short-circuit helpers ────────────────────────
+
+    def _unsupported_payload(self, intent: dict, user_input: str) -> tuple[str, str, list]:
+        """Extract UNSUPPORTED payload from an intent (rewriting if needed).
+
+        If QB emitted `action=system.unsupported`, use its params verbatim.
+        If QB emitted an unlisted action (`_SUPPORTED_ACTIONS` guard rewrite),
+        synthesize a suggestion naming the phantom action so the user sees
+        exactly what QB tried to do.
+
+        Returns (requested_intent, suggestion, alternative_actions).
+        """
+        params = intent.get("params") or {}
+        if intent.get("action") == "system.unsupported":
+            requested = str(params.get("requested_intent") or user_input)[:512]
+            suggestion = str(params.get("suggestion") or "")[:512]
+            alt_raw = params.get("alternative_actions") or []
+            alt = [str(a)[:32] for a in alt_raw if isinstance(a, str)][:5]
+            return requested, suggestion, alt
+        # Rewritten: QB emitted an unlisted action. Name it so the user sees why.
+        phantom = intent.get("action", "<none>")
+        requested = user_input[:512]
+        suggestion = (
+            f"Requested action '{phantom}' is not in the catalogue. "
+            "The Quarantined Brain tried to substitute a tool that doesn't exist "
+            "— refused before execution (F-35 lookalike guard)."
+        )
+        return requested, suggestion, []
+
+    def _write_unsupported_audit(
+        self, session: Any, intent: dict, requested: str, suggestion: str,
+        qb_response: Any, duration: float,
+    ) -> None:
+        self._audit.write_fields(AuditFields(
+            session_id=session.session_id, turn_index=session.turn_index,
+            intent_id=intent.get("intent_id", ""),
+            action="system.unsupported",  # normalize even on rewrite
+            target="",
+            tier=0,
+            reason=f"unsupported:{requested[:80]}",
+            risk_level="low",
+            outcome=Outcome.UNSUPPORTED, duration_ms=duration,
+            backend=session.backend, model=self._cfg.qb.model,
+            tokens_in=qb_response.tokens_in, tokens_out=qb_response.tokens_out,
+            cost_estimate_usd=qb_response.cost_usd or 0.0,
+            extra={"suggestion": suggestion[:256]},
+        ))
+
+    def _unsupported_result(
+        self, session: Any, intent: dict, user_input: str, qb_response: Any,
+        qb_cost: float, qb_tokens_in: int, qb_tokens_out: int, t0: float,
+    ) -> TurnResult:
+        """Non-streaming F-35 short-circuit."""
+        requested, suggestion, _alt = self._unsupported_payload(intent, user_input)
+        duration = (time.monotonic() - t0) * 1000
+        friendly = suggestion or f"I can't do that: '{requested}'."
+        self._write_unsupported_audit(session, intent, requested, suggestion, qb_response, duration)
+        return TurnResult(
+            success=False, output=friendly,
+            outcome=Outcome.UNSUPPORTED, tier=0,
+            backend=session.backend, duration_ms=duration,
+            cost_usd=qb_cost if qb_cost > 0 else None,
+            tokens_in=qb_tokens_in, tokens_out=qb_tokens_out,
+        )
+
+    def _emit_unsupported(
+        self, session: Any, intent: dict, user_input: str, qb_response: Any,
+        qb_cost: float, qb_tokens_in: int, qb_tokens_out: int, t0: float,
+    ):
+        """Streaming F-35 short-circuit — yields a friendly CoT card + ResultEvent."""
+        requested, suggestion, alt = self._unsupported_payload(intent, user_input)
+        # New CoT step: neither error nor success — informative UNSUPPORTED card.
+        # 'done' state so TUI treats it as concluded; the outcome=UNSUPPORTED
+        # is what drives yellow styling (Track A4).
+        body = suggestion or f"I can't do that: '{requested}'."
+        if alt:
+            body += f"  (Adjacent supported actions: {', '.join(alt)})"
+        yield _cot("schema_validation", "done",
+                    body="Intent accepted as UNSUPPORTED — no matching tool")
+        # F-35: 'unsupported' state → yellow CoT card via styles.tcss.
+        # Terminal's CotCard.on_mount picks up 's-unsupported' from this state.
+        yield _cot("unsupported", "unsupported", body=body)
+        duration = (time.monotonic() - t0) * 1000
+        self._write_unsupported_audit(session, intent, requested, suggestion, qb_response, duration)
+        yield ResultEvent(result=TurnResult(
+            success=False, output=body,
+            outcome=Outcome.UNSUPPORTED, tier=0,
+            backend=session.backend, duration_ms=duration,
+            cost_usd=qb_cost if qb_cost > 0 else None,
+            tokens_in=qb_tokens_in, tokens_out=qb_tokens_out,
+        ))
 
     def _make_error_fields(self, session: Any, error: str, duration: float) -> AuditFields:
         return AuditFields(

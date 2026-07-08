@@ -139,6 +139,19 @@ CompanionPanel #cot-container {
     text-style: bold;
 }
 
+/* F-35: UNSUPPORTED — informative, not an error. Yellow, distinct from
+   red (failed) and orange (active/warning). Used for both the CoT step
+   named "unsupported" and the interpretation summary card when outcome
+   is Outcome.UNSUPPORTED. */
+.cot-card.s-unsupported {
+    border-left: tall #f4c430;
+}
+
+.cot-card.s-unsupported .card-heading {
+    color: #f4c430;
+    text-style: bold;
+}
+
 .cot-card.s-pending {
     border-left: tall #888888;
     color: #888888;

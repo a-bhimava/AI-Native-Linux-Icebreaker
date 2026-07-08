@@ -67,6 +67,23 @@ elif [ "${VN}" -ge 6 ]; then
     info "WARN: V${VN} expects mcpd at ${HARVEST_MCPD} but binary missing — harvest gate skipped (build will fail later in v6.manifest overlay)"
 fi
 
+# ── R9 / F-35: golden intent corpus (offline mode) — pre-build regression guard ──
+# Runs the corpus tests against the REPO source (not the ISO/venv) — cheap
+# regression check for controller/main.py _SUPPORTED_ACTIONS drift, corpus
+# additions, or F-35 short-circuit edits. If the corpus fails, we know the
+# Controller will silently accept phantom actions — refuse to ship.
+# Runs for V ≥ 5 (Controller ships from V2, but the guard code lives from V6.5).
+CORPUS_TEST="${REPO_ROOT}/dual-brain/controller/tests/test_intent_corpus.py"
+if [ "${VN}" -ge 5 ] && [ -f "${CORPUS_TEST}" ]; then
+    info "Running F-35 golden intent corpus (offline)..."
+    if command -v pytest >/dev/null 2>&1; then
+        (cd "${REPO_ROOT}/dual-brain" && pytest controller/tests/test_intent_corpus.py -q --no-header) || \
+            die "CORPUS GATE FAILED — refusing to ship an ISO with F-35 intent regressions (R9). Check controller/main.py _SUPPORTED_ACTIONS or corpus/intent_corpus.json edits."
+    else
+        info "WARN: pytest not on VM PATH — corpus gate skipped (install pytest to enable)"
+    fi
+fi
+
 # ── Locate cached base ──────────────────────────────────────────────────
 PKG_LIST="$(grep -vE '^\s*(#|$)' "$PKG_FILE")"
 BASE_HASH="$(printf '%s\n%s' "$PKG_LIST" "$UBUNTU_BASE" | sha256sum | cut -c1-12)"

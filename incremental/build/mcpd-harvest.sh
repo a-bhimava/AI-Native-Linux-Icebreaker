@@ -74,6 +74,7 @@ build_requests() {
 {"jsonrpc":"2.0","method":"fs.delete","params":{"path":"${target_file}"},"id":7}
 {"jsonrpc":"2.0","method":"process.list","params":{},"id":8}
 {"jsonrpc":"2.0","method":"package.query","params":{"name":"bash"},"id":9}
+{"jsonrpc":"2.0","method":"system.unsupported","params":{"requested_intent":"harvest gate exercise","suggestion":"echo — this is F-35's landing pad","alternative_actions":["fs.list"]},"id":10}
 REQ
 }
 
@@ -98,7 +99,18 @@ run_mcpd_session "$A_OUT" "$A_ERR" "$A_PID" || warn "Phase A mcpd exited nonzero
 unset MCPD_SECCOMP_LOG_ONLY
 
 RESP_COUNT_A=$(grep -c '"jsonrpc"' "$A_OUT" || true)
-info "Phase A: mcpd emitted ${RESP_COUNT_A} JSON-RPC responses (expected 9)"
+info "Phase A: mcpd emitted ${RESP_COUNT_A} JSON-RPC responses (expected 10 — 9 real tools + F-35 system.unsupported)"
+
+# F-35: verify system.unsupported specifically responded correctly under LOG_ONLY.
+# It's a passthrough tool so the only failure mode is "response missing" (which
+# would indicate schema rejection or dispatch bug) — not a seccomp gap.
+if ! grep -q '"id":10' "$A_OUT"; then
+    fail "Phase A: system.unsupported (id=10) did not respond — F-35 landing pad broken"
+    fail "stderr tail:"
+    tail -20 "$A_ERR" >&2
+    rm -f "$A_OUT" "$A_ERR" "$A_PID"
+    exit 1
+fi
 
 # Any syscall in the allowlist mismatch becomes 'Log' → shows up in dmesg
 # as: audit: type=1326 audit(...): auid=... syscall=NNN ...
@@ -153,10 +165,22 @@ fi
 
 pass "Phase B: mcpd survived full tool exercise under real seccomp (${RESP_COUNT_B} responses, exit ${B_EXIT})"
 
+# F-35 Phase C: verify the landing pad also survived real seccomp (already
+# checked via RESP_COUNT_B against RESP_COUNT_A above, but call it out).
+if grep -q '"id":10' "$B_OUT"; then
+    pass "Phase C (F-35): system.unsupported landing pad routed cleanly under real seccomp"
+else
+    fail "Phase C (F-35): system.unsupported (id=10) missing from real-seccomp responses"
+    tail -20 "$B_ERR" >&2
+    rm -f "$B_OUT" "$B_ERR" "$B_PID"
+    exit 1
+fi
+
 # ── Report + exit ────────────────────────────────────────────────────────────
 info "═══ Harvest gate GREEN — ISO build may proceed ═══"
 info "  Phase A: 0 missing syscalls after full harvest"
-info "  Phase B: ${RESP_COUNT_B}/9 tool calls returned responses; no SIGSYS"
+info "  Phase B: ${RESP_COUNT_B}/10 tool calls returned responses; no SIGSYS"
+info "  Phase C (F-35): system.unsupported landing pad routes cleanly"
 
 rm -f "$A_OUT" "$A_ERR" "$A_PID" "$B_OUT" "$B_ERR" "$B_PID"
 exit 0
