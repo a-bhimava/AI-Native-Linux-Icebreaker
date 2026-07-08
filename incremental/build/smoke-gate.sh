@@ -199,16 +199,19 @@ if [ "$LEVEL" -ge 6 ]; then
     in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -qE '(^|[^a-z])fsync([^a-z]|$)'" \
         && pass "mcpd links fsync (F-33 write path present)" \
         || fail "mcpd binary lacks fsync symbol — safe_write dropped, or wrong binary shipped (F-33)"
-    # F-36 / R10: llama-server must NOT reference ymm (AVX/AVX2, 256-bit) or
-    # zmm (AVX-512) registers — SSE2 only. Any pre-Haswell x86-64 CPU
-    # (Sandy Bridge and earlier) crashes with SIGILL on AVX2. Runtime
-    # detection would be nicer but SSE2 is guaranteed on all x86-64
-    # and covers the same target envelope.
+    # F-36 / R10 (revised): AVX2 is the minimum CPU. Enforce that llama-server
+    # doesn't accidentally start requiring AVX-512 (which Rosetta 2 doesn't
+    # support — F-24). ymm/AVX2 references are expected and fine.
     if command -v objdump >/dev/null 2>&1; then
-        YMM_COUNT=$(objdump -d "${CHROOT}/usr/libexec/icebreaker/llama-server" 2>/dev/null | grep -cE '\bymm[0-9]+\b|\bzmm[0-9]+\b' || echo 0)
-        [ "${YMM_COUNT}" = "0" ] \
-            && pass "llama-server is pure SSE2 (F-36 R10: no ymm/zmm regs)" \
-            || fail "F-36: llama-server contains ${YMM_COUNT} ymm/zmm references — will SIGILL on pre-Haswell CPUs. Rebuild with -DGGML_AVX=OFF -DGGML_AVX2=OFF"
+        # grep -c always emits a single number; || : swallows non-zero exit
+        # when count is 0 without polluting the captured stdout (F-24 bug).
+        ZMM_COUNT=$(objdump -d "${CHROOT}/usr/libexec/icebreaker/llama-server" 2>/dev/null | grep -cE '\bzmm[0-9]+\b' || :)
+        ZMM_COUNT="${ZMM_COUNT:-0}"
+        if [ "${ZMM_COUNT}" = "0" ]; then
+            pass "llama-server has no AVX-512 (F-24: Rosetta 2 compatible)"
+        else
+            fail "F-24: llama-server contains ${ZMM_COUNT} zmm references — will SIGILL under Rosetta 2. Rebuild without -DGGML_AVX512=ON"
+        fi
     fi
 fi
 
