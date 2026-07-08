@@ -21,7 +21,9 @@ VERSION_PACKAGES="wmctrl"
 # Expected model hash from the repo manifest (single source of truth).
 _V6_MODEL="run7_cot_q4km.gguf"
 _V6_MODEL_SRC="/home/aditya/models/run7_cot_q4km.gguf"
-_V6_LLAMA_STATIC="/home/aditya/icebreaker/cx-distro/.build/llama.cpp/build-portable/bin/llama-server"
+# F-36: SSE2-only build (was: build-portable which required AVX2 → SIGILL on
+# pre-Haswell x86-64 CPUs like i7-3820). SSE2 is guaranteed on all x86-64.
+_V6_LLAMA_STATIC="/home/aditya/icebreaker/cx-distro/.build/llama.cpp/build-sse2/bin/llama-server"
 
 version_overlay() {
     local chroot="$1" repo="$2"
