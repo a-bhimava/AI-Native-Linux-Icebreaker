@@ -19,16 +19,28 @@
 VERSION_PACKAGES="wmctrl"
 
 # Expected model hash from the repo manifest (single source of truth).
+# Model is GGUF format = architecture-neutral (identical file works on
+# amd64+AVX2, arm64+NEON, and everything in between). No per-arch
+# variants needed.
 _V6_MODEL="run7_cot_q4km.gguf"
 _V6_MODEL_SRC="/home/aditya/models/run7_cot_q4km.gguf"
-# F-36: portable-x86 llama-server, requires AVX2 (Haswell 2013+).
-# Decision (2026-07-08): supporting pre-Haswell CPUs (Sandy Bridge, Ivy
-# Bridge, Bulldozer) is out of scope — 13 years is a reasonable CPU
-# support window and the user's primary test targets (Apple Silicon UTM
-# via Rosetta 2, GCP VM native) both have AVX2. First-boot's CPU check
-# (see cx-distro/distro/first-boot) surfaces a clear "AVX2 required"
-# message on unsupported hardware instead of crash-looping pbd.
-_V6_LLAMA_STATIC="/home/aditya/icebreaker/cx-distro/.build/llama.cpp/build-portable/bin/llama-server"
+
+# V6.6: llama-server binary is per-arch. LLAMA_BUILD_DIR comes from
+# config/archs/${ARCH}.conf (sourced by build-iso.sh before evaluating
+# this manifest). amd64: build-portable (AVX2). arm64: build-arm64 (NEON).
+#
+# F-36 rule R10 (revised 2026-07-08): CPU support window is Haswell+ on
+# amd64 (2013 min); ARMv8-A on arm64 (mandatory NEON — any ARMv8 CPU).
+# Sandy Bridge / Ivy Bridge / Bulldozer x86 CPUs are OUT of the support
+# window; first-boot surfaces "AVX2 required" on unsupported x86 hardware
+# instead of crash-looping pbd.
+_V6_LLAMA_STATIC="${REPO_ROOT}/cx-distro/.build/llama.cpp/${LLAMA_BUILD_DIR:-build-portable}/bin/llama-server"
+
+# V6.6: per-arch mcpd binary. Falls back to legacy unsuffixed path when
+# ARCH=amd64 and only the pre-6.6 unsuffixed mcpd exists (V0-V6.51
+# rebuild compatibility).
+_V6_MCPD_ARCH="${REPO_ROOT}/cx-distro/.build/mcpd-${ARCH:-amd64}"
+_V6_MCPD_LEGACY="${REPO_ROOT}/cx-distro/.build/mcpd"
 
 version_overlay() {
     local chroot="$1" repo="$2"
@@ -62,15 +74,25 @@ version_overlay() {
         chroot "$chroot" ldd /usr/libexec/icebreaker/llama-server | grep "not found" >&2
         return 1
     fi
-    # F-24 tripwire: llama-server must NOT contain AVX-512 (zmm registers) —
-    # Apple Silicon UTM's x86-64 emulation only supports up to AVX2. This
-    # binary is built for portability (-DGGML_NATIVE=OFF, AVX512=OFF); a
-    # future accidental native build would be caught here.
-    if command -v objdump >/dev/null 2>&1; then
-        if objdump -d "${chroot}/usr/libexec/icebreaker/llama-server" 2>/dev/null | grep -qE 'zmm[0-9]'; then
-            echo "FATAL[v6]: F-24 — llama-server contains AVX-512 (zmm) instructions;" >&2
-            echo "  will SIGILL on Apple Silicon UTM. Rebuild with -DGGML_AVX512=OFF." >&2
-            return 1
+    # V6.6: architecture-conditional binary checks.
+    # amd64: F-24 AVX-512 tripwire (zmm regs would SIGILL under Rosetta 2).
+    # arm64: sanity check that the binary is actually ARM aarch64 ELF —
+    #        prevents an accidental amd64 llama-server shipping in an arm64 ISO.
+    if [ "${ARCH:-amd64}" = "amd64" ]; then
+        if command -v objdump >/dev/null 2>&1; then
+            if objdump -d "${chroot}/usr/libexec/icebreaker/llama-server" 2>/dev/null | grep -qE 'zmm[0-9]'; then
+                echo "FATAL[v6]: F-24 — llama-server contains AVX-512 (zmm) instructions;" >&2
+                echo "  will SIGILL on Apple Silicon UTM. Rebuild with -DGGML_AVX512=OFF." >&2
+                return 1
+            fi
+        fi
+    else
+        if command -v file >/dev/null 2>&1; then
+            _fdesc="$(file "${chroot}/usr/libexec/icebreaker/llama-server" 2>/dev/null || true)"
+            case "$_fdesc" in
+                *"ARM aarch64"*) : ;;  # correct arch
+                *) echo "FATAL[v6]: llama-server is not ARM aarch64 ELF (got: ${_fdesc}). Wrong LLAMA_BUILD_DIR?" >&2; return 1 ;;
+            esac
         fi
     fi
 

@@ -25,15 +25,18 @@ info() { echo -e "\033[0;32m[$(date +%H:%M:%S)]\033[0m $*"; }
 die()  { echo -e "\033[0;31mFATAL:\033[0m $*" >&2; exit 1; }
 
 # ── Args ────────────────────────────────────────────────────────────────
-[ $# -ge 1 ] || die "usage: build-iso.sh <version-number 0-8> [--no-compress] [--label vX.Y]"
+[ $# -ge 1 ] || die "usage: build-iso.sh <version-number 0-8> [--no-compress] [--label vX.Y] [--arch amd64|arm64]"
 VN="$1"; shift
 [[ "$VN" =~ ^[0-8]$ ]] || die "version must be 0-8, got: $VN"
 COMPRESS_ARGS=(-comp zstd -Xcompression-level 3)
 LABEL=""
+# V6.6: --arch defaults to amd64 for backwards compat with V0-V6.51.
+ARCH="${ARCH:-amd64}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-compress) COMPRESS_ARGS=(-noI -noD -noF -noX); shift ;;  # D-1 escape hatch
         --label)       LABEL="$2"; shift 2 ;;  # override version marker + ISO filename (e.g. "v6.1")
+        --arch)        ARCH="$2"; shift 2 ;;   # V6.6: target CPU arch (amd64 or arm64)
         *) die "unknown arg: $1" ;;
     esac
 done
@@ -41,8 +44,19 @@ done
 [ -z "$LABEL" ] && LABEL="v${VN}"
 [[ "$LABEL" =~ ^v[0-9]+(\.[0-9]+)?$ ]] || die "--label must match ^v[0-9]+(\.[0-9]+)?$, got: $LABEL"
 
+# V6.6: source arch config (ARCH, GRUB_FORMAT, EFI_BOOT_NAME, APT_MIRROR,
+# LLAMA_BUILD_DIR, BOOT_MODE, etc.). Every downstream reference to those
+# variables assumes this happened.
+CONF="${REPO_ROOT}/config/archs/${ARCH}.conf"
+[ -f "$CONF" ] || die "unknown arch '$ARCH' — expected config at $CONF (only amd64, arm64 defined)"
+# shellcheck disable=SC1090
+source "$CONF"
+
 [ "$(id -u)" = "0" ] || die "must run as root (sudo)"
-for tool in mksquashfs xorriso zstd grub-mkstandalone mkfs.fat mcopy; do
+# V6.6: mkfs.fat, mcopy still needed for GRUB EFI (both arches).
+# isolinux tooling only required for BIOS (hybrid mode = amd64 default).
+_REQUIRED_TOOLS=(mksquashfs xorriso zstd grub-mkstandalone mkfs.fat mcopy)
+for tool in "${_REQUIRED_TOOLS[@]}"; do
     command -v "$tool" >/dev/null || die "$tool not installed"
 done
 
@@ -58,13 +72,31 @@ FREE_GB=$(df -BG --output=avail "$INC_ROOT" 2>/dev/null | tail -1 | tr -dc '0-9'
 #
 # For V ≥ 6 (mcpd shipped in the ISO) this is mandatory. Below V6 mcpd isn't
 # installed so the gate is a no-op — check binary presence first.
-HARVEST_MCPD="${REPO_ROOT}/cx-distro/.build/mcpd"
-if [ "${VN}" -ge 6 ] && [ -x "${HARVEST_MCPD}" ]; then
-    info "Running mcpd seccomp harvest gate (F-33, R8)..."
+# V6.6: prefer per-arch mcpd binary; fall back to legacy unsuffixed path
+# for V0-V6.51 rebuilds when no arch suffix was ever emitted.
+HARVEST_MCPD_ARCH="${REPO_ROOT}/cx-distro/.build/mcpd-${ARCH}"
+HARVEST_MCPD_LEGACY="${REPO_ROOT}/cx-distro/.build/mcpd"
+HARVEST_MCPD=""
+if [ -x "${HARVEST_MCPD_ARCH}" ]; then
+    HARVEST_MCPD="${HARVEST_MCPD_ARCH}"
+elif [ -x "${HARVEST_MCPD_LEGACY}" ] && [ "$ARCH" = "amd64" ]; then
+    HARVEST_MCPD="${HARVEST_MCPD_LEGACY}"
+fi
+
+# V6.6: seccomp harvest only runs when host arch == target arch. Cross-arch
+# runs (amd64 host → arm64 mcpd binary) can't exercise the real filter
+# because the seccomp filter enforces on the CPU running the binary; qemu-user
+# translates syscall numbers, breaking the discovery loop. The qemu-gate L6
+# assertions exercise the real filter inside the booted arm64 VM instead.
+HOST_ARCH="$(dpkg --print-architecture 2>/dev/null || echo unknown)"
+if [ "${VN}" -ge 6 ] && [ -n "${HARVEST_MCPD}" ] && [ "$ARCH" = "$HOST_ARCH" ]; then
+    info "Running mcpd seccomp harvest gate (F-33, R8) with ${HARVEST_MCPD}..."
     bash "${SCRIPT_DIR}/mcpd-harvest.sh" --mcpd "${HARVEST_MCPD}" || \
         die "HARVEST GATE FAILED — refusing to ship an ISO with a broken mcpd syscall surface (F-33 / R8). Fix the allowlist in src/mcpd/src/sandbox/seccomp.rs, rebuild mcpd, and retry."
+elif [ "${VN}" -ge 6 ] && [ "$ARCH" != "$HOST_ARCH" ]; then
+    info "Cross-arch build (host=${HOST_ARCH} → target=${ARCH}) — harvest gate deferred to qemu-gate L6 (seccomp can't be exercised through qemu-user translation)"
 elif [ "${VN}" -ge 6 ]; then
-    info "WARN: V${VN} expects mcpd at ${HARVEST_MCPD} but binary missing — harvest gate skipped (build will fail later in v6.manifest overlay)"
+    info "WARN: V${VN} expects mcpd at ${HARVEST_MCPD_ARCH} (or legacy ${HARVEST_MCPD_LEGACY}) but binary missing — harvest gate skipped (build will fail later in v6.manifest overlay)"
 fi
 
 # ── R9 / F-35: golden intent corpus (offline mode) — pre-build regression guard ──
@@ -87,16 +119,34 @@ fi
 # ── Locate cached base ──────────────────────────────────────────────────
 PKG_LIST="$(grep -vE '^\s*(#|$)' "$PKG_FILE")"
 BASE_HASH="$(printf '%s\n%s' "$PKG_LIST" "$UBUNTU_BASE" | sha256sum | cut -c1-12)"
-BASE_TAR="${BUILD_DIR}/base-desktop-${BASE_HASH}.tar.zst"
-[ -f "$BASE_TAR" ] || die "no cached base for current package list (hash ${BASE_HASH}).
-Run: sudo bash incremental/build/build-base.sh"
+# V6.6: per-arch base cache. Fall back to legacy unsuffixed name if it
+# exists AND arch is amd64 — preserves ability to rebuild V0-V6.51 from
+# an old base tarball without re-running the 90-min debootstrap.
+BASE_TAR_ARCH="${BUILD_DIR}/base-desktop-${BASE_HASH}-${ARCH}.tar.zst"
+BASE_TAR_LEGACY="${BUILD_DIR}/base-desktop-${BASE_HASH}.tar.zst"
+if [ -f "$BASE_TAR_ARCH" ]; then
+    BASE_TAR="$BASE_TAR_ARCH"
+elif [ -f "$BASE_TAR_LEGACY" ] && [ "$ARCH" = "amd64" ]; then
+    BASE_TAR="$BASE_TAR_LEGACY"
+    info "Using legacy unsuffixed base cache: ${BASE_TAR}"
+else
+    die "no cached base for arch=${ARCH} + package list (hash ${BASE_HASH}).
+Run: sudo ARCH=${ARCH} bash incremental/build/build-base.sh"
+fi
 
 # ── Fresh chroot from base ──────────────────────────────────────────────
 ISO_WORK="${BUILD_DIR}/iso-work"
 CHROOT="${ISO_WORK}/chroot"
 STAGING="${ISO_WORK}/staging"
 OUT_DIR="${BUILD_DIR}/out"
-ISO_FILE="${OUT_DIR}/icebreaker-${LABEL}.iso"
+# V6.6: ISO output name gets arch suffix from V6.6 forward. For older
+# labels (V0-V6.51 rebuilds) keep the unsuffixed historical name when
+# ARCH is the default amd64 — matches what those ISOs shipped as.
+if [[ "$LABEL" =~ ^v6\.6 ]] || [[ "$LABEL" =~ ^v[7-9] ]] || [ "$ARCH" != "amd64" ]; then
+    ISO_FILE="${OUT_DIR}/icebreaker-${LABEL}-${ARCH}.iso"
+else
+    ISO_FILE="${OUT_DIR}/icebreaker-${LABEL}.iso"
+fi
 
 cleanup() {
     umount "${CHROOT}/dev/pts" 2>/dev/null || true
@@ -165,34 +215,37 @@ mksquashfs "$CHROOT" "${STAGING}/live/filesystem.squashfs" \
     2>&1 | tail -3
 info "Squashfs: $(du -h "${STAGING}/live/filesystem.squashfs" | awk '{print $1}')"
 
-# ── isolinux (BIOS) ─────────────────────────────────────────────────────
-ISOLINUX_BIN=""
-for p in /usr/lib/ISOLINUX/isolinux.bin /usr/lib/syslinux/isolinux.bin; do
-    [ -f "$p" ] && ISOLINUX_BIN="$p" && break
-done
-[ -n "$ISOLINUX_BIN" ] || die "isolinux.bin not found — apt-get install isolinux"
-cp "$ISOLINUX_BIN" "${STAGING}/isolinux/"
-
-SYSLINUX_MOD=""
-for p in /usr/lib/syslinux/modules/bios /usr/lib/syslinux; do
-    [ -f "${p}/ldlinux.c32" ] && SYSLINUX_MOD="$p" && break
-done
-[ -n "$SYSLINUX_MOD" ] || die "syslinux modules not found — apt-get install syslinux-common"
-for mod in ldlinux.c32 libcom32.c32 vesamenu.c32 libutil.c32; do
-    [ -f "${SYSLINUX_MOD}/${mod}" ] && cp "${SYSLINUX_MOD}/${mod}" "${STAGING}/isolinux/"
-done
-
-ISOHDPFX=""
-for p in /usr/lib/ISOLINUX/isohdpfx.bin /usr/lib/syslinux/isohdpfx.bin \
-         /usr/lib/syslinux/mbr/isohdpfx.bin; do
-    [ -f "$p" ] && ISOHDPFX="$p" && break
-done
-[ -n "$ISOHDPFX" ] || die "isohdpfx.bin not found"
-
 _LIVE_APPEND="boot=live toram quiet splash"
 _SAFE_APPEND="boot=live toram single nomodeset"
 
-cat > "${STAGING}/isolinux/isolinux.cfg" <<BOOTMENU
+# V6.6: isolinux is BIOS-only. amd64 uses hybrid (BIOS+UEFI); arm64 has
+# no BIOS concept — UEFI only. Skip the entire block on arm64.
+if [ "$BOOT_MODE" = "hybrid" ]; then
+    # ── isolinux (BIOS) ─────────────────────────────────────────────────
+    ISOLINUX_BIN=""
+    for p in /usr/lib/ISOLINUX/isolinux.bin /usr/lib/syslinux/isolinux.bin; do
+        [ -f "$p" ] && ISOLINUX_BIN="$p" && break
+    done
+    [ -n "$ISOLINUX_BIN" ] || die "isolinux.bin not found — apt-get install isolinux"
+    cp "$ISOLINUX_BIN" "${STAGING}/isolinux/"
+
+    SYSLINUX_MOD=""
+    for p in /usr/lib/syslinux/modules/bios /usr/lib/syslinux; do
+        [ -f "${p}/ldlinux.c32" ] && SYSLINUX_MOD="$p" && break
+    done
+    [ -n "$SYSLINUX_MOD" ] || die "syslinux modules not found — apt-get install syslinux-common"
+    for mod in ldlinux.c32 libcom32.c32 vesamenu.c32 libutil.c32; do
+        [ -f "${SYSLINUX_MOD}/${mod}" ] && cp "${SYSLINUX_MOD}/${mod}" "${STAGING}/isolinux/"
+    done
+
+    ISOHDPFX=""
+    for p in /usr/lib/ISOLINUX/isohdpfx.bin /usr/lib/syslinux/isohdpfx.bin \
+             /usr/lib/syslinux/mbr/isohdpfx.bin; do
+        [ -f "$p" ] && ISOHDPFX="$p" && break
+    done
+    [ -n "$ISOHDPFX" ] || die "isohdpfx.bin not found"
+
+    cat > "${STAGING}/isolinux/isolinux.cfg" <<BOOTMENU
 UI vesamenu.c32
 PROMPT 0
 TIMEOUT 50
@@ -211,6 +264,11 @@ LABEL live-safe
   KERNEL /live/vmlinuz
   APPEND initrd=/live/initrd ${_SAFE_APPEND}
 BOOTMENU
+else
+    info "arm64 UEFI-only build — skipping isolinux (BIOS boot)"
+    # Clean up the empty isolinux staging dir so xorriso doesn't add it.
+    rm -rf "${STAGING}/isolinux"
+fi
 
 # ── GRUB EFI ────────────────────────────────────────────────────────────
 info "Building GRUB EFI..."
@@ -234,38 +292,54 @@ menuentry "Safe Mode" {
 }
 GRUBCFG
 
+# V6.6: GRUB EFI format is arch-specific. GRUB_FORMAT and EFI_BOOT_NAME
+# come from config/archs/${ARCH}.conf.
 grub-mkstandalone \
-    --format=x86_64-efi \
-    --output="${STAGING}/boot/grub/BOOTX64.EFI" \
+    --format="${GRUB_FORMAT}" \
+    --output="${STAGING}/boot/grub/${EFI_BOOT_NAME}" \
     --modules="part_gpt part_msdos fat iso9660 search search_label linux normal all_video test" \
     "boot/grub/grub.cfg=${GRUB_CFG_DIR}/grub.cfg"
-[ -f "${STAGING}/boot/grub/BOOTX64.EFI" ] || die "grub-mkstandalone failed"
+[ -f "${STAGING}/boot/grub/${EFI_BOOT_NAME}" ] || die "grub-mkstandalone failed for ${GRUB_FORMAT}"
 
 EFI_IMG="${STAGING}/boot/grub/efi.img"
-GRUB_SIZE_KB=$(( $(stat -c%s "${STAGING}/boot/grub/BOOTX64.EFI") / 1024 ))
+GRUB_SIZE_KB=$(( $(stat -c%s "${STAGING}/boot/grub/${EFI_BOOT_NAME}") / 1024 ))
 dd if=/dev/zero of="$EFI_IMG" bs=1K count=$(( GRUB_SIZE_KB + 1024 )) 2>/dev/null
 mkfs.fat "$EFI_IMG" >/dev/null
 mmd -i "$EFI_IMG" ::EFI
 mmd -i "$EFI_IMG" ::EFI/BOOT
-mcopy -i "$EFI_IMG" "${STAGING}/boot/grub/BOOTX64.EFI" ::EFI/BOOT/BOOTX64.EFI
+mcopy -i "$EFI_IMG" "${STAGING}/boot/grub/${EFI_BOOT_NAME}" "::EFI/BOOT/${EFI_BOOT_NAME}"
 
 # ── xorriso ─────────────────────────────────────────────────────────────
-info "Assembling hybrid ISO..."
-xorriso -as mkisofs \
-    -iso-level 3 \
-    -isohybrid-mbr "$ISOHDPFX" \
-    -c isolinux/boot.cat \
-    -b isolinux/isolinux.bin \
-    -no-emul-boot \
-    -boot-load-size 4 \
-    -boot-info-table \
-    -eltorito-alt-boot \
-    -e boot/grub/efi.img \
-    -no-emul-boot \
-    -isohybrid-gpt-basdat \
-    -V "ICEBREAKER" \
-    -o "$ISO_FILE" \
-    "${STAGING}/" 2>&1 | tail -3
+# V6.6: amd64 = hybrid (BIOS+UEFI); arm64 = UEFI-only. The isolinux
+# arguments only make sense in hybrid mode.
+if [ "$BOOT_MODE" = "hybrid" ]; then
+    info "Assembling hybrid ISO (BIOS + UEFI)..."
+    xorriso -as mkisofs \
+        -iso-level 3 \
+        -isohybrid-mbr "$ISOHDPFX" \
+        -c isolinux/boot.cat \
+        -b isolinux/isolinux.bin \
+        -no-emul-boot \
+        -boot-load-size 4 \
+        -boot-info-table \
+        -eltorito-alt-boot \
+        -e boot/grub/efi.img \
+        -no-emul-boot \
+        -isohybrid-gpt-basdat \
+        -V "ICEBREAKER" \
+        -o "$ISO_FILE" \
+        "${STAGING}/" 2>&1 | tail -3
+else
+    info "Assembling UEFI-only ISO (arm64)..."
+    xorriso -as mkisofs \
+        -iso-level 3 \
+        -e boot/grub/efi.img \
+        -no-emul-boot \
+        -isohybrid-gpt-basdat \
+        -V "ICEBREAKER" \
+        -o "$ISO_FILE" \
+        "${STAGING}/" 2>&1 | tail -3
+fi
 
 [ -f "$ISO_FILE" ] || die "ISO not created"
 sha256sum "$ISO_FILE" > "${ISO_FILE}.sha256"
@@ -273,5 +347,6 @@ sha256sum "$ISO_FILE" > "${ISO_FILE}.sha256"
 info "════════════════════════════════════════════════"
 info "ISO: ${ISO_FILE} ($(du -h "$ISO_FILE" | awk '{print $1}'))"
 info "SHA: $(awk '{print $1}' "${ISO_FILE}.sha256")"
-info "Next: bash incremental/tests/qemu-gate.sh ${ISO_FILE} ${VN}"
+info "Arch: ${ARCH}  Boot mode: ${BOOT_MODE}"
+info "Next: ARCH=${ARCH} bash incremental/tests/qemu-gate.sh ${ISO_FILE} ${VN} ${LABEL}"
 info "════════════════════════════════════════════════"

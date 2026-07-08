@@ -18,9 +18,26 @@ LEVEL="${2:?usage: qemu-gate.sh <iso> <level> [expected-version]}"
 # "v${LEVEL}"; passing "v6.1" (etc.) lets us build labeled sub-versions
 # without triggering F-18's wrong-guest abort.
 EXPECTED_VERSION="${3:-v${LEVEL}}"
+
+# V6.6: target arch — amd64 (default) or arm64. Comes from env or fifth
+# positional arg. Sources config/archs/${ARCH}.conf for QEMU_BIN etc.
+ARCH="${ARCH:-amd64}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+CONF="${REPO_ROOT}/config/archs/${ARCH}.conf"
+[ -f "$CONF" ] || { echo "FATAL: unknown arch '$ARCH' — no config at $CONF" >&2; exit 2; }
+# shellcheck disable=SC1090
+source "$CONF"
+
 [ -f "$ISO" ] || { echo "FATAL: ISO not found: $ISO" >&2; exit 2; }
-command -v qemu-system-x86_64 >/dev/null || { echo "FATAL: qemu-system-x86_64 not installed" >&2; exit 2; }
+command -v "$QEMU_BIN" >/dev/null || { echo "FATAL: ${QEMU_BIN} not installed (apt-get install qemu-system-${ARCH})" >&2; exit 2; }
 command -v sshpass >/dev/null || { echo "FATAL: sshpass not installed (apt-get install sshpass)" >&2; exit 2; }
+
+# arm64 needs edk2 UEFI firmware. amd64 uses the ISO's own GRUB.
+if [ -n "${QEMU_FW_ARGS:-}" ]; then
+    _fw_path=$(echo "$QEMU_FW_ARGS" | awk '{print $2}')
+    [ -f "$_fw_path" ] || { echo "FATAL: UEFI firmware missing: $_fw_path (apt-get install qemu-efi-aarch64)" >&2; exit 2; }
+fi
 
 GUEST_USER=icebreaker
 GUEST_PASS=icebreaker
@@ -32,14 +49,21 @@ pass() { echo -e "  \033[0;32m[PASS]\033[0m $*"; }
 fail() { echo -e "  \033[0;31m[FAIL]\033[0m $*"; FAILURES=$((FAILURES+1)); }
 
 # ── KVM detection ───────────────────────────────────────────────────────
+# V6.6: cross-arch (host != target) forces TCG. amd64 host can't KVM-run
+# an arm64 guest; arm64 host can't KVM-run an amd64 guest.
+HOST_ARCH="$(dpkg --print-architecture 2>/dev/null || echo unknown)"
 QEMU_ACCEL=()
 BOOT_TIMEOUT=420          # 7 min with KVM
-if [ -w /dev/kvm ] 2>/dev/null || [ -c /dev/kvm ]; then
+if [ "$ARCH" != "$HOST_ARCH" ]; then
+    QEMU_ACCEL=(-cpu "$QEMU_CPU_TCG")
+    BOOT_TIMEOUT=2400     # 40 min under cross-arch TCG (arm64 debootstrap is slow to boot too)
+    info "Cross-arch (host=${HOST_ARCH} → target=${ARCH}) — forcing TCG emulation (very slow; timeout ${BOOT_TIMEOUT}s)"
+elif [ -w /dev/kvm ] 2>/dev/null || [ -c /dev/kvm ]; then
     QEMU_ACCEL=(-enable-kvm -cpu host)
     info "KVM available"
 else
-    QEMU_ACCEL=(-cpu max)
-    BOOT_TIMEOUT=1800     # 30 min under TCG emulation
+    QEMU_ACCEL=(-cpu "$QEMU_CPU_TCG")
+    BOOT_TIMEOUT=1800     # 30 min under same-arch TCG
     info "No KVM — falling back to TCG emulation (slow; timeout ${BOOT_TIMEOUT}s)"
 fi
 
@@ -48,14 +72,21 @@ fi
 # WITHOUT forwarding (the hostfwd error is non-fatal), and ssh then reaches
 # the ORPHANED guest — the gate silently tests the wrong ISO. Kill stale
 # gate QEMUs and use a random ephemeral port per run.
-pkill -f 'qemu-system-x86_64.*icebreaker-v[0-9]+\.iso' 2>/dev/null && \
+# V6.6: generalized regex — matches qemu-system-{x86_64,aarch64,riscv64,...}
+pkill -f 'qemu-system-.*icebreaker-v[0-9]+.*\.iso' 2>/dev/null && \
     { info "Killed stale gate QEMU (F-18)"; sleep 2; } || true
 SSH_PORT="${QEMU_GATE_PORT:-$((20000 + RANDOM % 20000))}"
 
 # ── Launch QEMU ─────────────────────────────────────────────────────────
-info "Booting $(basename "$ISO") (ssh forward localhost:${SSH_PORT})..."
-qemu-system-x86_64 \
+info "Booting $(basename "$ISO") on ${QEMU_BIN} (ssh forward localhost:${SSH_PORT})..."
+# V6.6: parametric emulator + optional machine + optional firmware.
+# QEMU_MACHINE:+ syntax → only emit -M flag if variable is non-empty.
+# QEMU_FW_ARGS is emitted literally (already contains -bios /path).
+# shellcheck disable=SC2086
+"$QEMU_BIN" \
     "${QEMU_ACCEL[@]}" \
+    ${QEMU_MACHINE:+-M "$QEMU_MACHINE"} \
+    ${QEMU_FW_ARGS} \
     -m 8G -smp 4 \
     -boot d -cdrom "$ISO" \
     -display none \
