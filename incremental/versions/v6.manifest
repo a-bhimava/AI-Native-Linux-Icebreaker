@@ -110,5 +110,21 @@ version_overlay() {
     # ── 4. Revert v2's wait-for-sockets bypass ──
     sed -i '/^ICEBREAKER_SOCKET_TIMEOUT=0$/d' "${chroot}/etc/icebreaker/locations.env"
 
+    # ── 5. Icebreaker Control Center (V6.6) ──
+    # The Python module already ships via v2's dual-brain/gui/ copy into
+    # the venv (gui.control is a subpackage). We only need to install the
+    # .desktop launcher so it appears in GNOME's app grid.
+    if [ -f "${repo}/cx-distro/distro/icebreaker-control.desktop" ]; then
+        install -Dm644 "${repo}/cx-distro/distro/icebreaker-control.desktop" \
+            "${chroot}/usr/share/applications/icebreaker-control.desktop"
+        # V6.6: quick sanity — .desktop file must reference the venv python
+        # since /usr/bin/python3 lacks GTK bindings in some minbase configs.
+        grep -q "^Exec=/opt/icebreaker/venv/bin/python3" \
+            "${chroot}/usr/share/applications/icebreaker-control.desktop" || {
+            echo "FATAL[v6]: Control Center .desktop Exec= does not point at the venv python" >&2
+            return 1
+        }
+    fi
+
     echo "[v6] overlay complete"
 }
