@@ -21,6 +21,15 @@
       "description": "POSIX permissions (octal as decimal). Defaults to 0o644 (420) when omitted."
     }
   },
-  "required": ["path", "content"],
-  "additionalProperties": false
+  "required": [
+    "path",
+    "content"
+  ],
+  "additionalProperties": false,
+  "x-icebreaker-trust": {
+    "tier": 1,
+    "reversible": true,
+    "requires_hitl": false,
+    "requires_cow": true
+  }
 }

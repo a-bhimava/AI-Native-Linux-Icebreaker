@@ -11,9 +11,14 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 
 from . import themes
+from .pages.behavior_page import BehaviorPage
+from .pages.errors_page import ErrorsPage
 from .pages.keys_page import KeysPage
+from .pages.limits_page import LimitsPage
+from .pages.models_page import ModelsPage
 from .pages.status_page import StatusPage
 from .pages.theme_page import ThemePage, load_active_theme_name
+from .pages.tools_page import ToolsPage
 
 
 class ControlWindow(Adw.PreferencesWindow):
@@ -32,9 +37,15 @@ class ControlWindow(Adw.PreferencesWindow):
 
         self._apply_theme = apply_theme
 
-        # Pages
+        # Pages — order matters for the sidebar (Nielsen: most-used first).
+        # v6.65: Status/Keys/Models/Behavior/Limits/Errors/Tools/Theme.
         self.add(StatusPage())
         self.add(KeysPage())
+        self.add(ModelsPage())
+        self.add(BehaviorPage())
+        self.add(LimitsPage())
+        self.add(ErrorsPage())
+        self.add(ToolsPage())
         self.add(ThemePage(on_theme_change=self._on_theme_change))
 
     def _on_theme_change(self, name: str) -> None:

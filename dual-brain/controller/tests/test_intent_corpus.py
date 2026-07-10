@@ -160,7 +160,7 @@ def test_gui_and_misc_rows_route_to_unsupported(corpus: list[dict]) -> None:
 
 def test_supported_rows_do_not_route_to_unsupported(corpus: list[dict]) -> None:
     """Sanity: read/write/sysinfo rows should NOT be rewritten by the guard."""
-    supported_cats = {"read", "write", "sysinfo", "process", "service", "package", "network"}
+    supported_cats = {"read", "write", "write-content", "sysinfo", "process", "service", "package", "network", "delete"}
     for row in corpus:
         if row.get("category") not in supported_cats:
             continue
@@ -172,6 +172,54 @@ def test_supported_rows_do_not_route_to_unsupported(corpus: list[dict]) -> None:
             f"supported row {row['id']} with action={row['expected_action']!r} "
             f"should NOT be rewritten"
         )
+
+
+def test_content_bearing_rows_are_writes(corpus: list[dict]) -> None:
+    """F-41: any row that pins expected_content or expected_content_json / regex
+    must be a write. Content-carrying reads make no sense; catch corpus typos
+    that would waste a Gemini roundtrip in live mode."""
+    for row in corpus:
+        carries_content = (
+            "expected_content" in row
+            or "expected_content_json" in row
+            or "expected_content_matches_regex" in row
+        )
+        if not carries_content:
+            continue
+        assert row["expected_action"] == "fs.write", (
+            f"row {row['id']} carries expected_content* but action is "
+            f"{row['expected_action']!r} (only fs.write should carry content)"
+        )
+
+
+def test_smalltalk_and_meta_rows_route_to_unsupported(corpus: list[dict]) -> None:
+    """F-42 regression floor: 'hello', 'hi', 'what can you do' must be
+    routed to system.unsupported without crashing the CoT/response pipeline.
+    """
+    for cat in ("smalltalk-UNSUPPORTED", "meta-UNSUPPORTED"):
+        rows = [r for r in corpus if r.get("category") == cat]
+        assert rows, f"corpus should have rows for category {cat!r}"
+        for row in rows:
+            assert row["expected_action"] == "system.unsupported", (
+                f"{cat} row {row['id']} must expect system.unsupported"
+            )
+            assert row["expected_outcome"] == "unsupported"
+
+
+def test_search_rows_route_to_unsupported_until_fs_find_ships(corpus: list[dict]) -> None:
+    """F-46 regression floor (bug #7): search/find queries must route to
+    system.unsupported (not silently to fs.list) until the fs.find tool
+    ships in Phase 7 M7.5. When fs.find lands, these rows should be
+    reclassified to expected_action=fs.find.
+    """
+    rows = [r for r in corpus if r.get("category") == "search-UNSUPPORTED"]
+    assert rows, "corpus should have search rows until fs.find ships"
+    for row in rows:
+        assert row["expected_action"] == "system.unsupported", (
+            f"search row {row['id']} must expect system.unsupported "
+            f"until fs.find ships (currently {row['expected_action']!r})"
+        )
+        assert row["expected_outcome"] == "unsupported"
 
 
 def test_adversarial_rows_do_not_execute(corpus: list[dict]) -> None:
@@ -280,11 +328,36 @@ def test_live_gemini_produces_expected_actions(corpus: list[dict]) -> None:
             actual = intent.get("action", "")
             if actual != expected:
                 misses.append((row["id"], expected, actual))
+                continue
+
+            # F-41: also verify content + pb_hint when the row pins them.
+            if "expected_content" in row:
+                got = intent.get("content", "")
+                if got != row["expected_content"]:
+                    misses.append((row["id"], f"content={row['expected_content']!r}", f"content={got!r}"))
+            if "expected_content_json" in row:
+                got_str = intent.get("content", "")
+                try:
+                    got_obj = json.loads(got_str)
+                except Exception:
+                    misses.append((row["id"], f"content=<json {row['expected_content_json']}>", f"content={got_str!r} (not valid JSON)"))
+                else:
+                    if got_obj != row["expected_content_json"]:
+                        misses.append((row["id"], f"content=<json {row['expected_content_json']}>", f"content=<json {got_obj}>"))
+            if "expected_content_matches_regex" in row:
+                import re
+                got = intent.get("content", "")
+                if not re.match(row["expected_content_matches_regex"], got):
+                    misses.append((row["id"], f"content matches /{row['expected_content_matches_regex']}/", f"content={got!r}"))
+            if "expected_pb_hint_contains" in row:
+                got = intent.get("pb_hint", "")
+                if row["expected_pb_hint_contains"] not in got:
+                    misses.append((row["id"], f"pb_hint contains {row['expected_pb_hint_contains']!r}", f"pb_hint={got!r}"))
         except Exception as exc:
             misses.append((row["id"], expected, f"error: {exc}"))
 
     if misses:
         report = "\n".join(f"  {rid}: expected={exp!r} actual={act!r}" for rid, exp, act in misses)
         pytest.fail(
-            f"{len(misses)}/{len(corpus)} live Gemini calls produced wrong action:\n{report}"
+            f"{len(misses)}/{len(corpus)} live Gemini calls produced wrong action/content:\n{report}"
         )

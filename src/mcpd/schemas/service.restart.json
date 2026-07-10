@@ -12,6 +12,14 @@
       "description": "Unit name, e.g. 'nginx.service'."
     }
   },
-  "required": ["unit"],
-  "additionalProperties": false
+  "required": [
+    "unit"
+  ],
+  "additionalProperties": false,
+  "x-icebreaker-trust": {
+    "tier": 2,
+    "reversible": true,
+    "requires_hitl": false,
+    "requires_cow": false
+  }
 }

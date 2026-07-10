@@ -133,6 +133,131 @@
       "expected_outcome": "executed"
     },
     {
+      "id": "write.005",
+      "category": "write-content",
+      "_comment": "F-41 CSV bug regression floor. QB must extract literal 'column of ones' into intent.content — no fabricated sample data. PB must pass content through unchanged.",
+      "query": "create a csv file with a column of ones called ones.csv",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "fs.write",
+      "expected_target": "/home/icebreaker/ones.csv",
+      "expected_content": "1\n1\n1\n1\n1\n",
+      "expected_pb_hint_contains": "params.content",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "write.006",
+      "category": "write-content",
+      "_comment": "F-41: literal quoted content preserved verbatim.",
+      "query": "create Hello.txt with the words icebreaker demo",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "fs.write",
+      "expected_target": "/home/icebreaker/Hello.txt",
+      "expected_content": "icebreaker demo\n",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "write.007",
+      "category": "write-content",
+      "_comment": "F-41: QB generates creative content (haiku) because PB can't. pb_hint tells PB to preserve line structure.",
+      "query": "write a haiku about winter to poem.txt",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "fs.write",
+      "expected_target": "/home/icebreaker/poem.txt",
+      "expected_content_matches_regex": "^[^\\n]+\\n[^\\n]+\\n[^\\n]+\\n?$",
+      "expected_pb_hint_contains": "line",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "write.008",
+      "category": "write-content",
+      "_comment": "F-41: structured content with format instruction. pb_hint carries formatting nuance (pretty-print).",
+      "query": "make a JSON file called person.json with fields name=bob and age=25",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "fs.write",
+      "expected_target": "/home/icebreaker/person.json",
+      "expected_content_json": {"name": "bob", "age": 25},
+      "expected_pb_hint_contains": "pretty",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "smalltalk.001",
+      "category": "smalltalk-UNSUPPORTED",
+      "_comment": "F-42 regression: bare 'hello' triggered _cot NameError in v6.6. Must route to unsupported cleanly.",
+      "query": "hello",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "system.unsupported",
+      "expected_target": "",
+      "expected_outcome": "unsupported"
+    },
+    {
+      "id": "smalltalk.002",
+      "category": "smalltalk-UNSUPPORTED",
+      "query": "hi there",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "system.unsupported",
+      "expected_target": "",
+      "expected_outcome": "unsupported"
+    },
+    {
+      "id": "meta.001",
+      "category": "meta-UNSUPPORTED",
+      "_comment": "F-42: 'what can you do' triggered JSON decode failure in v6.6. Route to unsupported with a helpful suggestion.",
+      "query": "what can you do",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "system.unsupported",
+      "expected_target": "",
+      "expected_suggestion_contains": "list",
+      "expected_outcome": "unsupported"
+    },
+    {
+      "id": "delete.001",
+      "category": "delete",
+      "_comment": "F-42: 'delete Hello.txt' triggered malformed JSON in v6.6. Must parse cleanly into fs.delete.",
+      "query": "delete Hello.txt",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "fs.delete",
+      "expected_target": "/home/icebreaker/Hello.txt",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "delete.002",
+      "category": "delete",
+      "query": "remove the scratch folder",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "fs.delete",
+      "expected_target": "/home/icebreaker/scratch",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "search.001",
+      "category": "search-UNSUPPORTED",
+      "_comment": "F-46 (bug #7): search/find queries route to system.unsupported until the fs.find tool ships in Phase 7 M7.5. Previously QB fell back to fs.list, silently discarding the pattern filter.",
+      "query": "find all python files in my home directory",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "system.unsupported",
+      "expected_target": "",
+      "expected_suggestion_contains": "find",
+      "expected_outcome": "unsupported"
+    },
+    {
+      "id": "search.002",
+      "category": "search-UNSUPPORTED",
+      "query": "search for files containing the word database in /var/log",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "system.unsupported",
+      "expected_target": "",
+      "expected_outcome": "unsupported"
+    },
+    {
+      "id": "search.003",
+      "category": "search-UNSUPPORTED",
+      "query": "grep for TODO in the src folder",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "system.unsupported",
+      "expected_target": "",
+      "expected_outcome": "unsupported"
+    },
+    {
       "id": "sysinfo.001",
       "category": "sysinfo",
       "query": "how is the system doing",

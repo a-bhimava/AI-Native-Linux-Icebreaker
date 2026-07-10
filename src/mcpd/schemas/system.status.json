@@ -4,5 +4,11 @@
   "description": "Returns overall system health summary (uptime, load, memory, disk).",
   "type": "object",
   "properties": {},
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x-icebreaker-trust": {
+    "tier": 0,
+    "reversible": true,
+    "requires_hitl": false,
+    "requires_cow": false
+  }
 }

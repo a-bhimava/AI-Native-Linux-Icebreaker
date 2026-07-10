@@ -161,12 +161,27 @@ class SessionState:
         allowed_tool: str,
         tool_schema: dict,
         target: str = "",
+        content: str = "",
+        pb_hint: str = "",
     ) -> str:
         """F-27: PB receives intent_id + tool scaffold + the VALIDATED target
         from the intent. Never raw user text. Per INV-1, the schema-validated
         Intent Object (which includes target) flows to PB; only free-form user
         text is forbidden. Without target PB has to invent params from nothing
-        and consistently hallucinates /tmp regardless of what the user asked."""
+        and consistently hallucinates /tmp regardless of what the user asked.
+
+        F-41 QB→PB rich envelope: when QB has extracted the file bytes the user
+        wants written (fs.write of a new textual/data file) it stores them in
+        ``intent.content``. Pass that through to PB as ``expected_content`` so
+        PB can copy it verbatim into ``params.content`` — previously PB had to
+        invent CSV/JSON sample data because the user's request never reached it,
+        yielding the well-known "column of ones → name,age,…" bug.
+
+        F-41 pb_hint: short natural-language coaching from QB naming the exact
+        schema field that carries the semantic payload and any format constraints
+        (e.g. "put the content in params.content unchanged"). Both fields are
+        optional; legacy intents that carry neither work exactly as before.
+        """
         payload = {
             "intent_id": intent_id,
             "allowed_tool": allowed_tool,
@@ -174,6 +189,10 @@ class SessionState:
         }
         if target:
             payload["target"] = target
+        if content:
+            payload["expected_content"] = content
+        if pb_hint:
+            payload["pb_hint"] = pb_hint
         return json.dumps(payload, separators=(",", ":"))
 
     def add_cost(self, usd: float) -> None:

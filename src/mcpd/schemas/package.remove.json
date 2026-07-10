@@ -11,6 +11,14 @@
       "pattern": "^[a-z0-9][a-z0-9+\\-.]*$"
     }
   },
-  "required": ["package"],
-  "additionalProperties": false
+  "required": [
+    "package"
+  ],
+  "additionalProperties": false,
+  "x-icebreaker-trust": {
+    "tier": 2,
+    "reversible": true,
+    "requires_hitl": false,
+    "requires_cow": true
+  }
 }

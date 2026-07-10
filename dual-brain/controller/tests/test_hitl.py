@@ -287,3 +287,47 @@ def test_custom_presenter_invoked(monkeypatch):
 
     assert result == Decision.APPROVED
     assert spy.calls == ["show", "lockout", "read"]
+
+
+def test_ask_from_worker_thread_no_crash(monkeypatch):
+    """F-45 regression (2026-07-09): calling HitlPrompt.ask() from any thread
+    other than the main thread used to crash with `ValueError: signal only
+    works in main thread of the main interpreter` — the safety gate for the
+    most dangerous operations (Tier 3) was unenforceable under the daemon's
+    asyncio worker pool. Fix: guard signal.signal() by threading.current_thread()
+    is threading.main_thread(); on worker threads, skip the deny-on-SIGINT
+    handler and let the keyboard decision drive the outcome.
+    """
+    import threading as _threading
+    monkeypatch.setattr("controller.hitl.time.sleep", lambda s: None)
+
+    class SpyPresenter(HitlPresenter):
+        def __init__(self):
+            self.calls: list[str] = []
+            self._last_key_class = "numeric"
+        def show_prompt(self, data: HitlDisplayData) -> None:
+            self.calls.append("show")
+        def lockout(self, seconds: int) -> None:
+            self.calls.append("lockout")
+        def read_decision(self, timeout_seconds: int) -> Decision:
+            self.calls.append("read")
+            return Decision.DENIED
+
+    spy = SpyPresenter()
+    results: dict = {}
+
+    def _run_on_worker():
+        try:
+            results["decision"] = HitlPrompt(_intent(), _cls(), presenter=spy).ask()
+        except Exception as exc:  # noqa: BLE001
+            results["exc"] = exc
+
+    t = _threading.Thread(target=_run_on_worker, name="hitl-worker")
+    t.start()
+    t.join(timeout=5.0)
+
+    assert not t.is_alive(), "worker thread hung — HITL ask() must return"
+    assert "exc" not in results, f"F-45 regression: HITL crashed on worker thread with {results.get('exc')!r}"
+    assert results["decision"] == Decision.DENIED
+    # Full pipeline still ran — the signal-guard doesn't skip prompt/lockout/read
+    assert spy.calls == ["show", "lockout", "read"]

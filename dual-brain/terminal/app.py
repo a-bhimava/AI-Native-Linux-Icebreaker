@@ -242,6 +242,17 @@ class AiTerminalApp(App):
         target, text = self._router.route(event.value)
         input_bar = self.query_one(InputBar)
 
+        # F-50 (2026-07-09): if the InputBar visually indicates NL mode but
+        # the router's state didn't route to NL (sticky toggle race, or F2
+        # binding didn't propagate before the user hit Enter), force NL
+        # routing. Users otherwise report "I pressed F2, NL is shown, my
+        # query still went to shell — I have to type # every time".
+        if input_bar.nl_mode and target != RouteTarget.NL:
+            target = RouteTarget.NL
+            # Strip any prefix so the daemon sees the same shape it does
+            # via the `#`-triggered one-shot path.
+            text = event.value.lstrip("#").lstrip()
+
         if self._router.oneshot_pending:
             pass
         if not self._router.sticky_nl:
@@ -288,7 +299,12 @@ class AiTerminalApp(App):
             ctx = None
 
         def _do_turn() -> dict:
-            return self._daemon_client.run_turn(text, context=ctx)
+            # F-50 belt-and-suspenders: daemon accepts raw NL text, but
+            # older ib_trigger.bash paths may still route via `#` detection.
+            # Prepend if the text is bare so the same string can flow through
+            # both entry points. Idempotent.
+            payload = text if text.startswith("#") else f"# {text}"
+            return self._daemon_client.run_turn(payload, context=ctx)
 
         try:
             resp = await asyncio.to_thread(_do_turn)

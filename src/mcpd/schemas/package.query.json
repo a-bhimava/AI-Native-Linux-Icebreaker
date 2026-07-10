@@ -12,6 +12,14 @@
       "description": "Match substring; gets wrapped as *pattern*. Charset: [a-z0-9+\\-._*]."
     }
   },
-  "required": ["pattern"],
-  "additionalProperties": false
+  "required": [
+    "pattern"
+  ],
+  "additionalProperties": false,
+  "x-icebreaker-trust": {
+    "tier": 0,
+    "reversible": true,
+    "requires_hitl": false,
+    "requires_cow": false
+  }
 }

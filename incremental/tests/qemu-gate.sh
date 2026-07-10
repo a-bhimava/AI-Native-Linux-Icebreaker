@@ -170,6 +170,8 @@ if [ "$LEVEL" -ge 2 ]; then
     # daemon's Python finishes importing and binds the socket.
     SOCK_MAX=30
     [ "${QEMU_ACCEL[0]}" = "-cpu" ] && SOCK_MAX=90
+    # V6.6 F-39: cross-arch TCG is another 3-5× slower — daemon binds ~120-180s.
+    [ "$ARCH" != "$HOST_ARCH" ] && SOCK_MAX=300
     SOCK_T0=$(date +%s)
     SOCK_OK=0
     while [ $(( $(date +%s) - SOCK_T0 )) -lt "$SOCK_MAX" ]; do
@@ -258,6 +260,8 @@ if [ "$LEVEL" -ge 4 ]; then
     # Timeout scales with accelerator (F-16 rule).
     L4_TIMEOUT=30
     [ "${QEMU_ACCEL[0]}" = "-cpu" ] && L4_TIMEOUT=120
+    # V6.6 F-39: Python startup + imports + turn.run under cross-arch TCG.
+    [ "$ARCH" != "$HOST_ARCH" ] && L4_TIMEOUT=300
     IBRUN="$(_ssh "timeout ${L4_TIMEOUT} /opt/icebreaker/venv/bin/python3 /usr/share/icebreaker/shell/ib_run.py 'hello' /run/icebreaker/controller.sock 2>&1" || true)"
     if [ "$LEVEL" -eq 4 ]; then
         # QB has no key until V5 — the actionable error IS the pass condition (R6).

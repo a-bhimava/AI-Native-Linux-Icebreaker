@@ -119,7 +119,7 @@ version_overlay() {
             "${chroot}/usr/share/applications/icebreaker-control.desktop"
         # V6.6: quick sanity — .desktop file must reference the venv python
         # since /usr/bin/python3 lacks GTK bindings in some minbase configs.
-        grep -q "^Exec=/opt/icebreaker/venv/bin/python3" \
+        grep -qE "^Exec=(env( [A-Z][A-Z_0-9]*=[A-Za-z0-9_/-]+)+ )?/opt/icebreaker/venv/bin/python3" \
             "${chroot}/usr/share/applications/icebreaker-control.desktop" || {
             echo "FATAL[v6]: Control Center .desktop Exec= does not point at the venv python" >&2
             return 1

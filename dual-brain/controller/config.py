@@ -210,6 +210,9 @@ class VerifierConfig:
     require: int = 0                    # 0 = majority; >0 = exact threshold
     parallel: bool = True               # parallel calls via ThreadPoolExecutor
     timeout_seconds: int = 30
+    # F-49: retry strategy on rejection. See verifier.py::VerifierConfig for
+    # the full description of each mode.
+    retry_mode: str = "on_call_failed_only"
 
 
 @dataclass(frozen=True)
@@ -278,6 +281,10 @@ class ControllerConfig:
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
     gui: GuiConfig = field(default_factory=GuiConfig)
     rpa: RpaConfig = field(default_factory=RpaConfig)
+    # v6.65: ordered list of fully-built fallback backend configs, in the
+    # order the runtime should try them after the primary fails on a
+    # transport / API error. Empty tuple = no fallback (current behavior).
+    qb_fallbacks: tuple[BackendConfig, ...] = field(default_factory=tuple)
 
 
 def _default_config_path() -> Path:
@@ -345,8 +352,42 @@ def _load_raw_toml(path: Path) -> dict:
 
 
 def _build_backend_config(raw: dict) -> BackendConfig:
+    """Build the primary backend config from ``raw["qb"]["backend"]``."""
+    return _build_backend_config_for(raw, raw["qb"]["backend"])
+
+
+def _build_fallback_backends(raw: dict) -> tuple[BackendConfig, ...]:
+    """Build BackendConfig for each name in ``qb.fallback_chain``.
+
+    Entries lacking a corresponding ``[qb.<name>]`` section are silently
+    skipped (per BP-2: invalid config shouldn't break startup — it just
+    drops the invalid fallback entry). The primary backend name is also
+    filtered out to prevent an infinite retry loop.
+    """
+    qb = raw.get("qb", {})
+    chain = qb.get("fallback_chain", [])
+    if not isinstance(chain, list):
+        return ()
+    primary_name = qb.get("backend")
+    out: list[BackendConfig] = []
+    seen: set[str] = set()
+    for name in chain:
+        if not isinstance(name, str):
+            continue
+        if name == primary_name or name in seen:
+            continue
+        if not isinstance(qb.get(name), dict):
+            continue
+        try:
+            out.append(_build_backend_config_for(raw, name))
+        except BrainConfigError:
+            continue
+        seen.add(name)
+    return tuple(out)
+
+
+def _build_backend_config_for(raw: dict, name: str) -> BackendConfig:
     qb = raw["qb"]
-    name = qb["backend"]
     section = qb.get(name)
     if section is None:
         raise BrainConfigError(
@@ -564,6 +605,7 @@ def _build_verifier_config(raw: dict) -> VerifierConfig:
         require=section.get("require", 0),
         parallel=section.get("parallel", True),
         timeout_seconds=section.get("timeout_seconds", 30),
+        retry_mode=section.get("retry_mode", "on_call_failed_only"),
     )
 
 
@@ -653,6 +695,7 @@ def _build_config(raw: dict, config_path: Path) -> ControllerConfig:
         desktop=_build_desktop_config(raw),
         gui=_build_gui_config(raw),
         rpa=_build_rpa_config(raw),
+        qb_fallbacks=_build_fallback_backends(raw),
     )
 
 

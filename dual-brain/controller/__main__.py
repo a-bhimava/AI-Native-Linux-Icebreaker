@@ -73,8 +73,30 @@ def _mcpd_extra_env(cfg: ControllerConfig) -> dict[str, str]:
 
 
 def _build_qb(cfg: ControllerConfig) -> Any:
+    from dataclasses import replace as _replace
+
     from .backends import anthropic_backend, gemini_backend, llama_local_backend, openai_backend  # noqa: F401
-    return make_backend(cfg)
+    from .fallback_backend import FallbackChain
+
+    primary = make_backend(cfg)
+    if not cfg.qb_fallbacks:
+        return primary
+
+    fallbacks = []
+    for fb_cfg in cfg.qb_fallbacks:
+        try:
+            fallbacks.append(make_backend(_replace(cfg, qb=fb_cfg)))
+        except Exception as exc:
+            # BP-2: bad fallback config shouldn't break startup — the
+            # primary is still functional. Log to stderr and skip.
+            print(
+                f"WARN: fallback backend {fb_cfg.name!r} init failed: {exc}; "
+                "skipping.",
+                file=sys.stderr,
+            )
+    if not fallbacks:
+        return primary
+    return FallbackChain(primary=primary, fallbacks=fallbacks)
 
 
 def _build_qb_safe(cfg: ControllerConfig) -> Any:

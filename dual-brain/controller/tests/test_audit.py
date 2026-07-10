@@ -252,6 +252,9 @@ def test_all_outcome_enum_values_present():
         "undo_requested", "undo_unavailable", "undone",
         "gui_executed", "gui_denied", "gui_error",
         "rpa_executed", "rpa_denied", "rpa_error", "rpa_timeout", "rpa_qb_paused",
+        # F-35 (2026-07-07): system.unsupported outcome for intents with no
+        # matching tool — user-visible "I can't do that" landing pad.
+        "unsupported",
     }
     actual = {o.value for o in Outcome}
     assert actual == expected, f"Outcome enum drifted: {actual.symmetric_difference(expected)}"

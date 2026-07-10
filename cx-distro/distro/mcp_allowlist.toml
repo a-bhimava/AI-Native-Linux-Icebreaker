@@ -1,0 +1,35 @@
+# /etc/icebreaker/mcp_allowlist.toml — external MCP server allowlist.
+#
+# v6.65 SHIPS THIS FILE EMPTY. Phase 7 M7.2 will populate it with the
+# first sanctioned external MCP servers (e.g. playwright-mcp, github-mcp,
+# fs-index-mcp). Until then, ``mcpd`` only exposes the built-in tool
+# catalogue shipped under ``/usr/share/icebreaker/schemas/``.
+#
+# When Phase 7 lands, each entry in this file will:
+#
+#   1. Grant ``mcpd`` permission to spawn the named MCP server binary
+#      (fetched at install time from ``git_url`` at the pinned
+#      ``commit_sha``, byte-verified against ``sha256``).
+#   2. Cap the server's advertised tools at ``tier_ceiling`` — a tool
+#      requesting a higher tier from the allowlist is rejected.
+#   3. Whitelist only the ``egress_hosts`` for outbound network calls
+#      the tool makes (defense-in-depth on top of seccomp/landlock).
+#   4. Optional ``env_scrub`` list for extra env vars to strip before
+#      spawning the child (on top of the standard scrub of API keys).
+#
+# Example (commented — do NOT enable in v6.65):
+#
+#   [[server]]
+#   name         = "playwright-mcp"
+#   git_url      = "https://github.com/example/playwright-mcp"
+#   commit_sha   = "abcd1234abcd1234abcd1234abcd1234abcd1234"
+#   sha256       = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+#   tier_ceiling = 2
+#   egress_hosts = ["playwright.dev", "playwrightusercontent.com"]
+#   env_scrub    = ["PLAYWRIGHT_API_KEY"]
+#
+# The schema for each ``[[server]]`` entry will be locked down in Phase 7
+# via a JSON Schema at ``/usr/share/icebreaker/schemas/mcp_allowlist.json``
+# (not yet written).
+
+# --- No servers configured. ---

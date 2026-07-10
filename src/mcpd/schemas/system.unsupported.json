@@ -12,7 +12,7 @@
     "suggestion": {
       "type": "string",
       "maxLength": 512,
-      "description": "QB's suggestion — either a supported adjacent action, or a shell command the user could run manually. Displayed to the user."
+      "description": "QB's suggestion \u2014 either a supported adjacent action, or a shell command the user could run manually. Displayed to the user."
     },
     "alternative_actions": {
       "type": "array",
@@ -25,6 +25,14 @@
       "description": "Optional list of catalogue action names QB thinks are adjacent to the user's request."
     }
   },
-  "required": ["requested_intent"],
-  "additionalProperties": false
+  "required": [
+    "requested_intent"
+  ],
+  "additionalProperties": false,
+  "x-icebreaker-trust": {
+    "tier": 0,
+    "reversible": true,
+    "requires_hitl": false,
+    "requires_cow": false
+  }
 }

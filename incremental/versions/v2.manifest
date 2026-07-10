@@ -27,19 +27,85 @@ version_overlay() {
           "${chroot}/tmp/ib-src/"
     find "${chroot}/tmp/ib-src" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 
-    echo "[v2] Building venv inside chroot (pip install, ~2 min)..."
-    chroot "$chroot" bash -c "
-        set -e
-        rm -rf /opt/icebreaker/venv
-        python3 -m venv --system-site-packages /opt/icebreaker/venv
-        /opt/icebreaker/venv/bin/pip install --no-cache-dir /tmp/ib-src/ 2>&1 | tail -3
-    "
+    # V6.6 optimization: cache the built venv per-arch, keyed on Python source
+    # tree hash. Native pip install is ~2 min. Under qemu-user emulation for
+    # cross-arch (amd64 host → arm64 target) it's ~55 min. Cache extract is
+    # ~15 sec. Cache hit = order-of-magnitude speedup on rebuild.
+    local _v2_arch="${ARCH:-amd64}"
+    local venv_cache_dir="${repo}/incremental/.build/venv-cache/${_v2_arch}"
+    mkdir -p "$venv_cache_dir"
+    # Hash the Python source pip would install (pyproject + all .py files).
+    # Uses RELATIVE paths inside /tmp/ib-src so the resulting hash is stable
+    # regardless of chroot working directory — same content = same key even
+    # when seeded from repo instead of from a chroot copy.
+    # Any source change → cache miss → rebuild. Unchanged → cache hit.
+    local src_hash
+    src_hash="$(cd "${chroot}/tmp/ib-src" && find . -type f \( -name '*.py' -o -name 'pyproject.toml' -o -name '*.toml' \) -print0 \
+        | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)"
+    local venv_cache="${venv_cache_dir}/venv-${src_hash}.tar.zst"
+    if [ -f "$venv_cache" ]; then
+        echo "[v2] Cache hit — extracting venv-${src_hash}.tar.zst (~15 sec)..."
+        mkdir -p "${chroot}/opt/icebreaker"
+        zstd -dcT0 "$venv_cache" | tar -C "${chroot}/opt/icebreaker/" -xpf -
+    else
+        local _pip_msg="Building venv inside chroot (pip install"
+        if [ "$_v2_arch" != "$(dpkg --print-architecture)" ]; then
+            _pip_msg="${_pip_msg}, ~55 min under qemu-user cross-arch emulation)..."
+        else
+            _pip_msg="${_pip_msg}, ~2 min native)..."
+        fi
+        echo "[v2] Cache miss — ${_pip_msg}"
+        chroot "$chroot" bash -c "
+            set -e
+            rm -rf /opt/icebreaker/venv
+            python3 -m venv --system-site-packages /opt/icebreaker/venv
+            /opt/icebreaker/venv/bin/pip install --no-cache-dir /tmp/ib-src/ 2>&1 | tail -3
+        " < /dev/null
+        # Save for next rebuild — future iterations skip the 55-min emulation tax.
+        echo "[v2] Caching venv → venv-${src_hash}.tar.zst (~15 sec)..."
+        tar -C "${chroot}/opt/icebreaker" --zstd -cpf "$venv_cache" venv
+    fi
 
     # PKG-1: pip does not ship package data — copy explicitly.
     local sp
     sp="$(chroot "$chroot" /opt/icebreaker/venv/bin/python3 -c \
         'import controller,os;print(os.path.dirname(controller.__file__))')"
     [ -n "$sp" ] || { echo "FATAL[v2]: controller not importable after pip install" >&2; return 1; }
+
+    # F-51 (2026-07-10): venv integrity check — every recent bug we fixed
+    # left a durable comment marker in the installed source. If the venv
+    # tarball got reseeded from a stale tree (as it silently did between
+    # v6.61 and v6.62), the fixes vanish while prompts + tests update
+    # normally, producing an ISO that "passed CI" but ships a regressed
+    # daemon. Enforce marker presence before we proceed.
+    local _v2_markers=(
+        "F-41:main.py:_normalize_server_owned_fields"
+        "F-42:main.py:_make_cot"
+        "F-43:main.py:uuid.uuid4()"
+        "F-45:hitl.py:threading.current_thread() is threading.main_thread()"
+        "F-47:main.py:F-47"
+        "F-48:main.py:F-48"
+        "F-49:main.py:_should_retry_verifier"
+        "F-52:main.py:_relax_server_owned_for_backend"
+        "F-53:main.py:_log_exception"
+        "F-54:fallback_backend.py:FallbackChain"
+    )
+    local _mkr _f _needle _target
+    for _mkr in "${_v2_markers[@]}"; do
+        _f="${_mkr#*:}"; _f="${_f%%:*}"
+        _needle="${_mkr##*:}"
+        _target="${chroot}${sp}/${_f}"
+        [ -f "$_target" ] || { echo "FATAL[v2]: venv-integrity: expected ${_target} to exist for marker ${_mkr}" >&2; return 1; }
+        if ! grep -qF "$_needle" "$_target"; then
+            echo "FATAL[v2]: venv-integrity: marker ${_mkr} missing." >&2
+            echo "  Expected substring '${_needle}' in ${_target}." >&2
+            echo "  This usually means the venv-cache tarball was reseeded from a stale" >&2
+            echo "  tree. Delete the cache and rebuild:" >&2
+            echo "    sudo rm -rf ${repo}/incremental/.build/venv-cache/${_v2_arch}" >&2
+            return 1
+        fi
+    done
+    echo "[v2] venv integrity check OK (${#_v2_markers[@]} markers)"
     cp    "${repo}/dual-brain/controller/catalogue.toml" "${chroot}${sp}/catalogue.toml"
     cp -a "${repo}/dual-brain/controller/schemas"  "${chroot}${sp}/schemas"
     cp -a "${repo}/dual-brain/controller/prompts"  "${chroot}${sp}/prompts"
@@ -47,8 +113,30 @@ version_overlay() {
     rm -rf "${chroot}/tmp/ib-src"
 
     # ── 2. mcpd binary (prebuilt on the VM by cx-distro Stage 1; v4/v5-proven) ──
-    local mcpd_bin="${repo}/cx-distro/.build/mcpd"
-    [ -f "$mcpd_bin" ] || { echo "FATAL[v2]: mcpd binary not found at ${mcpd_bin} — run cx-distro Stage 1 or copy the binary there" >&2; return 1; }
+    # V6.6 F-40: prefer per-arch mcpd-${ARCH} over legacy unsuffixed path.
+    # The legacy path is amd64 → will ENOEXEC on arm64 guest at controller
+    # startup. Also assert the binary matches the target arch to prevent a
+    # silent "amd64 shipped in arm64 ISO" regression.
+    local _v2_arch="${ARCH:-amd64}"
+    local mcpd_bin=""
+    if [ -f "${repo}/cx-distro/.build/mcpd-${_v2_arch}" ]; then
+        mcpd_bin="${repo}/cx-distro/.build/mcpd-${_v2_arch}"
+    elif [ -f "${repo}/cx-distro/.build/mcpd" ] && [ "$_v2_arch" = "amd64" ]; then
+        mcpd_bin="${repo}/cx-distro/.build/mcpd"
+    else
+        echo "FATAL[v2]: no mcpd for arch=${_v2_arch} at ${repo}/cx-distro/.build/mcpd-${_v2_arch}" >&2
+        return 1
+    fi
+    # Arch cross-check — the file(1) description must name the target arch.
+    if command -v file >/dev/null 2>&1; then
+        local _mcpd_desc
+        _mcpd_desc="$(file "$mcpd_bin" 2>/dev/null || true)"
+        case "$_v2_arch:$_mcpd_desc" in
+            amd64:*"x86-64"*|amd64:*"x86_64"*) : ;;
+            arm64:*"ARM aarch64"*) : ;;
+            *) echo "FATAL[v2]: mcpd binary arch mismatch (arch=${_v2_arch}, file: ${_mcpd_desc})" >&2; return 1 ;;
+        esac
+    fi
     install -Dm755 "$mcpd_bin" "${chroot}/usr/libexec/icebreaker/mcpd"
 
     # ── 3. /usr/share/icebreaker: schemas (controller + mcpd), prompts, catalogue ──
@@ -67,6 +155,11 @@ version_overlay() {
         "${chroot}/etc/icebreaker/controller.toml"
     install -Dm644 "${repo}/cx-distro/distro/locations.env" \
         "${chroot}/etc/icebreaker/locations.env"
+    # v6.65 Phase 7 M7.2 foundation: ships empty; mcpd probes it on startup
+    # (see src/mcpd/src/main.rs::log_mcp_allowlist) but does not spawn
+    # anything from it. Phase 7 M7.2 wires the spawner.
+    install -Dm644 "${repo}/cx-distro/distro/mcp_allowlist.toml" \
+        "${chroot}/etc/icebreaker/mcp_allowlist.toml"
     # No pbd until V6: make wait-for-sockets return immediately (V6 manifest reverts).
     echo "ICEBREAKER_SOCKET_TIMEOUT=0" >> "${chroot}/etc/icebreaker/locations.env"
 
@@ -90,7 +183,7 @@ version_overlay() {
         chroot "$chroot" bash -c "
             chown -R icebreaker:icebreaker /home/icebreaker/.ssh
             chmod 700 /home/icebreaker/.ssh
-        "
+        " < /dev/null
     else
         echo "WARN[v2]: no authorized_keys.pub staged — ib-update will need a password" >&2
     fi

@@ -9,10 +9,34 @@
 backend = "gemini"
 
 [qb.gemini]
+# Model choice — swap via Control Center → Models page, or edit here.
+# Supported presets: gemini-2.5-flash (default, fast), gemini-2.5-pro
+# (higher-quality reasoning), gemini-2.0-flash (older but stable).
+# Ceiling in schema is 1M tokens / 2h timeout — v6.65 raised both so
+# users tuning for long-running workflows aren't blocked.
 model           = "gemini-2.5-flash"
 api_key_env     = "GEMINI_API_KEY"
-max_tokens      = 512
-timeout_seconds = 30
+# F-53 v6.65 (2026-07-10): 512 truncated verifier responses; 2048 fixed
+# the specific bug but was still a hard-coded workaround. 8192 gives
+# comfortable headroom for verbose intent extraction (writing long
+# content into fs.write), verifier rubric responses, and rich
+# summarisation. Raise higher via Control Center → Models if a
+# specific workflow needs it (ceiling is 1M tokens).
+max_tokens      = 8192
+timeout_seconds = 60
+
+# Alternate backends — uncomment + fill in to switch:
+# [qb.anthropic]
+# model           = "claude-sonnet-4-6"
+# api_key_env     = "ANTHROPIC_API_KEY"
+# max_tokens      = 8192
+# timeout_seconds = 60
+#
+# [qb.openai]
+# model           = "gpt-5-mini"
+# api_key_env     = "OPENAI_API_KEY"
+# max_tokens      = 8192
+# timeout_seconds = 60
 
 [run]
 mcpd_binary        = "/usr/libexec/icebreaker/mcpd"
@@ -21,7 +45,10 @@ audit_log          = "/var/log/icebreaker/controller-audit.log"
 pb_endpoint        = "unix:///run/icebreaker/pbd.sock"
 pb_transport       = "unix"
 pb_model_id        = "qwen-2.5-coder-1.5b-instruct-q4_k_m"
-pb_max_tokens      = 256
+# v6.65: bumped 256 → 1024. PB emits structured tool-call JSON that
+# rarely exceeds 200 tokens in practice, but headroom prevents
+# truncation on write intents with long content payloads.
+pb_max_tokens      = 1024
 # F-25: generous for emulated x86 (Apple Silicon / Rosetta 2 runs Qwen 1.5B
 # at ~2-5 min/turn). Native x86 or ARM64 does the same in <5 s; drop to 30 s
 # on real hardware via ~/.config/icebreaker/controller.toml layered override.
@@ -59,4 +86,7 @@ timeout_seconds = 30
 [daemon]
 socket_path     = "/run/icebreaker/controller.sock"
 pid_file        = "/run/icebreaker/controller.pid"
-max_connections = 1
+# v6.65: 1 → 4. Users need the Icebreaker Terminal + Control Center +
+# ib-debug diagnostics + occasional GNOME chatbot to all connect
+# simultaneously. Bumping to 4 makes the daemon serve real workflows.
+max_connections = 4

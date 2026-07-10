@@ -309,9 +309,19 @@ def test_start_qbd_has_set_euo_pipefail():
 
 
 def test_start_pbd_verifies_checksum():
+    """PB checksum verification runs via model_registry.resolve (INV-7).
+
+    F-23 (2026-07-04): start-pbd previously duplicated the sha256 pass here,
+    but resolve --id already computes+verifies it (see model_registry.py
+    :317-322). Doubling a 940 MB sha256 pushed start-pbd past the 900 s
+    gate limit under emulation without SHA-NI. Duplicate removed; this
+    test asserts the delegation is still visible (INV-7 comment + the
+    model_registry resolve call).
+    """
     content = (SCRIPTS_DIR / "start-pbd").read_text()
-    assert "sha256sum" in content
-    assert "checksums.sha256" in content
+    assert "model_registry" in content, "start-pbd must invoke model_registry (INV-7 delegation)"
+    assert "resolve" in content, "start-pbd must call model_registry resolve for hash-verified path"
+    assert "INV-7" in content, "start-pbd must document INV-7 delegation for future maintainers"
 
 
 def test_start_qbd_verifies_checksum():

@@ -4,5 +4,11 @@
   "description": "Returns the network interface list (name, up/loopback flags, IPv4/IPv6 addresses) and the IPv4 default route.",
   "type": "object",
   "properties": {},
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x-icebreaker-trust": {
+    "tier": 0,
+    "reversible": true,
+    "requires_hitl": false,
+    "requires_cow": false
+  }
 }

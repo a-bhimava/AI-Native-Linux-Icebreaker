@@ -60,6 +60,13 @@ for tool in "${_REQUIRED_TOOLS[@]}"; do
     command -v "$tool" >/dev/null || die "$tool not installed"
 done
 
+# V6.6 F-37: verify the arch-specific GRUB module dir exists BEFORE running
+# the 90-min manifest chain. arm64-efi lives in grub-efi-arm64-bin, which is
+# only in the arm64 package pool on Ubuntu; requires `dpkg --add-architecture
+# arm64` + ports.ubuntu.com source + `apt install grub-efi-arm64-bin:arm64`.
+[ -f "/usr/lib/grub/${GRUB_FORMAT}/modinfo.sh" ] || die \
+    "GRUB target dir /usr/lib/grub/${GRUB_FORMAT}/ missing — install grub-efi-${ARCH}-bin (for cross-arch: dpkg --add-architecture ${ARCH} + apt install grub-efi-${ARCH}-bin:${ARCH})"
+
 # Fail fast, not at xorriso 15 minutes in (F-15): chroot ~6G + squashfs ~2.5G + ISO ~2.5G.
 FREE_GB=$(df -BG --output=avail "$INC_ROOT" 2>/dev/null | tail -1 | tr -dc '0-9' || echo 0)
 [ "${FREE_GB:-0}" -ge 12 ] || die "only ${FREE_GB}G free under ${BUILD_DIR} — need ≥12G. Clean old chroots/ISOs first (see GROUND_TRUTH F-15)."
@@ -139,13 +146,16 @@ ISO_WORK="${BUILD_DIR}/iso-work"
 CHROOT="${ISO_WORK}/chroot"
 STAGING="${ISO_WORK}/staging"
 OUT_DIR="${BUILD_DIR}/out"
-# V6.6: ISO output name gets arch suffix from V6.6 forward. For older
-# labels (V0-V6.51 rebuilds) keep the unsuffixed historical name when
-# ARCH is the default amd64 — matches what those ISOs shipped as.
+# V6.6+: ISO output name gets arch suffix. For older labels (V0-V6.51
+# rebuilds) keep the unsuffixed historical name when ARCH is the default
+# amd64 — matches what those ISOs shipped as. Naming convention (revised
+# 2026-07-09): no `icebreaker-` prefix (the file lives in the Icebreaker
+# repo; the prefix was tautological). Historic ISOs like `v6.51.iso` and
+# `v0.iso` predate the multi-arch refactor and stay unsuffixed.
 if [[ "$LABEL" =~ ^v6\.6 ]] || [[ "$LABEL" =~ ^v[7-9] ]] || [ "$ARCH" != "amd64" ]; then
-    ISO_FILE="${OUT_DIR}/icebreaker-${LABEL}-${ARCH}.iso"
+    ISO_FILE="${OUT_DIR}/${LABEL}-${ARCH}.iso"
 else
-    ISO_FILE="${OUT_DIR}/icebreaker-${LABEL}.iso"
+    ISO_FILE="${OUT_DIR}/${LABEL}.iso"
 fi
 
 cleanup() {
@@ -183,7 +193,7 @@ for (( i=1; i<=VN; i++ )); do
             apt-get update -qq
             apt-get install -y ${VERSION_PACKAGES}
             apt-get clean && rm -rf /var/lib/apt/lists/*
-        "
+        " < /dev/null
     fi
     version_overlay "$CHROOT" "$REPO_ROOT"
     unset -f version_overlay
@@ -201,7 +211,19 @@ VMLINUZ=$(ls "${CHROOT}/boot/vmlinuz-"* 2>/dev/null | sort -V | tail -1)
 INITRD=$(ls "${CHROOT}/boot/initrd.img-"* 2>/dev/null | sort -V | tail -1)
 [ -n "$VMLINUZ" ] || die "no vmlinuz in chroot"
 [ -n "$INITRD" ]  || die "no initrd in chroot"
-cp "$VMLINUZ" "${STAGING}/live/vmlinuz"
+# V6.6 F-38: Ubuntu ships arm64 vmlinuz as gzip-compressed. GRUB's arm64-efi
+# `linux` loader needs a plain arm64 Image (starts with `MZ` EFI magic, has
+# EFI stub header) — fails otherwise with "plain image kernel not supported
+# - rebuild with CONFIG_(U)EFI_STUB enabled". amd64 bzImage GRUB handles
+# either way. Decompress on arm64 to be safe.
+if [ "$ARCH" = "arm64" ] && file "$VMLINUZ" 2>/dev/null | grep -q "gzip compressed"; then
+    info "arm64: decompressing gzip'd vmlinuz for GRUB EFI stub loader..."
+    zcat "$VMLINUZ" > "${STAGING}/live/vmlinuz"
+    file "${STAGING}/live/vmlinuz" 2>/dev/null | grep -q "ARM64.*Image" || \
+        die "F-38: decompressed vmlinuz is not an arm64 Image — GRUB will fail to boot"
+else
+    cp "$VMLINUZ" "${STAGING}/live/vmlinuz"
+fi
 cp "$INITRD"  "${STAGING}/live/initrd"
 info "Kernel: $(basename "$VMLINUZ")"
 
