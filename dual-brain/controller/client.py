@@ -41,6 +41,9 @@ class DaemonClient:
     __slots__ = (
         "_sock_path", "_transport", "_reader_thread",
         "_pending", "_pending_lock", "_closed",
+        # Phase 6 Scope A.P1: rate-limit warning about malformed JSON in
+        # the reader loop — one message per connection, not per bad packet.
+        "_malformed_warned",
     )
 
     def __init__(self, sock_path: str) -> None:
@@ -50,12 +53,16 @@ class DaemonClient:
         self._pending: dict[str, tuple[threading.Event, list]] = {}
         self._pending_lock = threading.Lock()
         self._closed = False
+        self._malformed_warned = False
 
     def connect(self) -> None:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.connect(self._sock_path)
         self._transport = UnixSocketTransport(sock)
         self._closed = False
+        # Reset the per-connection warning flag so operators see one
+        # warning per fresh connection, not one per client-lifetime.
+        self._malformed_warned = False
         self._reader_thread = threading.Thread(
             target=self._reader_loop, daemon=True, name="client-reader",
         )
@@ -150,7 +157,23 @@ class DaemonClient:
                 continue
             try:
                 msg = parse_message(raw)
-            except Exception:
+            except Exception as exc:
+                # F-53 Scope A.P1: previously swallowed silently — a torn
+                # framing byte or truncated JSON would cascade into "nothing
+                # is happening" symptoms with zero diagnostic. Warn ONCE per
+                # connection with the exception type + first bytes so the
+                # operator can look upstream (protocol version mismatch,
+                # transport corruption, etc.). Rate-limited via the flag on
+                # __slots__ so a flooded reader doesn't spam stderr.
+                if not self._malformed_warned:
+                    self._malformed_warned = True
+                    excerpt = raw[:80] if isinstance(raw, (bytes, str)) else repr(raw)[:80]
+                    print(
+                        f"WARN: client reader: dropped malformed message: "
+                        f"{type(exc).__name__}: {exc} (first 80 bytes: {excerpt!r}). "
+                        f"Further parse errors on this connection will be silent.",
+                        file=sys.stderr,
+                    )
                 continue
 
             if is_response(msg):

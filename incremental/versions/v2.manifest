@@ -89,6 +89,20 @@ version_overlay() {
         "F-52:main.py:_relax_server_owned_for_backend"
         "F-53:main.py:_log_exception"
         "F-54:fallback_backend.py:FallbackChain"
+        # Phase 6 Scope A.P1 F-53 sites (2026-07-10). Every marker below
+        # names a specific exception-swallow site that got surfaced this
+        # session. If any marker is missing from the installed venv, a
+        # stale cache reseeded stale code — see F-51 rule for context.
+        "F-53-mvot:verifier.py:vote failed:"
+        "F-53-sum:main.py:controller.qb_summarize"
+        "F-53-exp:main.py:controller.qb_explain"
+        "F-53-cancel:main.py:controller.cancel_audit_write"
+        "F-53-rpa:main.py:controller.rpa_stream_parse"
+        "F-53-clr:client.py:_malformed_warned"
+        "F-53-daemon:daemon.py:parse_message failed:"
+        "F-53-verify:logger.py:entries_skipped_verify"
+        "F-53-recov:logger.py:entries_skipped_recovery"
+        "F-53-shot:bridge.py:_last_screenshot_error"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do

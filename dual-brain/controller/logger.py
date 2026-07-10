@@ -2,6 +2,7 @@ import datetime
 import hashlib
 import json
 import os
+import sys
 import threading
 import fcntl
 from typing import Dict, Any, Union
@@ -60,12 +61,22 @@ class SystemLogger:
     def __init__(self, log_file_path: str):
         self.log_file_path = os.path.abspath(log_file_path)
         self.lock = threading.Lock()
-        
+
         # Initialize or resume the chain
         self.last_record = None
         self.seq = 0
         self.prev_hash = self.INITIAL_HASH
-        
+
+        # F-53 Scope A.P1: log-corruption skip counters. Every silently
+        # skipped JSON line during recovery + chain-walk increments the
+        # appropriate counter so operators grep-ing for "why is my audit
+        # trail missing entries" can see the number without instrumenting
+        # anything. Cheap; INV-8 relevant (silent corruption is an
+        # invariant violation waiting to happen).
+        self.entries_skipped_recovery: int = 0
+        self.entries_skipped_getlast: int = 0
+        self.entries_skipped_verify: int = 0
+
         # If the file exists and is not empty, recover the state
         if os.path.exists(self.log_file_path) and os.path.getsize(self.log_file_path) > 0:
             self._recover_state()
@@ -98,7 +109,13 @@ class SystemLogger:
                                 last_valid_record = record
                                 last_valid_end_offset = end_offset
                                 break
-                        except Exception:
+                        except Exception:  # noqa: BLE001
+                            # F-53 Scope A.P1: corrupted log line during
+                            # recovery. Skip is correct — the recovery
+                            # walk continues to the next line — but the
+                            # count is visible via `entries_skipped_recovery`
+                            # so operators know silent corruption occurred.
+                            self.entries_skipped_recovery += 1
                             continue
                     
                     if last_valid_record is not None:
@@ -138,7 +155,14 @@ class SystemLogger:
                 record = json.loads(line_str)
                 if isinstance(record, dict) and "seq" in record and "prev_hash" in record:
                     return record
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # F-53 Scope A.P1: same class of skip as _recover_state's
+                # counter. Tracks silent corruption during last-record
+                # walks (used by log() to sync seq + prev_hash on every
+                # append). Divergence between this counter and
+                # entries_skipped_recovery is a signal of ongoing
+                # corruption vs. one-time-file-repair.
+                self.entries_skipped_getlast += 1
                 continue
         return None
 
@@ -166,7 +190,14 @@ class SystemLogger:
         # Clean/sanitize payload to be JSON serializable
         try:
             payload = json.loads(json.dumps(payload, cls=SafeJSONEncoder))
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # F-53 Scope A.P1: sanitization failure is defensible-silent.
+            # SafeJSONEncoder catches almost everything; if it doesn't, the
+            # payload flows through unchanged and json.dumps at line 210
+            # will either succeed (raw payload is fine) or raise (and the
+            # caller sees the real error). Adding a log call here would
+            # spam every unusual payload without helping — this is the
+            # "sanitize best-effort, let downstream decide" pattern.
             pass
 
         with self.lock:
@@ -263,5 +294,23 @@ class SystemLogger:
                         return True
                     finally:
                         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-            except Exception:
+            except Exception as exc:
+                # F-53 Scope A.P1 — INV-8 red flag: silently returning
+                # False on chain-verify failure meant an audit-log
+                # corruption / IO failure would show up as a bland
+                # "chain broken" without ever naming WHAT broke. Log
+                # to stderr with the exception type + brief so operators
+                # investigating INV-8 violations can see the root cause
+                # (file permissions? disk full? IOError? JSON corrupt?).
+                # The chain STAYS "invalid" (return False) — that's the
+                # correct signal to the caller — we just make the cause
+                # visible instead of silent.
+                self.entries_skipped_verify += 1
+                print(
+                    f"WARN: SystemLogger.verify_chain failed: "
+                    f"{type(exc).__name__}: {exc} "
+                    f"(log_file_path={self.log_file_path!r}, "
+                    f"entries_skipped_verify={self.entries_skipped_verify})",
+                    file=sys.stderr,
+                )
                 return False
