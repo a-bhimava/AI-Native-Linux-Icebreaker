@@ -61,7 +61,13 @@ class ExecutionPanel(Static):
                 parts = first.split(None, 3)
                 if len(parts) == 4:
                     ctx["active_window"] = parts[3].strip()[:200]
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # F-53 Scope A.P2: wmctrl probe is genuinely best-effort —
+            # non-X11 session (Wayland-only), missing wmctrl binary, or a
+            # 0.5 s timeout are all common and expected. Silent swallow
+            # is correct here: `active_window` is optional context that
+            # QB tolerates being absent. Logging every miss would spam
+            # journalctl on every NL turn without helping.
             pass
         return ctx
 

@@ -28,15 +28,37 @@ USER_CONFIG_PATH = USER_CONFIG_DIR / "controller.toml"
 SYSTEM_CONFIG_PATH = Path("/etc/icebreaker/controller.toml")
 
 
+class ConfigReadError(RuntimeError):
+    """Raised when a TOML config file exists but cannot be parsed.
+
+    Callers should surface this to the user (a red bar in the Control
+    Center page) rather than silently degrade to defaults — a corrupt
+    ``~/.config/icebreaker/controller.toml`` used to swallow every user
+    override and reset the GUI to defaults on the next open, wiping
+    settings the user had deliberately configured.
+    """
+
+
 def read_toml(path: Path) -> dict[str, Any]:
-    """Read a TOML file, returning {} if it doesn't exist or is unreadable."""
+    """Read a TOML file.
+
+    Returns ``{}`` when the file does not exist (a legitimately-fresh
+    config layer). Raises ``ConfigReadError`` when the file exists but
+    cannot be parsed — silent degradation to defaults is a data-loss
+    bug (F-53 Scope A.P2). The GUI should catch this at the page
+    boundary and render a persistent error explaining which layer is
+    broken and where to look.
+    """
     if not path.exists():
         return {}
     try:
         with path.open("rb") as f:
             return _toml_reader.load(f)
-    except Exception:
-        return {}
+    except Exception as exc:
+        raise ConfigReadError(
+            f"Failed to parse TOML at {path}: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def walk(cfg: dict[str, Any], path: tuple[str, ...]) -> Any:

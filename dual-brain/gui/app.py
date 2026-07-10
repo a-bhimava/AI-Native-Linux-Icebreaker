@@ -8,6 +8,7 @@ Provides:
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from typing import Optional
@@ -21,6 +22,9 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from .daemon_client import GtkDaemonClient
 from .theme import IcebreakerTheme
 from .widgets import _load_widget_classes
+
+
+log = logging.getLogger(__name__)
 
 
 class IcebreakerApp(Adw.Application):
@@ -44,12 +48,25 @@ class IcebreakerApp(Adw.Application):
         self._client: Optional[GtkDaemonClient] = None
         self._window: Optional[Adw.ApplicationWindow] = None
         
+        # Startup logger init: audit log path may be non-writable when
+        # running as a plain user, and the SystemLogger constructor also
+        # eagerly opens the file. F-53 Scope A.P2: surface *why* so a
+        # broken audit path shows up in journalctl instead of a mystery
+        # `None` logger silently dropping every subsequent event.
+        self._logger_init_error: str | None = None
         try:
             from controller.logger import SystemLogger
             self.logger = SystemLogger("/var/log/icebreaker/system.jsonl")
             self.logger.log("gui_rpa", "app_startup", {"mode": window_mode})
-        except Exception:
+        except Exception as exc:
             self.logger = None
+            self._logger_init_error = (
+                f"{type(exc).__name__}: {exc}"
+            )[:400]
+            log.warning(
+                "gui.logger_init failed: %s: %s",
+                type(exc).__name__, exc,
+            )
 
     @property
     def client(self) -> Optional[GtkDaemonClient]:
@@ -68,12 +85,26 @@ class IcebreakerApp(Adw.Application):
         else:
             style_manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
 
+        # F-53 Scope A.P2: connection failure was silently nulling the
+        # client, which then triggered every downstream "Not connected"
+        # warning without telling the user *why*. Record the exception
+        # so the persistent connection bar in the main window can render
+        # a specific reason (missing socket, wrong perms, daemon down)
+        # instead of the generic "Not connected".
+        self._daemon_connect_error: str | None = None
         if self._sock_path:
             self._client = GtkDaemonClient(self._sock_path)
             try:
                 self._client.connect()
-            except Exception:
+            except Exception as exc:
                 self._client = None
+                self._daemon_connect_error = (
+                    f"{type(exc).__name__}: {exc}"
+                )[:400]
+                log.warning(
+                    "gui.daemon_connect failed at %s: %s: %s",
+                    self._sock_path, type(exc).__name__, exc,
+                )
 
         _load_widget_classes()
         self._register_actions()

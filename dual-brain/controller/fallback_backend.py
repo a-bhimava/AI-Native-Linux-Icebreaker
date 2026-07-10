@@ -19,6 +19,7 @@ Instead it duck-types the methods the Runner and Verifier call.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Generator, Iterable, Sequence
 
 from .backends.base import (
@@ -26,6 +27,9 @@ from .backends.base import (
     BrainProviderError,
     BrainResponse,
 )
+
+
+_fb_log = logging.getLogger(__name__)
 
 
 class FallbackChain:
@@ -112,8 +116,16 @@ class FallbackChain:
             if self._on_fallback is not None:
                 try:
                     self._on_fallback(idx, backend.backend_name, str(last_error))
-                except Exception:
-                    pass
+                except Exception as cb_exc:
+                    # F-53 Scope A.P2: user-supplied callback raised.
+                    # Swallow so a broken UI toast handler can't stop a
+                    # legit fallback attempt from proceeding — but log
+                    # so callback authors can debug the "toast never
+                    # showed up" case.
+                    _fb_log.warning(
+                        "fallback_backend.on_fallback callback raised: %s: %s",
+                        type(cb_exc).__name__, cb_exc,
+                    )
             try:
                 gen = backend.stream_complete(
                     system=system, user=user, schema=schema,
@@ -139,8 +151,16 @@ class FallbackChain:
             if self._on_fallback is not None:
                 try:
                     self._on_fallback(idx, backend.backend_name, str(last_error))
-                except Exception:
-                    pass
+                except Exception as cb_exc:
+                    # F-53 Scope A.P2: user-supplied callback raised.
+                    # Swallow so a broken UI toast handler can't stop a
+                    # legit fallback attempt from proceeding — but log
+                    # so callback authors can debug the "toast never
+                    # showed up" case.
+                    _fb_log.warning(
+                        "fallback_backend.on_fallback callback raised: %s: %s",
+                        type(cb_exc).__name__, cb_exc,
+                    )
             try:
                 return call(backend)
             except BrainProviderError as exc:

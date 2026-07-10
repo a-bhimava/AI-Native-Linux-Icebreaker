@@ -25,6 +25,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 
 from ..config_io import (
+    ConfigReadError,
     SYSTEM_CONFIG_PATH,
     USER_CONFIG_PATH,
     effective,
@@ -32,6 +33,15 @@ from ..config_io import (
     restart_controller,
     set_user_override,
 )
+
+
+def _safe_read_toml(path):
+    """See errors_page._safe_read_toml — surface parse errors instead
+    of silently regressing to defaults (F-53 Scope A.P2)."""
+    try:
+        return read_toml(path), None
+    except ConfigReadError as exc:
+        return {}, str(exc)
 
 
 # ── Backend + model presets ───────────────────────────────────────────────
@@ -115,8 +125,12 @@ class ModelsPage(Adw.PreferencesPage):
         super().__init__(title="Models", icon_name="applications-science-symbolic")
         self.set_name("models")
 
-        self._system = read_toml(SYSTEM_CONFIG_PATH)
-        self._user = read_toml(USER_CONFIG_PATH)
+        self._system, self._system_read_error = _safe_read_toml(
+            SYSTEM_CONFIG_PATH,
+        )
+        self._user, self._user_read_error = _safe_read_toml(
+            USER_CONFIG_PATH,
+        )
         self._pending: dict[tuple, object] = {}
 
         self._add_backend_group()

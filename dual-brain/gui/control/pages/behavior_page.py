@@ -37,6 +37,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 
 from ..config_io import (
+    ConfigReadError,
     SYSTEM_CONFIG_PATH,
     USER_CONFIG_PATH,
     effective,
@@ -45,6 +46,15 @@ from ..config_io import (
     set_user_override,
     walk,
 )
+
+
+def _safe_read_toml(path):
+    """See errors_page._safe_read_toml — surface parse errors instead
+    of silently regressing to defaults (F-53 Scope A.P2)."""
+    try:
+        return read_toml(path), None
+    except ConfigReadError as exc:
+        return {}, str(exc)
 
 
 # ── Verifier retry modes ──────────────────────────────────────────────────
@@ -108,8 +118,12 @@ class BehaviorPage(Adw.PreferencesPage):
         super().__init__(title="Behavior", icon_name="applications-system-symbolic")
         self.set_name("behavior")
 
-        self._system = read_toml(SYSTEM_CONFIG_PATH)
-        self._user = read_toml(USER_CONFIG_PATH)
+        self._system, self._system_read_error = _safe_read_toml(
+            SYSTEM_CONFIG_PATH,
+        )
+        self._user, self._user_read_error = _safe_read_toml(
+            USER_CONFIG_PATH,
+        )
         self._pending_mode: Optional[str] = None
         self._pending_fallback: Optional[list[str]] = None
         self._pending_autocancel: Optional[bool] = None

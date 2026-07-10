@@ -26,6 +26,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gtk
 
 from ..config_io import (
+    ConfigReadError,
     SYSTEM_CONFIG_PATH,
     USER_CONFIG_PATH,
     effective,
@@ -33,6 +34,16 @@ from ..config_io import (
     restart_controller,
     set_user_override,
 )
+
+
+def _safe_read_toml(path: Path) -> tuple[dict[str, Any], str | None]:
+    """Wrap read_toml so a corrupt user layer degrades to {} + an
+    error string instead of crashing the page. F-53 Scope A.P2 — the
+    Errors page is one of the layers that surfaces this to the user."""
+    try:
+        return read_toml(path), None
+    except ConfigReadError as exc:
+        return {}, str(exc)
 
 
 _SYSTEM_LOG_PATH = Path("/var/log/icebreaker/system.jsonl")
@@ -44,8 +55,12 @@ class ErrorsPage(Adw.PreferencesPage):
         super().__init__(title="Errors", icon_name="dialog-error-symbolic")
         self.set_name("errors")
 
-        self._system = read_toml(SYSTEM_CONFIG_PATH)
-        self._user = read_toml(USER_CONFIG_PATH)
+        self._system, self._system_read_error = _safe_read_toml(
+            SYSTEM_CONFIG_PATH,
+        )
+        self._user, self._user_read_error = _safe_read_toml(
+            USER_CONFIG_PATH,
+        )
         self._collected_rows: list[Adw.ActionRow] = []
 
         self._add_toggle_group()
@@ -165,13 +180,24 @@ class ErrorsPage(Adw.PreferencesPage):
         self._flash(f"Showing {len(entries)} of the most recent exceptions.")
 
     def _load_entries(self) -> list[dict[str, Any]]:
+        # F-53 Scope A.P2: the Errors page IS the surfacing UI. It has
+        # nowhere higher up the stack to escalate to — so file read or
+        # per-line JSON parse failures are stashed on `self` as
+        # ``self._last_read_error`` / ``self._malformed_lines`` so the
+        # page can render a top banner instead of silently claiming
+        # "no errors found".
+        self._last_read_error: str | None = None
+        self._malformed_lines: int = 0
         if not _SYSTEM_LOG_PATH.exists():
             return []
         try:
             # Read whole file — SystemLogger's JSONL is typically small.
             # For very large logs we'd tail from EOF; for v6.65 UX this is fine.
             lines = _SYSTEM_LOG_PATH.read_text("utf-8", errors="replace").splitlines()
-        except Exception:
+        except Exception as exc:
+            self._last_read_error = (
+                f"{type(exc).__name__}: {exc}"
+            )[:400]
             return []
 
         entries: list[dict[str, Any]] = []
@@ -180,7 +206,12 @@ class ErrorsPage(Adw.PreferencesPage):
                 continue
             try:
                 obj = json.loads(line)
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # One bad line must not mask legitimate entries after it
+                # in reverse order — but count so the top banner can say
+                # "3 corrupted rows skipped" and the user can decide
+                # whether to open a bug.
+                self._malformed_lines += 1
                 continue
             if obj.get("event_type") == "exception_swallowed":
                 entries.append(obj)

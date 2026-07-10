@@ -14,10 +14,19 @@ Layout (ADR-18, ADR-19):
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import threading
 from pathlib import Path
 from typing import Any
+
+
+# Phase 6 Scope A.P2: module logger used by every event handler + UI
+# swallow site. Textual's dev tools pick this up under
+# ``~/.textual/log/`` and journalctl captures it when the terminal is
+# spawned by systemd. Debug level keeps production quiet while making
+# "why did this event vanish" diagnosable.
+log = logging.getLogger(__name__)
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -130,13 +139,18 @@ class AiTerminalApp(App):
         if self._startup_warning:
             try:
                 from rich.text import Text
-                log = self.query_one(ExecutionPanel).query_one("#shell-output")
-                log.write(Text(
+                out = self.query_one(ExecutionPanel).query_one("#shell-output")
+                out.write(Text(
                     f"[WARN] {self._startup_warning}",
                     style="bold #f87171",
                 ))
-            except Exception:
-                pass
+            except Exception as exc:
+                # F-53 Scope A.P2: startup UI not ready yet — the warning
+                # can't be rendered. Fall through so the terminal still
+                # starts; log so operators diagnosing "warning never
+                # appeared" see the render error.
+                log.debug("tui.startup_warning render failed: %s: %s",
+                          type(exc).__name__, exc)
 
     def _wire_daemon_callbacks(self) -> None:
         client = self._daemon_client
@@ -162,8 +176,13 @@ class AiTerminalApp(App):
                 body=params.get("body", ""),
                 data=params.get("data"),
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-53 Scope A.P2: CoT event dropped. Debug-log so operators
+            # investigating "step never appeared in the interpretation
+            # pane" have a lead. Common cause: companion torn down mid-
+            # turn during teardown.
+            log.debug("tui.event.cot dropped: %s: %s",
+                      type(exc).__name__, exc)
 
     def _on_token_event(self, params: dict) -> None:
         if not params.get("final"):
@@ -173,10 +192,13 @@ class AiTerminalApp(App):
             return
         try:
             from rich.text import Text
-            log = self.query_one(ExecutionPanel).query_one("#shell-output")
-            log.write(Text(text, style="#c0c0c0"))
-        except Exception:
-            pass
+            out = self.query_one(ExecutionPanel).query_one("#shell-output")
+            out.write(Text(text, style="#c0c0c0"))
+        except Exception as exc:
+            # F-53 Scope A.P2: final token dropped. Users see a "response
+            # never appeared" symptom; debug-log gives operators the trail.
+            log.debug("tui.event.token dropped: %s: %s",
+                      type(exc).__name__, exc)
 
     def _on_progress_event(self, params: dict) -> None:
         pass
@@ -185,15 +207,19 @@ class AiTerminalApp(App):
         try:
             companion = self.query_one(CompanionPanel)
             companion.handle_gui(params)
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-53 Scope A.P2: GUI event drop mirror of _on_cot_event.
+            log.debug("tui.event.gui dropped: %s: %s",
+                      type(exc).__name__, exc)
 
     def _on_rpa_event(self, params: dict) -> None:
         try:
             companion = self.query_one(CompanionPanel)
             companion.handle_rpa(params)
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-53 Scope A.P2: RPA event drop mirror of _on_cot_event.
+            log.debug("tui.event.rpa dropped: %s: %s",
+                      type(exc).__name__, exc)
 
     def _on_info_event(self, params: dict) -> None:
         msg = params.get("message", "")
@@ -201,10 +227,12 @@ class AiTerminalApp(App):
             return
         try:
             from rich.text import Text
-            log = self.query_one(ExecutionPanel).query_one("#shell-output")
-            log.write(Text(f"[info] {msg}", style="#888888"))
-        except Exception:
-            pass
+            out = self.query_one(ExecutionPanel).query_one("#shell-output")
+            out.write(Text(f"[info] {msg}", style="#888888"))
+        except Exception as exc:
+            # F-53 Scope A.P2: info banner dropped. Debug-log surface.
+            log.debug("tui.event.info dropped: %s: %s",
+                      type(exc).__name__, exc)
 
     def on_resize(self) -> None:
         self._check_companion_width()
@@ -224,8 +252,12 @@ class AiTerminalApp(App):
         try:
             panel = self.query_one(CompanionPanel)
             panel.set_class(hidden, "-hidden")
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-53 Scope A.P2: companion panel not present (torn down or
+            # not yet mounted). Fall through; log so a real widget-lookup
+            # regression is visible instead of a silent no-op layout.
+            log.debug("tui.companion.set_hidden failed: %s: %s",
+                      type(exc).__name__, exc)
 
     def action_toggle_companion(self) -> None:
         self._companion_visible = not self._companion_visible
@@ -295,7 +327,13 @@ class AiTerminalApp(App):
         # / relative paths against the actual environment.
         try:
             ctx = execution.shell_context()
-        except Exception:
+        except Exception as exc:
+            # F-53 Scope A.P2: shell context capture failed. The turn
+            # proceeds without a <context> preamble (QB just loses
+            # cwd/recent-commands hints); log so operators tuning the
+            # context path see why their hints didn't reach QB.
+            log.debug("tui.shell_context capture failed: %s: %s",
+                      type(exc).__name__, exc)
             ctx = None
 
         def _do_turn() -> dict:

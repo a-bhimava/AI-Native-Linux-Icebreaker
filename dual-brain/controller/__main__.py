@@ -10,12 +10,34 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import signal
 import sys
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator
+
+
+_shutdown_log = logging.getLogger(__name__ + ".shutdown")
+
+
+def _try_close(obj: Any, label: str) -> None:
+    """F-53 Scope A.P2 shutdown helper: call ``obj.close()`` and log the
+    exception type on failure without letting it abort the surrounding
+    finally block. The label lets journalctl distinguish which subsystem
+    failed to close (e.g. client vs mcpd) — a torn socket during exit
+    used to look identical to a broken mcpd, wasting triage time.
+    """
+    if obj is None:
+        return
+    try:
+        obj.close()
+    except Exception as exc:  # noqa: BLE001
+        _shutdown_log.warning(
+            "shutdown.close(%s) raised: %s: %s",
+            label, type(exc).__name__, exc,
+        )
 
 from .audit import AuditLog
 from .backends.base import BrainBackend, BrainProviderError, RequestEnvelope
@@ -387,12 +409,8 @@ def _run_terminal(config_path: Path | None) -> int:
             "Running in shell-only mode — NL commands unavailable."
         )
         print(f"WARN: {_daemon_startup_error}", file=sys.stderr)
-        if mcpd is not None:
-            try:
-                mcpd.close()
-            except Exception:
-                pass
-            mcpd = None
+        _try_close(mcpd, "mcpd-after-startup-error")
+        mcpd = None
 
     # ── Phase 3: always launch the TUI (with or without daemon) ───────────
     try:
@@ -402,16 +420,8 @@ def _run_terminal(config_path: Path | None) -> int:
         )
         app.run()
     finally:
-        if client is not None:
-            try:
-                client.close()
-            except Exception:
-                pass
-        if mcpd is not None:
-            try:
-                mcpd.close()
-            except Exception:
-                pass
+        _try_close(client, "client")
+        _try_close(mcpd, "mcpd")
 
     return 0
 
