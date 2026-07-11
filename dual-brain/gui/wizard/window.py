@@ -242,7 +242,10 @@ class WizardWindow(Adw.Window):
                         return
                     result = resp.get("result", resp)
                     GLib.idle_add(_show_result, result)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
+                    # F-53 Scope A.P3: wizard's smoke-test turn — errors
+                    # go to _show_error which renders "Error: <text>"
+                    # in the wizard step. Nothing swallowed.
                     GLib.idle_add(_show_error, str(exc))
 
             def _show_error(msg: str) -> bool:

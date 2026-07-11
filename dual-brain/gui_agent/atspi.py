@@ -14,10 +14,14 @@ before returning to the caller (BP-3).
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+
+_atspi_log = logging.getLogger(__name__)
 
 
 class AtSpiUnavailableError(Exception):
@@ -100,6 +104,14 @@ class AtSpiClient:
         self._window_cache: list[WindowDescriptor] | None = None
         self._window_cache_time: float = 0.0
         self._window_cache_ttl = window_cache_ttl
+        # F-53 Scope A.P3: per-probe error cache. AT-SPI method calls
+        # legitimately fail on some apps (elements removed from tree
+        # mid-walk, apps without text/state interfaces). Instead of
+        # spamming logs, we record {probe_key -> (count, last_exc_str)}
+        # and log-debug on the FIRST occurrence per key. Errors page /
+        # future observability layer can inspect via
+        # ``get_last_probe_errors()``.
+        self._last_probe_errors: dict[str, tuple[int, str]] = {}
 
         try:
             import gi
@@ -109,6 +121,22 @@ class AtSpiClient:
             self._available = True
         except (ImportError, ValueError) as exc:
             self._init_error = str(exc)
+
+    def _record_probe_error(self, key: str, exc: BaseException) -> None:
+        """Cache the last exception seen by an AT-SPI probe and log on
+        first occurrence only (per key, per client instance)."""
+        prev = self._last_probe_errors.get(key)
+        count = 1 if prev is None else prev[0] + 1
+        detail = f"{type(exc).__name__}: {exc}"[:400]
+        self._last_probe_errors[key] = (count, detail)
+        if prev is None:
+            _atspi_log.debug("atspi.%s failed (first occurrence): %s", key, detail)
+
+    def get_last_probe_errors(self) -> dict[str, tuple[int, str]]:
+        """Snapshot of AT-SPI probe failures observed since construction.
+        The Errors page surfaces this so users can see WHY get_extents /
+        get_text_iface / get_state_set returned empty."""
+        return dict(self._last_probe_errors)
 
     @property
     def available(self) -> bool:
@@ -145,7 +173,8 @@ class AtSpiClient:
                 try:
                     ext = win.get_extents(Atspi.CoordType.SCREEN)
                     geom = (ext.x, ext.y, ext.width, ext.height)
-                except Exception:
+                except Exception as exc:
+                    self._record_probe_error("window.get_extents", exc)
                     geom = (0, 0, 0, 0)
 
                 windows.append(WindowDescriptor(
@@ -242,7 +271,10 @@ class AtSpiClient:
                 return ActionResult(success=False, error="Element does not support actions")
             action_iface.do_action(0)
             return ActionResult(success=True)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
+            # F-53 Scope A.P3: AT-SPI method-call failure — the caller
+            # sees `ActionResult(success=False, error=str(exc))` so the
+            # UI can render the specific pyatspi exception.
             return ActionResult(success=False, error=str(exc))
 
     def type_text(self, element: ElementDescriptor, text: str) -> ActionResult:
@@ -260,7 +292,10 @@ class AtSpiClient:
                 return ActionResult(success=False, error="Element is not editable")
             edit_iface.insert_text(len(acc.get_text_iface().get_text(0, -1)), text, len(text))
             return ActionResult(success=True)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
+            # F-53 Scope A.P3: AT-SPI method-call failure — the caller
+            # sees `ActionResult(success=False, error=str(exc))` so the
+            # UI can render the specific pyatspi exception.
             return ActionResult(success=False, error=str(exc))
 
     def select(self, element: ElementDescriptor, value: str) -> ActionResult:
@@ -282,7 +317,10 @@ class AtSpiClient:
                     sel_iface.select_child(i)
                     return ActionResult(success=True)
             return ActionResult(success=False, error=f"Value {value!r} not found in options")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
+            # F-53 Scope A.P3: AT-SPI method-call failure — the caller
+            # sees `ActionResult(success=False, error=str(exc))` so the
+            # UI can render the specific pyatspi exception.
             return ActionResult(success=False, error=str(exc))
 
     def get_element_tree(
@@ -356,7 +394,8 @@ class AtSpiClient:
                     ext = acc.get_extents(Atspi.CoordType.SCREEN)
                     pos = (ext.x, ext.y)
                     size = (ext.width, ext.height)
-                except Exception:
+                except Exception as exc:
+                    self._record_probe_error("fast.get_extents", exc)
                     pos = (0, 0)
                     size = (0, 0)
 
@@ -371,16 +410,16 @@ class AtSpiClient:
                         if st.contains(s):
                             state_names.append(s.value_nick)
                     states = frozenset(state_names)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._record_probe_error("fast.get_state_set", exc)
 
                 text = ""
                 try:
                     ti = acc.get_text_iface()
                     if ti:
                         text = ti.get_text(0, min(ti.get_character_count(), 256))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._record_probe_error("fast.get_text_iface", exc)
 
                 return ElementDescriptor(
                     path=f"{path}/{_sanitize_gui_string(acc_name)}",
@@ -439,7 +478,8 @@ class AtSpiClient:
                     ext = acc.get_extents(Atspi.CoordType.SCREEN)
                     pos = (ext.x, ext.y)
                     size = (ext.width, ext.height)
-                except Exception:
+                except Exception as exc:
+                    self._record_probe_error("search.get_extents", exc)
                     pos = (0, 0)
                     size = (0, 0)
 
@@ -456,16 +496,16 @@ class AtSpiClient:
                         if st.contains(s):
                             state_names.append(s.value_nick)
                     states = frozenset(state_names)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._record_probe_error("search.get_state_set", exc)
 
                 text = ""
                 try:
                     ti = acc.get_text_iface()
                     if ti:
                         text = ti.get_text(0, min(ti.get_character_count(), 256))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._record_probe_error("search.get_text_iface", exc)
 
                 element_path = f"{path}/{_sanitize_gui_string(acc_name)}"
                 matches.append(ElementDescriptor(

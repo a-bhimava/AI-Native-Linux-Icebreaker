@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import platform
 import shutil
@@ -38,6 +39,31 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+
+log = logging.getLogger(__name__)
+
+
+# F-53 Scope A.P3: hardware probes are legitimately best-effort — a
+# nvidia-smi call on a laptop without an Nvidia card *should* fail —
+# but silently swallowing the exception meant the Errors page and Model
+# recommender had no way to explain *why* they thought "no GPU". Every
+# probe now records its exception here under a "<subsystem>/<platform>/
+# <probe>" key, and callers can inspect via ``get_last_probe_errors()``.
+_LAST_PROBE_ERRORS: dict[str, str] = {}
+
+
+def _record_probe_error(key: str, exc: BaseException) -> None:
+    """Store the last exception seen by a specific probe. Truncated to
+    400 chars so a rogue subprocess stderr can't blow up the audit."""
+    _LAST_PROBE_ERRORS[key] = f"{type(exc).__name__}: {exc}"[:400]
+    log.debug("hw_probe.%s failed: %s: %s", key, type(exc).__name__, exc)
+
+
+def get_last_probe_errors() -> dict[str, str]:
+    """Return a snapshot of the last-seen probe exceptions. Errors page
+    reads this to explain "why no GPU detected" style questions."""
+    return dict(_LAST_PROBE_ERRORS)
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -447,8 +473,8 @@ def _probe_ram_mb() -> int:
                 ["sysctl", "-n", "hw.memsize"], text=True, timeout=5
             )
             return int(out.strip()) // (1024 * 1024)
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_probe_error("ram/darwin/sysctl", exc)
     if sysname == "Linux":
         try:
             with open("/proc/meminfo", "r", encoding="utf-8") as handle:
@@ -456,8 +482,8 @@ def _probe_ram_mb() -> int:
                     if line.startswith("MemTotal:"):
                         kb = int(line.split()[1])
                         return kb // 1024
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_probe_error("ram/linux/meminfo", exc)
     # Fallback: assume 8 GB so we don't crash the recommender
     return 8192
 
@@ -474,8 +500,8 @@ def _probe_gpu() -> tuple[bool, str | None]:
             )
             if "Apple" in out:
                 return True, out.strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_probe_error("gpu/darwin/sysctl", exc)
         return False, None
     if sysname == "Linux":
         # Try nvidia-smi first
@@ -489,8 +515,8 @@ def _probe_gpu() -> tuple[bool, str | None]:
             name = out.strip().splitlines()[0] if out.strip() else None
             if name:
                 return True, name
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_probe_error("gpu/linux/nvidia-smi", exc)
         # rocm-smi for AMD
         try:
             out = subprocess.check_output(
@@ -501,8 +527,8 @@ def _probe_gpu() -> tuple[bool, str | None]:
             )
             if "GPU" in out:
                 return True, "AMD GPU (rocm)"
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_probe_error("gpu/linux/rocm-smi", exc)
     return False, None
 
 

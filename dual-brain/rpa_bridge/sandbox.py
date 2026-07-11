@@ -67,7 +67,16 @@ class _LandlockPathBeneathAttr(ctypes.Structure):
 
 
 def _check_landlock_available() -> bool:
-    """Probe for Landlock ABI v1 support."""
+    """Probe for Landlock ABI v1 support.
+
+    Returns False when Landlock is unavailable (non-Linux, kernel too
+    old, libc probe fails). The caller (``apply_rpa_sandbox``) raises
+    ``SandboxError`` on False, so the eventual failure IS surfaced.
+    Silent swallow here is intentional (F-53 Scope A.P3): the probe
+    itself is a best-effort feature test — we don't want a transient
+    ctypes / libc surprise to *look like* Landlock exists when it
+    doesn't. Erring toward "not available" is safe under INV-5.
+    """
     if sys.platform != "linux":
         return False
     try:
@@ -80,7 +89,9 @@ def _check_landlock_available() -> bool:
         if result >= 1:
             return True
         return ctypes.get_errno() != 38  # ENOSYS
-    except Exception:
+    except Exception:  # noqa: BLE001
+        # Intentional swallow — see docstring. The caller raises
+        # SandboxError on False, so the failure is surfaced there.
         return False
 
 
@@ -175,17 +186,39 @@ def _apply_seccomp() -> None:
         "alarm",
     ]
 
+    # F-53 Scope A.P3 (security-critical). Seccomp rule-add failures
+    # used to be swallowed. Per the Phase 6 completion plan and INV-5,
+    # any seccomp failure means the resulting filter is DIFFERENT from
+    # what the security review approved — we must refuse to spawn the
+    # child rather than run under an unknown policy.
+    #
+    #   * ALLOW failures: the safe list is a *closed* whitelist. A
+    #     missing rule silently over-restricts. A child that suddenly
+    #     can't `clone3` produces cryptic downstream failures; better
+    #     to abort here with the exact syscall name.
+    #   * DENY failures: catastrophic. If we can't deny `execve` /
+    #     `execveat` then arbitrary binaries can be exec'd from inside
+    #     the sandbox — this is exactly the escape vector INV-5 exists
+    #     to close.
     for name in safe_syscalls:
         try:
             f.add_rule(seccomp.ALLOW, name)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise SandboxError(
+                f"seccomp ALLOW rule for '{name}' failed "
+                f"({type(exc).__name__}: {exc}). Refusing to spawn "
+                "RPA child under an incomplete filter — see INV-5."
+            ) from exc
 
     for deny_name in ("execve", "execveat"):
         try:
             f.add_rule(seccomp.ERRNO(1), deny_name)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise SandboxError(
+                f"seccomp DENY rule for '{deny_name}' failed "
+                f"({type(exc).__name__}: {exc}). Sandbox cannot block "
+                "arbitrary exec — refusing to spawn RPA child. INV-5."
+            ) from exc
 
     f.load()
 

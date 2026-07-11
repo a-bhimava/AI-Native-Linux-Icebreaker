@@ -8,11 +8,15 @@ to ``ib_debug`` propagates automatically.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import socket
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+
+_status_log = logging.getLogger(__name__)
 
 
 _LOCATIONS_ENV = Path("/etc/icebreaker/locations.env")
@@ -49,8 +53,15 @@ def _read_env_file() -> dict:
                 continue
             key, _, value = line.partition("=")
             result[key.strip()] = value.strip().strip('"')
-    except Exception:
-        pass
+    except Exception as exc:
+        # F-53 Scope A.P3: /etc/icebreaker/locations.env exists but is
+        # unreadable. Log so a bad system install (wrong perms,
+        # truncated file) is diagnosable — API keys page will show
+        # every key as "not configured" without this log line.
+        _status_log.warning(
+            "status.locations_env unreadable at %s: %s: %s",
+            _LOCATIONS_ENV, type(exc).__name__, exc,
+        )
     return result
 
 
@@ -68,7 +79,14 @@ def _service_active(unit: str) -> tuple[bool, str]:
             capture_output=True, text=True, timeout=2,
         )
         return r.returncode == 0, r.stdout.strip()
-    except Exception:
+    except Exception as exc:
+        # F-53 Scope A.P3: systemctl call failed (not installed,
+        # timeout, permission). Log so a broken systemd install
+        # doesn't silently make every service look inactive.
+        _status_log.warning(
+            "status.systemctl(%s) failed: %s: %s",
+            unit, type(exc).__name__, exc,
+        )
         return False, "unknown"
 
 
@@ -96,8 +114,13 @@ def collect() -> Health:
     if version_file.exists():
         try:
             h.version = version_file.read_text().strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-53 Scope A.P3: file is present but unreadable — usually
+            # a permissions bug in a freshly-installed image.
+            _status_log.warning(
+                "status.version_file unreadable: %s: %s",
+                type(exc).__name__, exc,
+            )
 
     for unit, label in [
         ("icebreaker-first-boot.service", "First Boot"),

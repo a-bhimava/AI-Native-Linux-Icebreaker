@@ -73,7 +73,13 @@ class _LandlockPathBeneathAttr(ctypes.Structure):
 
 
 def _check_landlock_available() -> bool:
-    """Probe for Landlock ABI v1 support."""
+    """Probe for Landlock ABI v1 support.
+
+    See ``rpa_bridge.sandbox._check_landlock_available`` — same rationale.
+    Silent swallow (F-53 Scope A.P3) is intentional because the caller
+    raises ``SandboxError`` on False and refusing sandbox setup is the
+    safe outcome under INV-5.
+    """
     if sys.platform != "linux":
         return False
     try:
@@ -86,7 +92,8 @@ def _check_landlock_available() -> bool:
         if result >= 1:
             return True
         return ctypes.get_errno() != 38  # ENOSYS
-    except Exception:
+    except Exception:  # noqa: BLE001
+        # Intentional swallow — see docstring.
         return False
 
 
@@ -187,11 +194,19 @@ def _apply_seccomp() -> None:
         "rseq", "prlimit64",
     ]
 
+    # F-53 Scope A.P3 (security-critical). See rpa_bridge/sandbox.py for
+    # full rationale. ALLOW-rule failure: over-restriction that yields
+    # cryptic child breakage — refuse spawn. DENY / arg-filtered ALLOW
+    # failure: policy diverges from what INV-5 requires — refuse spawn.
     for name in safe_syscalls:
         try:
             f.add_rule(seccomp.ALLOW, name)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise SandboxError(
+                f"seccomp ALLOW rule for '{name}' failed "
+                f"({type(exc).__name__}: {exc}). Refusing to spawn "
+                "GUI Agent child under an incomplete filter — INV-5."
+            ) from exc
 
     # socket(domain, ...) — allow only AF_UNIX and AF_NETLINK (arg0 filter).
     # All other domains (AF_INET=2, AF_INET6=10, ...) hit the default EPERM.
@@ -201,14 +216,22 @@ def _apply_seccomp() -> None:
                 seccomp.ALLOW, "socket",
                 seccomp.Arg(0, seccomp.EQ, allowed_af),
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            raise SandboxError(
+                f"seccomp arg-filtered ALLOW for socket AF={allowed_af} "
+                f"failed ({type(exc).__name__}: {exc}). D-Bus / UNIX "
+                "socket policy incomplete — refusing to spawn. INV-5."
+            ) from exc
 
     for deny_name in ("execve", "execveat"):
         try:
             f.add_rule(seccomp.ERRNO(1), deny_name)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise SandboxError(
+                f"seccomp DENY rule for '{deny_name}' failed "
+                f"({type(exc).__name__}: {exc}). Sandbox cannot block "
+                "arbitrary exec — refusing to spawn GUI Agent. INV-5."
+            ) from exc
 
     f.load()
 

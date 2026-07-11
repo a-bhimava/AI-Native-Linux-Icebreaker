@@ -244,7 +244,10 @@ class ChatbotWindow(Adw.ApplicationWindow):
                 return
             result = resp.get("result", resp)
             GLib.idle_add(self._handle_turn_result, result)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
+            # F-53 Scope A.P3: `str(exc)` reaches the user via
+            # `_handle_turn_error`, which sanitizes and displays it in
+            # the chat as "Error: <type>: <msg>". Nothing swallowed.
             GLib.idle_add(self._handle_turn_error, str(exc))
 
     def _handle_turn_error(self, msg: str) -> bool:

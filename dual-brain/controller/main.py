@@ -964,7 +964,11 @@ class Controller:
                     gui_result = gui.handle_request(
                         tool_name, tool_call.get("params", {}),
                     )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
+                    # F-53 Scope A.P3: `str(exc)` is surfaced twice —
+                    # once via `_cot(...body=str(exc))` for CoT display
+                    # and once via `GuiEvent(error=str(exc))` for the
+                    # companion panel. Nothing swallowed.
                     yield _cot("mcpd_dispatch", "failed", body=str(exc))
                     yield GuiEvent(
                         phase="complete",
@@ -1787,7 +1791,10 @@ class Controller:
                 gui_result = gui.handle_request(
                     tool_name, tool_call.get("params", {}),
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
+                # F-53 Scope A.P3: GUI Agent dispatch failure — recorded
+                # to audit (Outcome.GUI_ERROR) with duration, tokens,
+                # and the raw exception surfaces via the caller path.
                 duration = (time.monotonic() - t0) * 1000
                 self._audit.write_fields(AuditFields(
                     session_id=session.session_id, turn_index=session.turn_index,

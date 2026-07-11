@@ -16,8 +16,12 @@ use, so the placeholder becomes a real page in one PR.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
+
+
+_tools_log = logging.getLogger(__name__)
 
 import gi
 
@@ -118,7 +122,15 @@ class ToolsPage(Adw.PreferencesPage):
                 continue
             try:
                 data = json.loads(path.read_text("utf-8"))
-            except Exception:
+            except Exception as exc:
+                # F-53 Scope A.P3: mcpd schema JSON failed to parse.
+                # Log so a truncated / bad-encoding schema doesn't
+                # silently vanish from the Tools page — the missing
+                # tool is confusing without this hint in journalctl.
+                _tools_log.warning(
+                    "tools_page.schema_parse %s failed: %s: %s",
+                    path.name, type(exc).__name__, exc,
+                )
                 continue
             trust = data.get("x-icebreaker-trust", {}) or {}
             tools.append({

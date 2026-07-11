@@ -21,12 +21,16 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import PurePosixPath
 from typing import Optional
+
+
+_risk_log = logging.getLogger(__name__)
 
 from ._mcpd_tools import (
     ALL_TOOLS,
@@ -81,7 +85,16 @@ def _target_is_in_user_home(target: str) -> bool:
         resolved = PurePosixPath(os.path.realpath(target))
         home = PurePosixPath(os.path.realpath(_get_user_home()))
         return resolved == home or home in resolved.parents
-    except Exception:
+    except Exception as exc:
+        # F-53 Scope A.P3 (BP-5 escalate-only): realpath failure means we
+        # don't know whether this target is in $HOME. Returning False
+        # means "outside home" which escalates to higher risk — the
+        # SAFE side of the fence. Log so a systemic realpath failure
+        # (broken symlink, PermissionError under Landlock) is visible.
+        _risk_log.debug(
+            "risk.target_in_home realpath failed for %r: %s: %s",
+            target, type(exc).__name__, exc,
+        )
         return False
 
 
@@ -90,7 +103,15 @@ def _target_is_critical(target: str) -> bool:
         return False
     try:
         resolved = os.path.realpath(target)
-    except Exception:
+    except Exception as exc:
+        # F-53 Scope A.P3: fall back to raw target — critical-path
+        # pattern still matches on the unresolved string (e.g. `/etc/…`
+        # doesn't need realpath to be flagged). BP-5 escalate-only:
+        # this can only over-flag, never under-flag.
+        _risk_log.debug(
+            "risk.target_critical realpath failed for %r: %s: %s",
+            target, type(exc).__name__, exc,
+        )
         resolved = target
     return bool(_CRITICAL_PATHS.search(resolved))
 

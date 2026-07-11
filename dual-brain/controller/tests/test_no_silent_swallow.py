@@ -66,6 +66,7 @@ _SURFACE_WINDOW = 12
 _SURFACING_TOKENS = (
     "_log_exception",              # controller.main helper (F-53)
     "log.warning", "log.error",    # daemon.py module logger
+    "log.exception",               # includes traceback — strongest surface
     "log.debug",                   # daemon.py (parse_message throttle)
     "log.info",
     "logger.warning", "logger.error",
@@ -79,6 +80,7 @@ _SURFACING_TOKENS = (
     "self.notify(",                # GTK/Textual visible surface
     "raise ",                      # re-raise or replace with typed exc
     "_probe_result(",              # model_registry probe struct
+    "_record_probe_error",         # model_registry + atspi per-probe cache
     "startup_warning",             # terminal + gui show-and-log pattern
     "_daemon_startup_error",       # __main__.py connect-failure surface
     "_logger_init_error",          # gui/app.py logger init failure
@@ -126,49 +128,13 @@ _INTENTIONAL_SITES: tuple[tuple[str, str], ...] = (
 # regression the enforcement gate exists to catch. If a site drops off
 # because we fixed it (or moved it), remove the entry.
 # Format: (file_relative_to_root, lineno_of_except).
-_KNOWN_OFFENDERS: frozenset[tuple[str, int]] = frozenset((
-    ("controller/daemon.py", 307),
-    ("controller/daemon.py", 455),
-    ("controller/main.py", 967),
-    ("controller/main.py", 1790),
-    ("controller/model_registry.py", 450),
-    ("controller/model_registry.py", 459),
-    ("controller/model_registry.py", 477),
-    ("controller/model_registry.py", 492),
-    ("controller/model_registry.py", 504),
-    ("controller/risk_classifier.py", 84),
-    ("controller/risk_classifier.py", 93),
-    ("gui/chatbot/window.py", 247),
-    ("gui/control/pages/tools_page.py", 121),
-    ("gui/control/status.py", 52),
-    ("gui/control/status.py", 71),
-    ("gui/control/status.py", 99),
-    ("gui/tray/indicator.py", 110),
-    ("gui/wizard/window.py", 245),
-    ("gui_agent/agent.py", 285),
-    ("gui_agent/atspi.py", 148),
-    ("gui_agent/atspi.py", 245),
-    ("gui_agent/atspi.py", 263),
-    ("gui_agent/atspi.py", 285),
-    ("gui_agent/atspi.py", 359),
-    ("gui_agent/atspi.py", 374),
-    ("gui_agent/atspi.py", 382),
-    ("gui_agent/atspi.py", 442),
-    ("gui_agent/atspi.py", 459),
-    ("gui_agent/atspi.py", 467),
-    ("gui_agent/sandbox.py", 89),
-    ("gui_agent/sandbox.py", 193),
-    ("gui_agent/sandbox.py", 204),
-    ("gui_agent/screenshots.py", 61),
-    ("gui_agent/screenshots.py", 161),
-    ("gui_agent/screenshots.py", 199),
-    ("gui_agent/screenshots.py", 262),
-    ("rpa_bridge/bridge.py", 212),
-    ("rpa_bridge/bridge.py", 408),
-    ("rpa_bridge/sandbox.py", 83),
-    ("rpa_bridge/sandbox.py", 181),
-    ("rpa_bridge/sandbox.py", 187),
-))
+# **Phase 6 Scope A COMPLETE 2026-07-10**: 63 → 52 → 41 → 0 as
+# P1/P2/P3 landed. Every remaining `except Exception` block in
+# scope now either (a) calls a surfacing helper within 12 lines,
+# (b) carries `# noqa: BLE001` with a justifying comment, or (c)
+# lives in `_INTENTIONAL_SITES`. The enforcement gate is now purely
+# forward-looking: any NEW bare swallow fails CI immediately.
+_KNOWN_OFFENDERS: frozenset[tuple[str, int]] = frozenset()
 
 
 # ─── Discovery ────────────────────────────────────────────────────────────
