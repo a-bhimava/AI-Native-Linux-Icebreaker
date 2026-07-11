@@ -62,13 +62,25 @@ class AnthropicBackend(_ApiBackend):
             strip_format=False,
         )
 
+        # Phase 6 Scope E fix (2026-07-11): Claude Haiku 4.5 rejects
+        # requests specifying BOTH `temperature` and `top_p` with a
+        # 400 "cannot both be specified for this model". Anthropic's
+        # API docs recommend picking ONE — send `temperature` since
+        # it's the more widely-supported knob, and the sampling
+        # ladder's semantic (attempt 1 = high creativity, attempt 3 =
+        # deterministic) is already captured by temperature alone.
+        # Discovered by the live fallback sweep.
         kwargs: dict[str, Any] = {
             "model": self._config.model,
             "max_tokens": self._config.max_tokens,
             "system": envelope.system,
             "messages": [{"role": "user", "content": envelope.user}],
-            "temperature": envelope.sampling["temperature"],
-            "top_p": envelope.sampling["top_p"],
+            # Defensive: envelope.sampling should always carry
+            # `temperature` (base ladder guarantees it), but a hand-built
+            # RequestEnvelope in a test or future caller might not.
+            # Default to a moderate-creativity value so the API call
+            # doesn't blow up on a KeyError.
+            "temperature": envelope.sampling.get("temperature", 0.2),
             "output_config": {
                 "format": {
                     "type": "json_schema",
@@ -107,13 +119,25 @@ class AnthropicBackend(_ApiBackend):
             strip_format=False,  # Anthropic supports uuid, date-time, etc.
         )
 
+        # Phase 6 Scope E fix (2026-07-11): Claude Haiku 4.5 rejects
+        # requests specifying BOTH `temperature` and `top_p` with a
+        # 400 "cannot both be specified for this model". Anthropic's
+        # API docs recommend picking ONE — send `temperature` since
+        # it's the more widely-supported knob, and the sampling
+        # ladder's semantic (attempt 1 = high creativity, attempt 3 =
+        # deterministic) is already captured by temperature alone.
+        # Discovered by the live fallback sweep.
         kwargs: dict[str, Any] = {
             "model": self._config.model,
             "max_tokens": self._config.max_tokens,
             "system": envelope.system,
             "messages": [{"role": "user", "content": envelope.user}],
-            "temperature": envelope.sampling["temperature"],
-            "top_p": envelope.sampling["top_p"],
+            # Defensive: envelope.sampling should always carry
+            # `temperature` (base ladder guarantees it), but a hand-built
+            # RequestEnvelope in a test or future caller might not.
+            # Default to a moderate-creativity value so the API call
+            # doesn't blow up on a KeyError.
+            "temperature": envelope.sampling.get("temperature", 0.2),
             "output_config": {
                 "format": {
                     "type": "json_schema",

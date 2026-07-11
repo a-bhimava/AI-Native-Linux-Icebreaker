@@ -146,6 +146,7 @@ class BehaviorPage(Adw.PreferencesPage):
         self._add_verifier_group()
         self._add_fallback_group()
         self._add_cost_group()
+        self._add_debug_group()
         self._add_actions_group()
 
     # ── Verifier voting (Phase 6 Scope B) ───────────────────────────────
@@ -507,6 +508,86 @@ class BehaviorPage(Adw.PreferencesPage):
         return False
 
     # ── Apply ────────────────────────────────────────────────────────────
+
+    # ── Debug mode (Phase 6 Scope D/E) ──────────────────────────────────
+
+    def _add_debug_group(self) -> None:
+        """Surface `[debug].enabled` + a "Clear log" affordance.
+
+        Debug mode is off by default (BP-2). When on, key call sites
+        (fallback fire, preset verify, config write, restart) emit
+        structured JSONL to `$XDG_STATE_HOME/icebreaker/debug.jsonl`.
+        Secrets (api_key / token / password) are redacted before write.
+        """
+        group = Adw.PreferencesGroup(
+            title="Debug mode",
+            description=(
+                "Off by default. When on, the controller records "
+                "structured diagnostics to "
+                "$XDG_STATE_HOME/icebreaker/debug.jsonl for later "
+                "triage. API keys and tokens are automatically "
+                "redacted. Restart required to apply."
+            ),
+        )
+        self.add(group)
+
+        current_enabled = bool(effective(
+            self._system, self._user, ("debug",), "enabled", False,
+        ))
+
+        toggle_row = Adw.ActionRow(
+            title="Enable debug logging",
+            subtitle="Restart controller to apply. Off = zero overhead.",
+        )
+        toggle_switch = Gtk.Switch()
+        toggle_switch.set_valign(Gtk.Align.CENTER)
+        toggle_switch.set_active(current_enabled)
+        toggle_switch.connect("state-set", self._on_debug_enabled_changed)
+        toggle_row.add_suffix(toggle_switch)
+        group.add(toggle_row)
+        self._debug_toggle = toggle_switch
+
+        # Clear-log affordance. Doesn't need a restart; acts on the
+        # log file directly.
+        clear_row = Adw.ActionRow(
+            title="Clear debug log",
+            subtitle="Truncate the current debug.jsonl file.",
+        )
+        clear_btn = Gtk.Button(label="Clear now")
+        clear_btn.set_valign(Gtk.Align.CENTER)
+        clear_btn.connect("clicked", self._on_debug_clear)
+        clear_row.add_suffix(clear_btn)
+        group.add(clear_row)
+
+    def _on_debug_enabled_changed(self, _switch, active: bool) -> bool:
+        """Persist the toggle to `~/.config/icebreaker/controller.toml`
+        immediately (single-checkbox interactions don't need an Apply
+        button). Restart-required semantics are conveyed via the row
+        subtitle so users know the effect is on next restart."""
+        try:
+            set_user_override(("debug",), "enabled", bool(active))
+            self._flash(
+                "Debug mode "
+                + ("enabled" if active else "disabled")
+                + " — click Apply & Restart to load."
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._flash(f"Save failed: {exc}", warning=True)
+        return False  # let Gtk update the switch visually
+
+    def _on_debug_clear(self, _button) -> None:
+        """Truncate the debug log via `controller.debug_log.clear()`.
+        Lazy-import so the button remains functional even if the
+        controller module can't be loaded from this GUI process."""
+        try:
+            from controller import debug_log
+            ok, msg = debug_log.clear()
+            if ok:
+                self._flash(msg)
+            else:
+                self._flash(msg, warning=True)
+        except Exception as exc:  # noqa: BLE001
+            self._flash(f"Clear failed: {exc}", warning=True)
 
     def _add_actions_group(self) -> None:
         group = Adw.PreferencesGroup(title="Apply changes")

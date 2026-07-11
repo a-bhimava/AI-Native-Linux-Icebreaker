@@ -315,9 +315,14 @@ def test_anthropic_sampling_params_reach_sdk(fake_anthropic):
     )
     backend.complete("sys", "user", _intent_schema())
     kwargs = fake_anthropic.last_instance.messages.captured[0]
-    # Attempt 1 sampling decay = {temperature: 0.4, top_p: 0.9}
+    # Attempt 1 sampling decay = {temperature: 0.4, top_p: 0.9}. Phase 6
+    # Scope E (2026-07-11) intentionally drops top_p from the wire —
+    # Claude Haiku 4.5 rejects requests carrying both. temperature alone
+    # carries the sampling-ladder semantics.
     assert kwargs["temperature"] == pytest.approx(0.4)
-    assert kwargs["top_p"] == pytest.approx(0.9)
+    assert "top_p" not in kwargs, (
+        "top_p must NOT reach the SDK — see Scope E anthropic_backend fix"
+    )
 
 
 def test_anthropic_sampling_decay_across_retries(fake_anthropic):

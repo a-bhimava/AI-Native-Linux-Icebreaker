@@ -271,11 +271,33 @@ def verify_preset(
             http_code=None,
         )
     if provider == "gemini":
-        return _verify_gemini(preset_id, api_key)
-    if provider == "anthropic":
-        return _verify_anthropic(preset_id, api_key)
-    if provider == "openai":
-        return _verify_openai(preset_id, api_key)
+        result = _verify_gemini(preset_id, api_key)
+    elif provider == "anthropic":
+        result = _verify_anthropic(preset_id, api_key)
+    elif provider == "openai":
+        result = _verify_openai(preset_id, api_key)
+    else:
+        result = None
+    if result is not None:
+        # Phase 6 Scope D/E debug logging. Lazy import — preset_verifier
+        # is called from GUI worker threads and we don't want an import
+        # error here to break the sweep.
+        try:
+            from . import debug_log
+            if debug_log.is_enabled():
+                debug_log.record(
+                    "preset_verify", "preset_verifier",
+                    {
+                        "provider": provider,
+                        "preset_id": preset_id,
+                        "status": result.status.value,
+                        "http_code": result.http_code,
+                        "detail_head": result.detail[:120],
+                    },
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        return result
     if provider == "local":
         # `local` presets resolve via `model_registry` (file presence +
         # checksum), not an HTTP call. The Models page shortcuts to a

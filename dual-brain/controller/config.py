@@ -230,6 +230,17 @@ class VerifierConfig:
 
 
 @dataclass(frozen=True)
+class DebugConfig:
+    """Phase 6 Scope D/E — structured debug logging. Off by default
+    (BP-2). Turn on via the Control Center → Behavior page or by
+    hand-editing `[debug] enabled = true`. Emits JSONL to
+    $XDG_STATE_HOME/icebreaker/debug.jsonl."""
+    enabled: bool = False
+    max_size_mb: int = 32
+    log_path: str = ""      # empty = default XDG path
+
+
+@dataclass(frozen=True)
 class DaemonConfig:
     socket_path: str = "~/.local/state/icebreaker/controller.sock"
     pid_file: str = "~/.local/state/icebreaker/controller.pid"
@@ -296,6 +307,7 @@ class ControllerConfig:
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     undo: UndoConfig = field(default_factory=UndoConfig)
     verifier: VerifierConfig = field(default_factory=VerifierConfig)
+    debug: DebugConfig = field(default_factory=DebugConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
     terminal: TerminalConfig = field(default_factory=TerminalConfig)
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
@@ -648,6 +660,17 @@ def _build_daemon_config(raw: dict) -> DaemonConfig:
     )
 
 
+def _build_debug_config(raw: dict) -> DebugConfig:
+    """Phase 6 Scope D/E — build the [debug] section. Off by default
+    (BP-2); operator opts in via GUI or hand-edit."""
+    section = raw.get("debug", {}) if isinstance(raw.get("debug"), dict) else {}
+    return DebugConfig(
+        enabled=bool(section.get("enabled", False)),
+        max_size_mb=int(section.get("max_size_mb", 32)),
+        log_path=str(section.get("log_path", "")),
+    )
+
+
 def _build_gui_config(raw: dict) -> GuiConfig:
     section = raw.get("gui", {})
     return GuiConfig(
@@ -720,6 +743,7 @@ def _build_config(raw: dict, config_path: Path) -> ControllerConfig:
         limits=_build_limits_config(raw),
         undo=_build_undo_config(raw),
         verifier=_build_verifier_config(raw),
+        debug=_build_debug_config(raw),
         daemon=_build_daemon_config(raw),
         terminal=_build_terminal_config(raw),
         desktop=_build_desktop_config(raw),
