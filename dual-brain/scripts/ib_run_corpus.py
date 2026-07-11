@@ -96,7 +96,7 @@ def _run_row(client, row: dict) -> dict:
     expected = row.get("expected_outcome", "")
     t0 = time.monotonic()
     try:
-        result = client.run_turn(query, context=context)
+        envelope = client.run_turn(query, context=context)
     except Exception as exc:
         elapsed = (time.monotonic() - t0) * 1000
         return {
@@ -109,20 +109,41 @@ def _run_row(client, row: dict) -> dict:
             "reason": f"{type(exc).__name__}: {str(exc)[:200]}",
         }
     elapsed = (time.monotonic() - t0) * 1000
-    actual = result.get("outcome") if isinstance(result, dict) else None
-    success = result.get("success") if isinstance(result, dict) else False
+    # ``DaemonClient.send_request`` returns the raw JSON-RPC envelope:
+    #   {"jsonrpc": "2.0", "id": ..., "result": {...outcome, success, ...}}
+    #     OR
+    #   {"jsonrpc": "2.0", "id": ..., "error": {"code": ..., "message": ...}}
+    # Unwrap either shape into a caller-friendly (actual, success, err) tuple.
+    if isinstance(envelope, dict) and "result" in envelope and isinstance(envelope["result"], dict):
+        result = envelope["result"]
+        actual = result.get("outcome")
+        success = result.get("success")
+        err_msg = None
+    elif isinstance(envelope, dict) and "error" in envelope:
+        actual = None
+        success = False
+        err_msg = envelope["error"].get("message", "unknown JSON-RPC error")[:300]
+    else:
+        actual = None
+        success = False
+        err_msg = f"unexpected daemon response shape: {type(envelope).__name__}"
     matched = actual == expected
+    if err_msg is not None and not matched:
+        # Daemon raised — surface the message alongside the outcome mismatch
+        # so the operator sees WHY the daemon rejected (F-43/F-52 shape etc.).
+        reason = f"expected={expected!r} actual={actual!r} daemon_error={err_msg!r}"
+    elif matched:
+        reason = None
+    else:
+        reason = f"expected={expected!r} actual={actual!r}"
     return {
         "id": row_id,
-        "status": "ok" if matched else "outcome_mismatch",
+        "status": "ok" if matched else ("error" if err_msg else "outcome_mismatch"),
         "expected_outcome": expected,
         "actual_outcome": actual,
         "success": success,
         "elapsed_ms": round(elapsed, 1),
-        "reason": (
-            None if matched
-            else f"expected={expected!r} actual={actual!r}"
-        ),
+        "reason": reason,
     }
 
 
@@ -177,6 +198,18 @@ def main() -> int:
         )
         return 1
 
+    # BP-2 backward-compat: the DaemonClient constructor gained
+    # `turn_timeout_seconds` / `reader_recv_timeout_seconds` /
+    # `max_reconnect_delay_seconds` in Phase 6 Scope B. G24 must work
+    # against ISOs that predate Scope B — the whole point is verifying
+    # ALREADY-SHIPPED artifacts, not the current tree. Introspect and
+    # pass only what the target's signature accepts.
+    import inspect
+    _sig = inspect.signature(DaemonClient.__init__)
+    _client_kwargs: dict = {}
+    if "turn_timeout_seconds" in _sig.parameters:
+        _client_kwargs["turn_timeout_seconds"] = args.turn_timeout
+
     try:
         rows = _load_corpus_from_stdin()
     except json.JSONDecodeError as exc:
@@ -201,10 +234,7 @@ def main() -> int:
         )
         return 1
 
-    client = DaemonClient(
-        args.sock,
-        turn_timeout_seconds=args.turn_timeout,
-    )
+    client = DaemonClient(args.sock, **_client_kwargs)
     try:
         client.connect()
     except (OSError, ConnectionError) as exc:
