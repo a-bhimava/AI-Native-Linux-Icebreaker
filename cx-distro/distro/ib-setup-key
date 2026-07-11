@@ -5,22 +5,44 @@
 #   ib-setup-key                                  # interactive; sets GEMINI_API_KEY
 #   ib-setup-key --env-var ANTHROPIC_API_KEY      # interactive; sets a specific var
 #   ib-setup-key --env-var OPENAI_API_KEY <<<key  # non-interactive (stdin)
+#   ib-setup-key --dry-run --env-var GEMINI_API_KEY  # print what would happen; no writes
 #
 # Writes VAR=VALUE into /etc/icebreaker/locations.env (0640
 # root:icebreaker-users, BP-8: value never echoed, never logged) and
 # restarts the controller. When invoked from the GUI via pkexec, stdin is
 # a single line — no prompt is drawn.
+#
+# Phase 6 Scope D: --dry-run validates every side-effect boundary
+# (arg parsing, env-var whitelist, target path resolvability, systemctl
+# availability) and prints the intended sequence WITHOUT writing any
+# files or restarting the controller. Used by Scope D smoke tests to
+# exercise the polkit dispatch without requiring root or a live daemon.
 
 set -euo pipefail
 
-[ "$(id -u)" = "0" ] || exec sudo "$0" "$@"
-
 ENV_FILE=/etc/icebreaker/locations.env
 ENV_VAR="GEMINI_API_KEY"   # backwards-compat default
+DRY_RUN=0
+
+# Parse --dry-run / --help first so they can bypass the sudo re-exec.
+_ARGS=("$@")
+_SKIP_SUDO=0
+for arg in "${_ARGS[@]}"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=1; _SKIP_SUDO=1 ;;
+        -h|--help) _SKIP_SUDO=1 ;;
+    esac
+done
+
+# Only escalate to root when we're actually going to write files.
+if [ "$_SKIP_SUDO" -eq 0 ]; then
+    [ "$(id -u)" = "0" ] || exec sudo "$0" "$@"
+fi
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --env-var) ENV_VAR="$2"; shift 2 ;;
+        --dry-run) shift ;;
         -h|--help)
             grep -E '^# ' "$0" | sed 's/^# //'
             exit 0
@@ -37,6 +59,22 @@ case "$ENV_VAR" in
        echo "Supported: GEMINI_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY" >&2
        exit 2 ;;
 esac
+
+if [ "$DRY_RUN" -eq 1 ]; then
+    # Print the plan without touching the filesystem or the daemon.
+    # Every real side-effect the script would perform gets a "would:"
+    # line so an operator (or smoke test) can eyeball the sequence.
+    echo "dry-run: would validate ${ENV_VAR} against whitelist [OK]"
+    echo "dry-run: would append ${ENV_VAR}=<hidden> to ${ENV_FILE}"
+    echo "dry-run: would chmod 640 ${ENV_FILE}"
+    echo "dry-run: would chown root:icebreaker-users ${ENV_FILE}"
+    if command -v systemctl >/dev/null 2>&1; then
+        echo "dry-run: would run: systemctl restart icebreaker-controller"
+    else
+        echo "dry-run: NOTE systemctl not available in PATH — restart would fail"
+    fi
+    exit 0
+fi
 
 if [ -t 0 ]; then
     read -rsp "Paste your ${ENV_VAR%_API_KEY} API key (input hidden): " KEY

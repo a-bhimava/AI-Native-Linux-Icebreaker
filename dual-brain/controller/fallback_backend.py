@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Generator, Iterable, Sequence
 
+from . import debug_log
 from .backends.base import (
     BrainBackend,
     BrainProviderError,
@@ -113,6 +114,18 @@ class FallbackChain:
             last_error: BaseException = exc
 
         for idx, backend in enumerate(self._fallbacks):
+            # Phase 6 Scope D/E debug instrumentation.
+            if debug_log.is_enabled():
+                debug_log.record(
+                    "fallback_fire", "fallback_backend",
+                    {
+                        "hop_index": idx,
+                        "primary": self._primary.backend_name,
+                        "backend": backend.backend_name,
+                        "prior_error_type": type(last_error).__name__,
+                        "prior_error_head": str(last_error)[:200],
+                    },
+                )
             if self._on_fallback is not None:
                 try:
                     self._on_fallback(idx, backend.backend_name, str(last_error))
@@ -126,15 +139,28 @@ class FallbackChain:
                         "fallback_backend.on_fallback callback raised: %s: %s",
                         type(cb_exc).__name__, cb_exc,
                     )
+            # Phase 6 Scope E fix: track whether THIS fallback yielded
+            # any chunks before failing. Same rule as the primary — if
+            # partial output reached the user, we cannot try the next
+            # fallback (their transcript already contains fb0's text; a
+            # fb1 attempt would append fb1's independent response and
+            # corrupt the record). Propagate instead.
+            fb_buffered: list[tuple[str, str, bool]] = []
             try:
                 gen = backend.stream_complete(
                     system=system, user=user, schema=schema,
                     max_retries=max_retries,
                 )
                 for chunk, acc, is_final in gen:
+                    fb_buffered.append((chunk, acc, is_final))
                     yield (chunk, acc, is_final)
                 return
             except BrainProviderError as exc:
+                if fb_buffered:
+                    # Partial output already reached the user — the
+                    # transcript is committed to this fallback. No
+                    # further fallback can safely take over.
+                    raise
                 last_error = exc
                 continue
         raise last_error
@@ -148,6 +174,18 @@ class FallbackChain:
             last_error: BaseException = exc
 
         for idx, backend in enumerate(self._fallbacks):
+            # Phase 6 Scope D/E debug instrumentation.
+            if debug_log.is_enabled():
+                debug_log.record(
+                    "fallback_fire", "fallback_backend",
+                    {
+                        "hop_index": idx,
+                        "primary": self._primary.backend_name,
+                        "backend": backend.backend_name,
+                        "prior_error_type": type(last_error).__name__,
+                        "prior_error_head": str(last_error)[:200],
+                    },
+                )
             if self._on_fallback is not None:
                 try:
                     self._on_fallback(idx, backend.backend_name, str(last_error))

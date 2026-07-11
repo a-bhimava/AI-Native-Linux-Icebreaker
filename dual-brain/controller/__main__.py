@@ -292,9 +292,18 @@ def _run_repl(cfg: ControllerConfig, controller: Controller) -> int:
 
 def _run_daemon(config_path: Path | None) -> int:
     from .daemon import Daemon
+    from . import debug_log
 
     try:
         cfg = load(config_path)
+        # Phase 6 Scope D/E: wire debug_log to the loaded config
+        # BEFORE anything else runs — so a debug-mode-on config
+        # captures the audit setup, mcpd spawn, and QB/PB build.
+        debug_log.configure(
+            enabled=cfg.debug.enabled,
+            log_path=Path(cfg.debug.log_path).expanduser() if cfg.debug.log_path else None,
+            max_size_mb=cfg.debug.max_size_mb,
+        )
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
         mcpd: McpdClient | None = None
         try:
