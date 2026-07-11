@@ -3,7 +3,16 @@
     "purpose": "F-35 golden intent corpus. Every user-facing NL phrase must map to a specific catalogue action OR to system.unsupported. Silent lookalikes are worse than errors.",
     "schema_version": "1.0",
     "how_to_use": "test_intent_corpus.py loads this. Default (offline) mode: mock QB returns the row's expected_action, verifies Controller routes it correctly. --live mode: real Gemini call, asserts intent.action == expected_action.",
-    "when_to_edit": "Add rows for every new intent phrasing users try in UTM. Ship a v6.6 build every time this file grows by more than ~20 rows."
+    "when_to_edit": "Add rows for every new intent phrasing users try in UTM. Ship a v6.6 build every time this file grows by more than ~20 rows.",
+    "deferred": {
+      "_why": "Rows that would exercise real end-user workflows but depend on tools/actions not shipped in v1.0-rc1. Documented here so the coverage gap is discoverable, but NOT asserted — a dangling `system.unsupported` assertion on a feature we plan to ship is worse than no row, because it rots silently the day the feature lands. Add these rows in the milestone that ships the underlying action.",
+      "multi.deploy.001": {"query": "make a scripts folder, add a hello.sh, then run it", "blocked_by": "process.exec (not planned before Phase 8)"},
+      "multi.cleanup.001": {"query": "find all .tmp files older than 7 days and delete them", "blocked_by": "fs.find (Phase 7 M7.5 per F-46)"},
+      "gui.libreoffice.001": {"query": "open LibreOffice with a new spreadsheet", "blocked_by": "GUI Agent app APIs already shipped in Phase 6T, but broad-OS row awaits Playwright milestone context (Phase 7 M7.3)"},
+      "gui.files.001": {"query": "open the file manager to Downloads", "blocked_by": "GNOME Files app API (Phase 7 M7.4)"},
+      "web.kernel.001": {"query": "search kernel.org for the latest LTS release", "blocked_by": "Playwright MCP (Phase 7 M7.3)"},
+      "chart.dashboard.001": {"query": "chart my disk usage over the last week", "blocked_by": "analytics + Vega-Lite chart tool (Phase 7 M7.5)"}
+    }
   },
   "rows": [
     {
@@ -568,6 +577,81 @@
       "qb_mock_action": "fs.move",
       "expected_action": "system.unsupported",
       "expected_outcome": "unsupported"
+    },
+    {
+      "id": "broad-os.gitlog.001",
+      "category": "read",
+      "_comment": "Broad-OS row: 'summarise the last N commits' resolves to fs.read of .git/logs/HEAD in the current working directory. Read-only Tier 0.",
+      "query": "summarize the last 10 commits in one paragraph",
+      "context": {"cwd": "/home/icebreaker/projects/icebreaker", "user": "icebreaker"},
+      "expected_action": "fs.read",
+      "expected_target": "/home/icebreaker/projects/icebreaker/.git/logs/HEAD",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "broad-os.errors.001",
+      "category": "service",
+      "_comment": "Broad-OS row: 'errors in journalctl' resolves to service.logs (Tier 1). Target is empty because journalctl aggregates every unit; the QB emits journald as a canonical unit name here.",
+      "query": "what errors are in my journalctl in the last hour",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "service.logs",
+      "expected_target": "journald",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "broad-os.content.resume.001",
+      "category": "write-content",
+      "_comment": "Broad-OS row: F-41 content pathway on a large free-form write. Content is opaque prose so we assert on shape via regex (matches when starts with a capital letter and is at least 40 chars) rather than exact bytes.",
+      "query": "rewrite my resume in a professional tone and save it to resume-pro.txt",
+      "context": {"cwd": "/home/icebreaker/Documents", "user": "icebreaker"},
+      "expected_action": "fs.write",
+      "expected_target": "/home/icebreaker/Documents/resume-pro.txt",
+      "expected_content_matches_regex": "^[A-Z].{40,}",
+      "expected_pb_hint_contains": "params.content",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "broad-os.content.blog.001",
+      "category": "write-content",
+      "_comment": "Broad-OS row: mid-length free-form write. Content shape assertion only.",
+      "query": "draft a 500-word blog post about local-first apps and save it to draft.md",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "fs.write",
+      "expected_target": "/home/icebreaker/draft.md",
+      "expected_content_matches_regex": "^[A-Z#].{200,}",
+      "expected_pb_hint_contains": "params.content",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "broad-os.pkg.query.001",
+      "category": "package",
+      "_comment": "Broad-OS row: check-if-installed. Tier 0 — no HITL, no state change.",
+      "query": "check whether firefox is installed",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "package.query",
+      "expected_target": "firefox",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "broad-os.pkg.install.001",
+      "category": "package",
+      "_comment": "Broad-OS row: install a package. Tier 2 — HITL prompt required before dispatch. Offline suite only asserts the intent resolves to package.install; the tier-gate assertion belongs to test_risk_classifier / the live G24 sweep.",
+      "query": "install htop",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "package.install",
+      "expected_target": "htop",
+      "expected_outcome": "executed"
+    },
+    {
+      "id": "broad-os.multi.readme.001",
+      "category": "write",
+      "_comment": "Broad-OS row: multi-step user query. First-step resolution ONLY — v1.0-rc1 does not chain multiple actions per turn. Sub-actions (fs.list of the new folder, description-write follow-up) are separate turns. The multi-step Goal state work belongs to Phase 8 M8.1.",
+      "query": "create a folder called proj and put a README inside it",
+      "context": {"cwd": "/home/icebreaker", "user": "icebreaker"},
+      "expected_action": "fs.write",
+      "expected_target": "/home/icebreaker/proj/README.md",
+      "expected_first_step_only": true,
+      "expected_outcome": "executed"
     }
   ]
 }

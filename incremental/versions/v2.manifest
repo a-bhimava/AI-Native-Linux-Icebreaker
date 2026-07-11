@@ -130,6 +130,23 @@ version_overlay() {
         "C3-cache:preset_verification_cache.py:_DEFAULT_TTL_DAYS"
         "C4-catv2:catalogue.toml:schema_version"
         "C4-presets:catalogue.toml:[[preset]]"
+        # Phase 6 Scope F (2026-07-11) — fix-shape markers. The helper-
+        # presence markers above (F-41 / F-42 / F-52 / F-53) prove the
+        # functions exist; these markers prove the fixes' load-bearing
+        # tokens still exist. A stale venv reseed that reverts a fix
+        # would keep the helper function but drop its use — caught here.
+        # F-43 streaming call site (comment anchor above main.py:508):
+        "F43-stream:main.py:F-43 + F-47"
+        # F-47b non-streaming call site (comment anchor above main.py:1496):
+        "F47b-inner:main.py:F-47b:"
+        # F-48 step_state="done" survives — reverting to "unsupported"
+        # crashes CotEvent construction at runtime; caught pre-boot here:
+        'F48-fix:main.py:"unsupported", "done"'
+        # F-52 backend-facing relaxed schema wired into Controller.__init__:
+        "F52-wire:main.py:_backend_intent_schema"
+        # F-53 verifier reason surfaces type(exc).__name__ (verifier.py has
+        # this at two sites — SingleVerifier + MajorityVoter._single_vote):
+        "F53-verifier:verifier.py:type(exc).__name__"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do
