@@ -173,3 +173,15 @@ reason = "Refinement window radius for image match. Algorithmic constant — not
 file   = "terminal/app.py"
 name   = "_MIN_COMPANION_WIDTH"
 reason = "Textual TUI companion panel minimum width. Layout guard — narrower produces broken CoT rendering."
+
+# ── Phase 6 Scope C — preset verifier + cache ──────────────────────────
+
+[[knob]]
+file   = "controller/preset_verifier.py"
+name   = "_DEFAULT_TIMEOUT_SECONDS"
+reason = "Per-call HTTP timeout for provider metadata endpoint. 8 s is tight enough to keep a 12-preset sweep under 100 s worst-case but loose enough to survive slow TLS on the guest. Not user-tunable — a badly-tuned value would confuse verification badges more than it helps."
+
+[[knob]]
+file   = "controller/preset_verification_cache.py"
+name   = "_DEFAULT_TTL_DAYS"
+reason = "Cache TTL for provider metadata results. 7 days matches the Scope C research recommendation (session-only too short, never-expire misses deprecations). Not user-tunable — freshness semantics must be predictable across the fleet."

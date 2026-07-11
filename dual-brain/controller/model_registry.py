@@ -97,7 +97,11 @@ class CatalogueError(ModelRegistryError):
 # ─── Constants ──────────────────────────────────────────────────────────────
 
 
-SUPPORTED_CATALOGUE_VERSIONS: tuple[str, ...] = ("1",)
+SUPPORTED_CATALOGUE_VERSIONS: tuple[str, ...] = ("1", "2")
+# Phase 6 Scope C: v2 adds [[preset]] tables for cloud QB backends.
+# The [[model]] parser (this module) ignores presets — they're consumed
+# by controller.preset_registry. Bumping the tuple lets a v2 catalogue
+# load without the model parser rejecting it.
 ALLOW_LIST_LICENSES: frozenset[str] = frozenset(
     {"Apache-2.0", "MIT", "BSD-3-Clause", "BSD-2-Clause"}
 )

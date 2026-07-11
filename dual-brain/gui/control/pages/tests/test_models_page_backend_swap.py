@@ -82,6 +82,61 @@ from gui.control.pages import models_page as mp
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
+# Phase 6 Scope C: the page reads presets from `preset_registry`, no
+# longer from module-level `_BACKENDS` / `_MODEL_PRESETS`. Build a
+# minimal in-memory registry so the swap tests stay isolated from
+# whatever `catalogue.toml` ships.
+from controller.preset_registry import Provider, Preset
+
+_STUB_PROVIDERS: tuple[Provider, ...] = (
+    Provider(
+        key="gemini", display_name="Gemini (cloud)",
+        presets=(
+            Preset(
+                id="gemini-2.5-flash", provider="gemini",
+                display_name="Gemini 2.5 Flash", context_window=1_048_576,
+                output_token_limit=None, status="recommended",
+                capabilities=(), notes="", verified_at=None,
+            ),
+        ),
+    ),
+    Provider(
+        key="anthropic", display_name="Anthropic Claude (cloud)",
+        presets=(
+            Preset(
+                id="claude-sonnet-4-6", provider="anthropic",
+                display_name="Claude Sonnet 4.6", context_window=200_000,
+                output_token_limit=None, status="recommended",
+                capabilities=(), notes="", verified_at=None,
+            ),
+        ),
+    ),
+    Provider(
+        key="openai", display_name="OpenAI (cloud)",
+        presets=(
+            Preset(
+                id="gpt-5-mini", provider="openai",
+                display_name="GPT-5 Mini", context_window=400_000,
+                output_token_limit=None, status="unverified",
+                capabilities=(), notes="", verified_at=None,
+            ),
+        ),
+    ),
+    Provider(
+        key="local", display_name="Local (llama.cpp)",
+        presets=(
+            Preset(
+                id="qwen-2.5-coder-1.5b-instruct-q4_k_m", provider="local",
+                display_name="Qwen 2.5 Coder 1.5B (local)",
+                context_window=32_768,
+                output_token_limit=None, status="recommended",
+                capabilities=(), notes="", verified_at=None,
+            ),
+        ),
+    ),
+)
+
+
 def _make_page(effective_backend: str = "gemini",
                effective_model_by_backend: dict[str, str] | None = None):
     """Build a bare object with just the attributes needed by
@@ -93,6 +148,13 @@ def _make_page(effective_backend: str = "gemini",
     page._pending = {}
     page._custom_text_by_backend = {}
     page._custom_row_backend = effective_backend
+    # Phase 6 Scope C: inject the stub registry so the handler
+    # doesn't try to read the real `catalogue.toml` (which changes as
+    # the catalogue evolves and would make these tests brittle).
+    page._providers = _STUB_PROVIDERS
+    page._preset_ids_by_backend = {
+        p.key: [preset.id for preset in p.presets] for p in _STUB_PROVIDERS
+    }
 
     # Fake widgets — track calls / state via MagicMock.
     page._custom_row = MagicMock()
@@ -132,6 +194,15 @@ def _make_page(effective_backend: str = "gemini",
     return page
 
 
+def _backend_index(key: str) -> int:
+    """Look up a backend's index in the stub provider order — replaces
+    the pre-Scope-C `mp._BACKENDS.index()` pattern."""
+    for i, provider in enumerate(_STUB_PROVIDERS):
+        if provider.key == key:
+            return i
+    raise KeyError(key)
+
+
 def _fake_backend_combo(new_idx: int) -> MagicMock:
     """Fake Gtk.DropDown whose `.get_selected()` returns `new_idx`."""
     combo = MagicMock()
@@ -153,9 +224,7 @@ def test_backend_swap_saves_old_custom_text_under_old_key() -> None:
     page._custom_row.get_text.return_value = "my-custom-gemini-thinking"
 
     # Anthropic is index 1 in _BACKENDS.
-    idx_anthropic = next(
-        i for i, (k, _) in enumerate(mp._BACKENDS) if k == "anthropic"
-    )
+    idx_anthropic = _backend_index("anthropic")
     combo = _fake_backend_combo(idx_anthropic)
 
     page._on_backend_changed(combo, None)
@@ -191,9 +260,7 @@ def test_backend_swap_restores_previously_cached_text() -> None:
     page._custom_row.get_visible.return_value = False
     page._custom_row.get_text.return_value = ""
 
-    idx_gemini = next(
-        i for i, (k, _) in enumerate(mp._BACKENDS) if k == "gemini"
-    )
+    idx_gemini = _backend_index("gemini")
     page._on_backend_changed(_fake_backend_combo(idx_gemini), None)
 
     # The row was reset to the cached gemini text.
@@ -213,9 +280,7 @@ def test_no_stale_text_leaks_to_new_backend_when_switching_from_hidden() -> None
     # interaction, we should not save it.
     page._custom_row.get_text.return_value = "stale-text-from-before"
 
-    idx_openai = next(
-        i for i, (k, _) in enumerate(mp._BACKENDS) if k == "openai"
-    )
+    idx_openai = _backend_index("openai")
     page._on_backend_changed(_fake_backend_combo(idx_openai), None)
 
     # No save under old backend key.
@@ -229,9 +294,7 @@ def test_current_backend_reflects_pending_swap() -> None:
     the next `_on_custom_changed` writes to the right stanza."""
     page = _make_page(effective_backend="gemini")
 
-    idx_local = next(
-        i for i, (k, _) in enumerate(mp._BACKENDS) if k == "local"
-    )
+    idx_local = _backend_index("local")
     page._on_backend_changed(_fake_backend_combo(idx_local), None)
 
     assert page._current_backend() == "local"

@@ -120,6 +120,16 @@ version_overlay() {
         "B2-vote:schemas/controller_config.json:x-reload"
         "B2-turnto:schemas/controller_config.json:turn_timeout_seconds"
         "B2-shellchars:schemas/controller_config.json:max_shell_context_chars"
+        # Phase 6 Scope C (2026-07-11) — cloud QB preset registry +
+        # live verification + XDG state cache. If any of these
+        # substrings disappears from the venv, the reseed dropped
+        # Scope C and the shipped ISO's Models page falls back to the
+        # hardcoded _MODEL_PRESETS tuple.
+        "C1-reg:preset_registry.py:load_registry"
+        "C2-verify:preset_verifier.py:VerifyStatus"
+        "C3-cache:preset_verification_cache.py:_DEFAULT_TTL_DAYS"
+        "C4-catv2:catalogue.toml:schema_version"
+        "C4-presets:catalogue.toml:[[preset]]"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do

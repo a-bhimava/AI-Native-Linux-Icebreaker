@@ -16,7 +16,18 @@
 # Schema version bumps must be coordinated with model_registry.py's
 # parser; bump on any breaking field change.
 
-schema_version = "1"
+schema_version = "2"
+# Schema versions:
+#   1 — original: local-only GGUF entries via [[model]] tables.
+#   2 — Phase 6 Scope C (2026-07-10): added [[preset]] tables for
+#       cloud QB backends. Each preset carries a `status` field
+#       grounded in live verification via the provider's metadata
+#       endpoint (client.models.retrieve()). Values:
+#         "recommended" — passes live verification, we prefer it
+#         "experimental" — passes verification, provider marks preview
+#         "deprecated"   — provider returns 404 (removed from platform)
+#         "unverified"   — no key available at catalogue time; ships
+#                          with a grey badge until user runs "Verify"
 
 
 # ─── QB candidates ──────────────────────────────────────────────────────────
@@ -176,3 +187,139 @@ description = "Speculative-decoding draft model. Shared by PB and QB llama-serve
 type = "huggingface"
 repo = "lmstudio-community/Qwen2.5-Coder-0.5B-Instruct-GGUF"
 file = "Qwen2.5-Coder-0.5B-Instruct-Q4_K_M.gguf"
+
+
+# ─── Cloud QB presets (Phase 6 Scope C) ────────────────────────────────────
+#
+# Every entry is a QB model presented in the Control Center → Models
+# dropdown. `id` is the exact string sent to the provider SDK.
+# `status` is grounded in live verification (models.retrieve metadata
+# endpoint, non-billable) at catalogue-authoring time (2026-07-10).
+#
+# The Models page renders these grouped by `provider`, in the order
+# they appear here. Users can override via `~/.config/icebreaker/
+# presets.toml` — but arrays REPLACE rather than concatenate on merge
+# (the deep-merge trap; otherwise a malicious overlay could silently
+# add a preset).
+
+
+# ── Google Gemini ──────────────────────────────────────────────────────────
+
+[[preset]]
+id = "gemini-2.5-flash"
+provider = "gemini"
+display_name = "Gemini 2.5 Flash"
+context_window = 1048576
+output_token_limit = 65536
+status = "recommended"
+capabilities = ["tools", "json_mode", "long_context"]
+verified_at = "2026-07-11"
+notes = "Fast + cheap. Default for intent parsing on ISO ship."
+
+[[preset]]
+id = "gemini-2.5-pro"
+provider = "gemini"
+display_name = "Gemini 2.5 Pro"
+context_window = 1048576
+output_token_limit = 65536
+status = "recommended"
+capabilities = ["tools", "json_mode", "long_context", "reasoning"]
+verified_at = "2026-07-11"
+notes = "Higher-quality reasoning. Slower + more expensive than Flash."
+
+[[preset]]
+id = "gemini-2.5-flash-lite"
+provider = "gemini"
+display_name = "Gemini 2.5 Flash-Lite"
+context_window = 1048576
+output_token_limit = 65536
+status = "recommended"
+capabilities = ["tools", "json_mode", "long_context"]
+verified_at = "2026-07-11"
+notes = "Cheapest 2.5-family tier. Good for high-throughput classification-y intent."
+
+[[preset]]
+id = "gemini-2.0-flash"
+provider = "gemini"
+display_name = "Gemini 2.0 Flash"
+context_window = 1048576
+output_token_limit = 8192
+status = "recommended"
+capabilities = ["tools", "json_mode", "long_context"]
+verified_at = "2026-07-11"
+notes = "Prior generation. Kept for backward-compat with users pinned to 2.0. Still returns 200 at metadata endpoint as of catalogue authoring."
+
+
+# ── Anthropic Claude ───────────────────────────────────────────────────────
+
+[[preset]]
+id = "claude-haiku-4-5"
+provider = "anthropic"
+display_name = "Claude Haiku 4.5"
+context_window = 200000
+status = "recommended"
+capabilities = ["tools", "vision", "reasoning"]
+verified_at = "2026-07-11"
+notes = "Fast + cheap Anthropic tier. Good fallback for Gemini outages."
+
+[[preset]]
+id = "claude-sonnet-4-6"
+provider = "anthropic"
+display_name = "Claude Sonnet 4.6"
+context_window = 200000
+status = "recommended"
+capabilities = ["tools", "vision", "reasoning", "extended_thinking"]
+verified_at = "2026-07-11"
+notes = "Anthropic mid-tier. Balance of cost + quality."
+
+[[preset]]
+id = "claude-opus-4-6"
+provider = "anthropic"
+display_name = "Claude Opus 4.6"
+context_window = 200000
+status = "recommended"
+capabilities = ["tools", "vision", "reasoning", "extended_thinking"]
+verified_at = "2026-07-11"
+notes = "Anthropic top-tier. Highest quality; premium cost."
+
+
+# ── OpenAI (unverified — no key at catalogue-authoring time) ───────────────
+
+[[preset]]
+id = "gpt-5"
+provider = "openai"
+display_name = "GPT-5"
+context_window = 400000
+status = "unverified"
+capabilities = ["tools", "json_mode", "reasoning"]
+notes = "OpenAI flagship. Verify via Models page → Verify now once your key is configured."
+
+[[preset]]
+id = "gpt-5-mini"
+provider = "openai"
+display_name = "GPT-5 Mini"
+context_window = 400000
+status = "unverified"
+capabilities = ["tools", "json_mode"]
+notes = "OpenAI cost-optimised tier. Verify on first use."
+
+[[preset]]
+id = "gpt-4o"
+provider = "openai"
+display_name = "GPT-4o"
+context_window = 128000
+status = "unverified"
+capabilities = ["tools", "json_mode", "vision"]
+notes = "OpenAI prior-gen multimodal. Kept for users on legacy quotas."
+
+
+# ── Local (in-catalogue GGUF; verified by file presence, not API) ─────────
+
+[[preset]]
+id = "qwen-2.5-coder-1.5b-instruct-q4_k_m"
+provider = "local"
+display_name = "Qwen 2.5 Coder 1.5B (local)"
+context_window = 32768
+status = "recommended"
+capabilities = ["tools"]
+notes = "Bundled with ISO. Ships as PB default; also usable as offline QB."
