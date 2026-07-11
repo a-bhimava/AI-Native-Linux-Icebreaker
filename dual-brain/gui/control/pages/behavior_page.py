@@ -46,6 +46,7 @@ from ..config_io import (
     set_user_override,
     walk,
 )
+from ..schema_reader import get_field_spec
 
 
 def _safe_read_toml(path):
@@ -127,11 +128,224 @@ class BehaviorPage(Adw.PreferencesPage):
         self._pending_mode: Optional[str] = None
         self._pending_fallback: Optional[list[str]] = None
         self._pending_autocancel: Optional[bool] = None
+        # Phase 6 Scope B — verifier voting (declared-but-unsurfaced
+        # fields) + qb_max_retries. Live pending values so the
+        # cross-field validator can decide whether to enable Apply.
+        self._pending_votes: Optional[int] = None
+        self._pending_require: Optional[int] = None
+        self._pending_parallel: Optional[bool] = None
+        self._pending_qb_max_retries: Optional[int] = None
+        # Widgets referenced from the validator + on-save path.
+        self._votes_spin: Optional[Gtk.SpinButton] = None
+        self._require_spin: Optional[Gtk.SpinButton] = None
+        self._parallel_switch: Optional[Gtk.Switch] = None
+        self._qb_retries_spin: Optional[Gtk.SpinButton] = None
+        self._vote_validator_row: Optional[Adw.ActionRow] = None
 
+        self._add_verifier_voting_group()
         self._add_verifier_group()
         self._add_fallback_group()
         self._add_cost_group()
         self._add_actions_group()
+
+    # ── Verifier voting (Phase 6 Scope B) ───────────────────────────────
+
+    def _add_verifier_voting_group(self) -> None:
+        """Surface `verifier.votes`, `verifier.require`, `verifier.parallel`,
+        `run.qb_max_retries` — declared in TOML but not editable in GUI
+        pre-Scope B. Bounds come from the JSON Schema (single source of
+        truth). Cross-field validator: `require > votes` (or
+        `require == votes` with parallel=false) is a config that always
+        rejects; Apply is disabled while the warning is live (BP-11
+        validate-on-input)."""
+
+        group = Adw.PreferencesGroup(
+            title="Verifier voting",
+            description=(
+                "Multi-vote qb_verifier: run N independent calls and "
+                "accept if at least K vote 'verified'. Default (votes=1) "
+                "preserves single-call behavior. `require = 0` = majority."
+            ),
+        )
+        self.add(group)
+
+        current_votes = int(
+            effective(self._system, self._user, ("verifier",), "votes", 1) or 1
+        )
+        current_require = int(
+            effective(self._system, self._user, ("verifier",), "require", 0) or 0
+        )
+        current_parallel = bool(
+            effective(self._system, self._user, ("verifier",), "parallel", True)
+        )
+        current_qb_retries = int(
+            effective(self._system, self._user, ("run",), "qb_max_retries", 3) or 3
+        )
+
+        # ── votes row (schema-bounded) ──
+        votes_lo, votes_hi = 1, 9
+        votes_spec = get_field_spec(("verifier",), "votes")
+        if votes_spec and votes_spec.minimum is not None:
+            votes_lo = int(votes_spec.minimum)
+        if votes_spec and votes_spec.maximum is not None:
+            votes_hi = int(votes_spec.maximum)
+        votes_row = Adw.ActionRow(
+            title="Votes",
+            subtitle=(
+                votes_spec.description if votes_spec and votes_spec.description
+                else "Number of independent verifier calls per turn. "
+                     "1 = single-call (default)."
+            ),
+        )
+        votes_spin = Gtk.SpinButton()
+        votes_spin.set_valign(Gtk.Align.CENTER)
+        votes_spin.set_adjustment(Gtk.Adjustment(
+            value=float(current_votes),
+            lower=votes_lo, upper=votes_hi,
+            step_increment=1, page_increment=1,
+        ))
+        votes_spin.set_digits(0)
+        votes_spin.set_numeric(True)
+        votes_spin.connect("value-changed", self._on_votes_changed)
+        votes_row.add_suffix(votes_spin)
+        self._votes_spin = votes_spin
+        group.add(votes_row)
+
+        # ── require row (schema-bounded) ──
+        req_lo, req_hi = 0, 9
+        req_spec = get_field_spec(("verifier",), "require")
+        if req_spec and req_spec.minimum is not None:
+            req_lo = int(req_spec.minimum)
+        if req_spec and req_spec.maximum is not None:
+            req_hi = int(req_spec.maximum)
+        require_row = Adw.ActionRow(
+            title="Require",
+            subtitle=(
+                req_spec.description if req_spec and req_spec.description
+                else "Votes needed to accept. 0 = majority of `votes`."
+            ),
+        )
+        require_spin = Gtk.SpinButton()
+        require_spin.set_valign(Gtk.Align.CENTER)
+        require_spin.set_adjustment(Gtk.Adjustment(
+            value=float(current_require),
+            lower=req_lo, upper=req_hi,
+            step_increment=1, page_increment=1,
+        ))
+        require_spin.set_digits(0)
+        require_spin.set_numeric(True)
+        require_spin.connect("value-changed", self._on_require_changed)
+        require_row.add_suffix(require_spin)
+        self._require_spin = require_spin
+        group.add(require_row)
+
+        # ── parallel row (bool) ──
+        parallel_row = Adw.ActionRow(
+            title="Parallel",
+            subtitle="Run votes in parallel (ThreadPoolExecutor). Off = "
+                     "sequential (slower but easier to debug).",
+        )
+        parallel_switch = Gtk.Switch()
+        parallel_switch.set_valign(Gtk.Align.CENTER)
+        parallel_switch.set_active(current_parallel)
+        parallel_switch.connect("state-set", self._on_parallel_changed)
+        parallel_row.add_suffix(parallel_switch)
+        self._parallel_switch = parallel_switch
+        group.add(parallel_row)
+
+        # ── validator row (initially hidden) ──
+        validator_row = Adw.ActionRow(
+            title="⚠ Configuration will always reject",
+            subtitle=(
+                "Votes ≤ require means the verifier can never accept. "
+                "Lower `require` or raise `votes`."
+            ),
+        )
+        validator_row.add_css_class("error")
+        group.add(validator_row)
+        validator_row.set_visible(False)
+        self._vote_validator_row = validator_row
+
+        # ── qb_max_retries row ──
+        retries_lo, retries_hi = 0, 10
+        retries_spec = get_field_spec(("run",), "qb_max_retries")
+        if retries_spec and retries_spec.minimum is not None:
+            retries_lo = int(retries_spec.minimum)
+        if retries_spec and retries_spec.maximum is not None:
+            retries_hi = int(retries_spec.maximum)
+        retries_row = Adw.ActionRow(
+            title="QB max retries",
+            subtitle=(
+                retries_spec.description if retries_spec and retries_spec.description
+                else "Times to retry a rejected QB response before falling "
+                     "through to the fallback chain."
+            ),
+        )
+        retries_spin = Gtk.SpinButton()
+        retries_spin.set_valign(Gtk.Align.CENTER)
+        retries_spin.set_adjustment(Gtk.Adjustment(
+            value=float(current_qb_retries),
+            lower=retries_lo, upper=retries_hi,
+            step_increment=1, page_increment=1,
+        ))
+        retries_spin.set_digits(0)
+        retries_spin.set_numeric(True)
+        retries_spin.connect("value-changed", self._on_qb_retries_changed)
+        retries_row.add_suffix(retries_spin)
+        self._qb_retries_spin = retries_spin
+        group.add(retries_row)
+
+        # Pre-populate pending so Apply always sees the current values
+        # even if the user didn't touch them (idempotent save).
+        self._pending_votes = current_votes
+        self._pending_require = current_require
+        self._pending_parallel = current_parallel
+        self._pending_qb_max_retries = current_qb_retries
+        # Run initial validator pass so an already-broken config on
+        # disk shows the warning immediately.
+        self._revalidate_votes()
+
+    def _on_votes_changed(self, spin: Gtk.SpinButton) -> None:
+        self._pending_votes = int(spin.get_value())
+        self._revalidate_votes()
+
+    def _on_require_changed(self, spin: Gtk.SpinButton) -> None:
+        self._pending_require = int(spin.get_value())
+        self._revalidate_votes()
+
+    def _on_parallel_changed(self, _switch, active: bool) -> bool:
+        self._pending_parallel = bool(active)
+        self._revalidate_votes()
+        return False  # let Gtk update the switch state
+
+    def _on_qb_retries_changed(self, spin: Gtk.SpinButton) -> None:
+        self._pending_qb_max_retries = int(spin.get_value())
+
+    def _revalidate_votes(self) -> None:
+        """Cross-field validator. Reason: `require > votes` is always
+        false; `require == votes` on sequential (parallel=false) means
+        the FIRST 'verified: false' short-circuits the loop and forces
+        rejection, so equal votes/require on sequential is also useless.
+        Show warning + drive Apply-button sensitivity."""
+        if self._vote_validator_row is None:
+            return
+        votes = self._pending_votes or 1
+        require = self._pending_require or 0
+        parallel = self._pending_parallel if self._pending_parallel is not None else True
+        # `require = 0` means "majority", never rejecting-by-config.
+        broken = False
+        if require > votes:
+            broken = True
+        elif require > 0 and require == votes and not parallel:
+            broken = True
+        self._vote_validator_row.set_visible(broken)
+        # Signal Apply-button state — the Actions group reads this
+        # attribute when constructing the button; the callback below
+        # keeps it in sync live.
+        self._vote_config_broken = broken
+        apply_btn = getattr(self, "_apply_button", None)
+        if apply_btn is not None:
+            apply_btn.set_sensitive(not broken)
 
     # ── Verifier retry ──────────────────────────────────────────────────
 
@@ -308,6 +522,15 @@ class BehaviorPage(Adw.PreferencesPage):
         btn.connect("clicked", self._on_restart_clicked)
         row.add_suffix(btn)
         group.add(row)
+        # Phase 6 Scope B: Apply button is disabled when the verifier
+        # voting validator says the current pending config would always
+        # reject. Store the reference so _revalidate_votes() can toggle
+        # `sensitive` live.
+        self._apply_button = btn
+        # Re-run validator now that _apply_button exists — the initial
+        # call in _add_verifier_voting_group happened before the button
+        # was created (see BP-4: gate integrity).
+        self._revalidate_votes()
 
         row2 = Adw.ActionRow(
             title="Config path",
@@ -325,6 +548,15 @@ class BehaviorPage(Adw.PreferencesPage):
         self.add(status_group)
 
     def _on_restart_clicked(self, _button) -> None:
+        # Phase 6 Scope B: guard against saving a config the validator
+        # flagged as always-rejecting. Belt-and-braces: the button is
+        # already disabled but callers can programmatically click it.
+        if getattr(self, "_vote_config_broken", False):
+            self._flash(
+                "Verifier voting config would always reject — fix "
+                "before saving.", warning=True,
+            )
+            return
         # Persist any pending non-verifier changes first (verifier writes
         # are already committed on the button click).
         try:
@@ -333,6 +565,21 @@ class BehaviorPage(Adw.PreferencesPage):
             if self._pending_autocancel is not None:
                 set_user_override(("cost",), "auto_cancel_on_breach",
                                   self._pending_autocancel)
+            # Phase 6 Scope B: persist the new verifier voting + qb
+            # retry knobs. Values are always populated (initialised
+            # from effective config) so writing them is idempotent.
+            if self._pending_votes is not None:
+                set_user_override(("verifier",), "votes",
+                                  self._pending_votes)
+            if self._pending_require is not None:
+                set_user_override(("verifier",), "require",
+                                  self._pending_require)
+            if self._pending_parallel is not None:
+                set_user_override(("verifier",), "parallel",
+                                  self._pending_parallel)
+            if self._pending_qb_max_retries is not None:
+                set_user_override(("run",), "qb_max_retries",
+                                  self._pending_qb_max_retries)
         except Exception as exc:  # noqa: BLE001
             self._flash(f"Save failed: {exc}", warning=True)
             return
@@ -342,6 +589,13 @@ class BehaviorPage(Adw.PreferencesPage):
             self._pending_mode = None
             self._pending_fallback = None
             self._pending_autocancel = None
+            # Phase 6 Scope B: clear pending after successful restart so
+            # subsequent edits are diff'd against the freshly-written
+            # values.
+            self._pending_votes = None
+            self._pending_require = None
+            self._pending_parallel = None
+            self._pending_qb_max_retries = None
             self._flash(msg)
         else:
             self._flash(f"Restart failed: {msg}", warning=True)

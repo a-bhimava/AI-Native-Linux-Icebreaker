@@ -3,7 +3,8 @@
   "title": "Icebreaker Controller Config",
   "type": "object",
   "required": ["qb"],
-  "additionalProperties": false,
+  "additionalProperties": true,
+  "description": "Phase 6 Scope B: top-level additionalProperties: true so a future config with a new section still loads on an older daemon (rollback insurance / Confluent FULL compatibility). Each section still uses additionalProperties: false to catch key typos in known sections. `x-reload: hot|restart` is a custom extension: `hot` = daemon can pick up the new value on next turn; `restart` = requires `systemctl restart icebreaker-controller`. GUI reads this to switch between Adw.Toast (transient) and Adw.Banner (sticky).",
   "properties": {
     "qb": {
       "type": "object",
@@ -87,16 +88,26 @@
       "additionalProperties": false,
       "description": "Orchestration runtime parameters. All optional.",
       "properties": {
-        "mcpd_binary":          {"type": "string", "description": "Path to the mcpd binary (relative to repo root or absolute)."},
-        "audit_log":            {"type": "string", "description": "Path to the append-only audit log (INV-8). Supports ~/ expansion."},
-        "pb_endpoint":          {"type": "string", "description": "HTTP endpoint for the Privileged Brain llama-server."},
-        "pb_model_id":          {"type": "string", "description": "Model ID for PB (used in audit rows)."},
-        "pb_max_tokens":        {"type": "integer", "minimum": 1, "maximum": 1000000},
-        "pb_timeout_seconds":   {"type": "integer", "minimum": 1, "maximum": 7200},
-        "mcpd_timeout_seconds": {"type": "number",  "minimum": 0.1, "maximum": 300.0},
-        "qb_max_retries":       {"type": "integer", "minimum": 1, "maximum": 10},
-        "mcpd_schemas_dir":     {"type": "string", "description": "Directory containing mcpd tool JSON schemas. Empty = auto-detect from mcpd_binary."},
-        "pb_transport":         {"type": "string", "enum": ["http", "unix"], "description": "Transport for PB llama-server. 'http' = TCP loopback; 'unix' = AF_UNIX socket."}
+        "mcpd_binary":          {"type": "string", "description": "Path to the mcpd binary (relative to repo root or absolute).", "x-reload": "restart"},
+        "audit_log":            {"type": "string", "description": "Path to the append-only audit log (INV-8). Supports ~/ expansion.", "x-reload": "restart"},
+        "pb_endpoint":          {"type": "string", "description": "HTTP endpoint for the Privileged Brain llama-server, or `unix://<path>` for AF_UNIX socket.", "x-reload": "restart"},
+        "pb_model_id":          {"type": "string", "description": "Model ID for PB (used in audit rows). Match a `catalogue.toml` entry.", "x-reload": "restart"},
+        "pb_max_tokens":        {"type": "integer", "minimum": 1, "maximum": 1000000, "x-reload": "restart"},
+        "pb_timeout_seconds":   {"type": "integer", "minimum": 1, "maximum": 7200, "x-reload": "restart"},
+        "mcpd_timeout_seconds": {"type": "number",  "minimum": 0.1, "maximum": 300.0, "x-reload": "restart"},
+        "qb_max_retries":       {"type": "integer", "minimum": 1, "maximum": 10, "description": "Retry count on QB call failure (schema violation, provider error) before falling through to fallback_chain.", "x-reload": "hot"},
+        "mcpd_schemas_dir":     {"type": "string", "description": "Directory containing mcpd tool JSON schemas. Empty = auto-detect from mcpd_binary.", "x-reload": "restart"},
+        "pb_transport":         {"type": "string", "enum": ["http", "unix"], "description": "Transport for PB llama-server. 'http' = TCP loopback; 'unix' = AF_UNIX socket.", "x-reload": "restart"},
+        "turn_timeout_seconds": {
+          "type": "number", "minimum": 30, "maximum": 7200,
+          "description": "Client-side timeout for a single `turn.run` RPC. Raise for slow-emulation guests (Rosetta 2 running PB Qwen 1.5B); native x86-64 / arm64 completes in seconds. F-25 rationale.",
+          "x-reload": "restart"
+        },
+        "model_probe_timeout_seconds": {
+          "type": "number", "minimum": 1, "maximum": 120,
+          "description": "Timeout (seconds) for hardware probe subprocess calls (sysctl / nvidia-smi / rocm-smi). Raise on slow VM disks or encrypted rootfs.",
+          "x-reload": "hot"
+        }
       }
     },
     "session": {
@@ -143,6 +154,16 @@
         "max_tool_output_lines": {
           "type": "integer", "minimum": 1, "maximum": 10000,
           "description": "Lines of tool output forwarded to QB for summarisation."
+        },
+        "max_shell_context_chars": {
+          "type": "integer", "minimum": 128, "maximum": 8192,
+          "description": "Per-field cap on shell context values (cwd, active_window, recent commands) rendered into the <context> preamble. Larger = QB sees richer environment; smaller = tighter INV-2 blast radius on prompt injection through untrusted shell state.",
+          "x-reload": "hot"
+        },
+        "max_recent_commands": {
+          "type": "integer", "minimum": 1, "maximum": 50,
+          "description": "Number of most-recent shell commands included in the <context> preamble. QB uses these to resolve references like 'the file I was editing'.",
+          "x-reload": "hot"
         }
       }
     },
@@ -227,15 +248,33 @@
       "properties": {
         "socket_path": {
           "type": "string",
-          "description": "AF_UNIX socket path. Supports ~/ expansion."
+          "description": "AF_UNIX socket path. Supports ~/ expansion.",
+          "x-reload": "restart"
         },
         "pid_file": {
           "type": "string",
-          "description": "PID file path. Supports ~/ expansion."
+          "description": "PID file path. Supports ~/ expansion.",
+          "x-reload": "restart"
         },
         "max_connections": {
           "type": "integer", "minimum": 1, "maximum": 16,
-          "description": "Maximum concurrent client connections. Architecture supports N; default 1."
+          "description": "Maximum concurrent client connections. Architecture supports N; default 1.",
+          "x-reload": "restart"
+        },
+        "socket_group": {
+          "type": "string",
+          "description": "Unix group ownership on the daemon socket. Members of this group can connect. Empty = leave the group untouched at the OS default.",
+          "x-reload": "restart"
+        },
+        "reader_recv_timeout_seconds": {
+          "type": "number", "minimum": 0.1, "maximum": 10.0,
+          "description": "Poll interval (seconds) for the client reader loop's socket.recv. Smaller = lower response latency on notifications; larger = less CPU. 1 s is the historical default.",
+          "x-reload": "restart"
+        },
+        "max_reconnect_delay_seconds": {
+          "type": "number", "minimum": 1, "maximum": 300,
+          "description": "Cap for exponential-backoff reconnect delay when the daemon socket drops. Starts at 1 s, doubles until this cap. Lower = quicker reconnect after outage; higher = less busy-wait pressure during long outages.",
+          "x-reload": "restart"
         }
       }
     },

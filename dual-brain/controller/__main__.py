@@ -393,7 +393,17 @@ def _run_terminal(config_path: Path | None) -> int:
         # ── Phase 2: try to connect the TUI client to the daemon ──────────
         try:
             from terminal.daemon_client import TextualDaemonClient
-            client = TextualDaemonClient(sock_path)
+            # Phase 6 Scope B: forward user-configured transport timeouts.
+            client = TextualDaemonClient(
+                sock_path,
+                turn_timeout_seconds=float(cfg.run.turn_timeout_seconds),
+                reader_recv_timeout_seconds=float(
+                    cfg.daemon.reader_recv_timeout_seconds
+                ),
+                max_reconnect_delay_seconds=float(
+                    cfg.daemon.max_reconnect_delay_seconds
+                ),
+            )
             client.connect()
         except Exception as conn_exc:
             _daemon_startup_error = (

@@ -44,9 +44,22 @@ class DaemonClient:
         # Phase 6 Scope A.P1: rate-limit warning about malformed JSON in
         # the reader loop — one message per connection, not per bad packet.
         "_malformed_warned",
+        # Phase 6 Scope B: three previously-hardcoded transport knobs.
+        # Constructor accepts explicit values (from cfg.run / cfg.daemon
+        # at the top-level caller); defaults preserve pre-Scope-B behavior
+        # for callers that don't pass them (backward compatibility).
+        "_turn_timeout_seconds", "_reader_recv_timeout_seconds",
+        "_max_reconnect_delay_seconds",
     )
 
-    def __init__(self, sock_path: str) -> None:
+    def __init__(
+        self,
+        sock_path: str,
+        *,
+        turn_timeout_seconds: float = 600.0,
+        reader_recv_timeout_seconds: float = 1.0,
+        max_reconnect_delay_seconds: float = 30.0,
+    ) -> None:
         self._sock_path = sock_path
         self._transport: Transport | None = None
         self._reader_thread: threading.Thread | None = None
@@ -54,6 +67,9 @@ class DaemonClient:
         self._pending_lock = threading.Lock()
         self._closed = False
         self._malformed_warned = False
+        self._turn_timeout_seconds = turn_timeout_seconds
+        self._reader_recv_timeout_seconds = reader_recv_timeout_seconds
+        self._max_reconnect_delay_seconds = max_reconnect_delay_seconds
 
     def connect(self) -> None:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -117,10 +133,14 @@ class DaemonClient:
         # captured by the caller (Terminal / ib_run.py) — rendered by the
         # Controller into a <context> preamble in front of the user query
         # so QB can resolve ambiguous references like "here" or "this folder".
+        # Phase 6 Scope B: was a hardcoded 600.0. Now driven by
+        # cfg.run.turn_timeout_seconds, passed at construction.
         params: dict = {"input": user_input}
         if context is not None:
             params["context"] = context
-        return self.send_request("turn.run", params, timeout=600.0)
+        return self.send_request(
+            "turn.run", params, timeout=self._turn_timeout_seconds,
+        )
 
     def new_session(self, backend: str | None = None) -> dict:
         params = {"backend": backend} if backend else {}
@@ -144,7 +164,11 @@ class DaemonClient:
         assert self._transport is not None
         while not self._closed:
             try:
-                raw = self._transport.recv(timeout=1.0)
+                # Phase 6 Scope B: was a hardcoded 1.0. Now driven by
+                # cfg.daemon.reader_recv_timeout_seconds.
+                raw = self._transport.recv(
+                    timeout=self._reader_recv_timeout_seconds,
+                )
             except TransportClosed:
                 if self._closed:
                     break
@@ -188,8 +212,10 @@ class DaemonClient:
                 self._dispatch_notification(msg)
 
     def _reconnect_with_backoff(self) -> bool:
+        # Phase 6 Scope B: max_delay was a hardcoded 30.0. Now driven by
+        # cfg.daemon.max_reconnect_delay_seconds.
         delay = 1.0
-        max_delay = 30.0
+        max_delay = self._max_reconnect_delay_seconds
         while not self._closed:
             try:
                 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

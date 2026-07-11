@@ -103,6 +103,23 @@ version_overlay() {
         "F-53-verify:logger.py:entries_skipped_verify"
         "F-53-recov:logger.py:entries_skipped_recovery"
         "F-53-shot:bridge.py:_last_screenshot_error"
+        # Phase 6 Scope B (2026-07-10) — user-configurable knobs.
+        # If any substring below disappears from the installed venv,
+        # the reseed dropped Scope B and the shipped ISO is silently
+        # back on the hardcoded values. Paths are relative to the
+        # controller/ site-packages install root (see line 71–73).
+        "B1-turn:client.py:_turn_timeout_seconds"
+        "B1-recv:client.py:_reader_recv_timeout_seconds"
+        "B1-reconn:client.py:_max_reconnect_delay_seconds"
+        "B1-shell:session.py:max_shell_context_chars"
+        "B1-recent:session.py:max_recent_commands"
+        "B1-probe:model_registry.py:probe_timeout_seconds"
+        # Scope B B2 — new fields surfaced in the GUI. Markers point to
+        # the JSON Schema (single source of truth) so a stale venv
+        # without the new schema keys is caught here.
+        "B2-vote:schemas/controller_config.json:x-reload"
+        "B2-turnto:schemas/controller_config.json:turn_timeout_seconds"
+        "B2-shellchars:schemas/controller_config.json:max_shell_context_chars"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do

@@ -300,9 +300,22 @@ def _build_qb_input(session: Any, user_input: str) -> str:
     preamble = ""
     render = getattr(ctx, "render", None)
     if callable(render):
+        # Phase 6 Scope B: pass user-configured caps if available.
+        # session.cfg is the SessionConfig dataclass; falls back to
+        # render()'s built-in defaults if the session has no cfg
+        # attached (unit tests / degraded modes).
+        render_kwargs: dict = {}
+        session_cfg = getattr(session, "cfg", None)
+        if session_cfg is not None:
+            max_chars = getattr(session_cfg, "max_shell_context_chars", None)
+            max_recent = getattr(session_cfg, "max_recent_commands", None)
+            if isinstance(max_chars, int):
+                render_kwargs["max_chars"] = max_chars
+            if isinstance(max_recent, int):
+                render_kwargs["max_recent"] = max_recent
         try:
-            preamble = render() or ""
-        except Exception:
+            preamble = render(**render_kwargs) or ""
+        except Exception:  # noqa: BLE001
             # F-53: context render can fail if the shell state is unavailable
             # (no cwd, no session). Fall back to bare query; logging here
             # would require plumbing the logger down — not worth the noise.

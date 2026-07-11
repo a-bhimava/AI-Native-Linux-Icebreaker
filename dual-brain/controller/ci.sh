@@ -571,6 +571,20 @@ else
 fi
 
 echo ""
+
+# ── G23: Phase 6 Scope B — no new hardcoded knobs ───────────────────────
+# Every module-level int/float assignment on the hot path must either be
+# an allowlisted safety constant (with a justification in
+# tools/lint/knobs_allowlist.toml) or migrate to
+# controller_config.json as a user-tunable field.
+echo "G23: No new hardcoded knobs (Phase 6 Scope B)..."
+if PYTHONPATH="${DUAL_BRAIN}" python3 "${DUAL_BRAIN}/tools/lint/no_new_knobs.py"; then
+  pass 23 "no new hardcoded knobs (allowlist ${DUAL_BRAIN}/tools/lint/knobs_allowlist.toml)"
+else
+  fail 23 "hardcoded knobs added without allowlist entry — see stderr"
+fi
+
+echo ""
 echo "═══════════════════════════════════════════════════════════"
 
 if [ ${#FAILED_GATES[@]} -eq 0 ]; then

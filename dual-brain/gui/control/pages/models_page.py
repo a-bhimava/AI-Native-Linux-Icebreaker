@@ -33,6 +33,7 @@ from ..config_io import (
     restart_controller,
     set_user_override,
 )
+from ..schema_reader import get_field_spec
 
 
 def _safe_read_toml(path):
@@ -132,10 +133,16 @@ class ModelsPage(Adw.PreferencesPage):
             USER_CONFIG_PATH,
         )
         self._pending: dict[tuple, object] = {}
+        # Phase 6 Scope B B3 race fix: track which backend the custom
+        # text row currently corresponds to. When _on_backend_changed
+        # fires we save the current custom text under the OLD backend's
+        # `qb.<old>.model` key before clearing the entry.
+        self._custom_row_backend: str | None = None
 
         self._add_backend_group()
         self._add_qb_group()
         self._add_pb_group()
+        self._add_advanced_pb_group()
         self._add_actions_group()
 
     # ── Backend + model ──────────────────────────────────────────────────
@@ -203,6 +210,22 @@ class ModelsPage(Adw.PreferencesPage):
         self._custom_row.set_visible(
             model not in _MODEL_PRESETS.get(backend, [])
         )
+        # Record which backend the custom text currently belongs to —
+        # used by _on_backend_changed to save/restore per-backend text
+        # (Phase 6 Scope B B3).
+        self._custom_row_backend = backend
+
+        # Per-backend cache of custom model text the user has typed but
+        # not yet saved. Lets a user type Gemini custom → switch to
+        # Anthropic → switch back → find their custom text restored.
+        self._custom_text_by_backend: dict[str, str] = {}
+        if self._custom_row.get_visible():
+            self._custom_text_by_backend[backend] = self._custom_row.get_text()
+
+        # Confirm-on-apply summary — surfaced next to the Apply button
+        # so the user sees the exact `[qb].backend` + `[qb.<x>].model`
+        # that will land in TOML before restart (BP-4 informed decision).
+        self._confirm_summary: Optional[Gtk.Label] = None
 
     def _refresh_model_combo(self, backend: str, current_model: str) -> None:
         presets = _MODEL_PRESETS.get(backend, [])
@@ -216,8 +239,47 @@ class ModelsPage(Adw.PreferencesPage):
     def _on_backend_changed(self, combo, _pspec) -> None:
         idx = combo.get_selected()
         backend, _label = _BACKENDS[idx]
+
+        # Phase 6 Scope B B3 fix: before we redirect the custom-model
+        # text entry to the new backend, stash its current text under
+        # the OLD backend's key. Otherwise a "typed Gemini custom →
+        # switched to Anthropic → clicked Apply" workflow writes the
+        # Gemini text under `[qb.anthropic].model`, silently corrupting
+        # the Anthropic config.
+        old_backend = self._custom_row_backend
+        if (
+            old_backend is not None
+            and self._custom_row.get_visible()
+        ):
+            current_text = self._custom_row.get_text().strip()
+            if current_text:
+                # Remember it so switching BACK to old_backend restores
+                # the user's typed value.
+                self._custom_text_by_backend[old_backend] = current_text
+                # Persist under the correct (old) backend key so a
+                # subsequent Apply lands in the right stanza.
+                self._pending[("qb", old_backend, "model")] = current_text
+
         self._pending[("qb", "backend")] = backend
-        self._refresh_model_combo(backend, self._effective_model(backend))
+        # Restore any custom text the user had previously typed for THIS
+        # backend, otherwise clear the entry so stale text can't leak in.
+        restored = self._custom_text_by_backend.get(backend, "")
+        # Suppress the `changed` signal while we programmatically reset
+        # the entry — otherwise handler_block_by_func would be cleaner,
+        # but a simple flag matches the existing style.
+        self._custom_row.set_text(restored)
+        self._custom_row_backend = backend
+
+        # Model combo now shows the new backend's presets; visibility of
+        # the custom row depends on whether the effective model is a
+        # preset or free text.
+        effective_for_new = restored or self._effective_model(backend)
+        self._refresh_model_combo(backend, effective_for_new)
+        self._custom_row.set_visible(
+            effective_for_new not in _MODEL_PRESETS.get(backend, [])
+        )
+
+        self._update_confirm_summary()
         self._flash(
             f"Backend set to '{backend}'. Set the model + API key next, "
             "then Apply & Restart."
@@ -231,15 +293,41 @@ class ModelsPage(Adw.PreferencesPage):
             model = presets[idx]
             self._pending[("qb", backend, "model")] = model
             self._custom_row.set_visible(False)
+            # Preset picked — clear cached custom text for THIS backend
+            # so switching backends and back doesn't restore stale text.
+            self._custom_text_by_backend.pop(backend, None)
         else:
             # Custom picked — show entry
             self._custom_row.set_visible(True)
+        self._update_confirm_summary()
 
     def _on_custom_changed(self, entry) -> None:
         text = entry.get_text().strip()
         backend = self._current_backend()
         if text:
             self._pending[("qb", backend, "model")] = text
+            # Keep the per-backend cache in sync so the user's live
+            # keystrokes survive a mid-flight backend swap-and-back.
+            self._custom_text_by_backend[backend] = text
+        self._update_confirm_summary()
+
+    def _update_confirm_summary(self) -> None:
+        """Render the "Will write" summary next to the Apply button so
+        the user sees the exact TOML tuple before restart. BP-4 gate
+        integrity: informed decision, no surprise on next boot."""
+        if self._confirm_summary is None:
+            return
+        backend = self._current_backend()
+        # Resolve the model the same way the save path will:
+        pending_model = self._pending.get(("qb", backend, "model"))
+        if isinstance(pending_model, str) and pending_model:
+            model = pending_model
+        else:
+            model = self._effective_model(backend)
+        self._confirm_summary.set_label(
+            f"Will write [qb].backend = \"{backend}\" and "
+            f"[qb.{backend}].model = \"{model}\"."
+        )
 
     def _current_backend(self) -> str:
         pending = self._pending.get(("qb", "backend"))
@@ -273,6 +361,129 @@ class ModelsPage(Adw.PreferencesPage):
         self.add(group)
         for knob in _KNOBS_PB:
             self._add_knob(group, knob)
+
+    def _add_advanced_pb_group(self) -> None:
+        """Phase 6 Scope B B2 — pb_endpoint / pb_model_id / pb_transport
+        are declared in TOML but were only editable by hand. Surfacing
+        them here closes the "local-PB tuning requires shelling in"
+        gap. Also hosts the client-side turn timeout (B1).
+
+        Wrapped in an `Adw.ExpanderRow` collapsed by default so the
+        common Gemini/Anthropic user isn't confronted with `unix://`
+        socket paths on first open (Hick's law: keep the front page
+        skimmable)."""
+        group = Adw.PreferencesGroup(
+            title="Advanced (local PB + timings)",
+            description=(
+                "Fields for users running a non-default local Privileged "
+                "Brain or tuning client-side timeouts. Bundled ISOs use "
+                "safe defaults; adjust only if you know why."
+            ),
+        )
+        self.add(group)
+
+        expander = Adw.ExpanderRow(
+            title="Advanced PB endpoint + timings",
+            subtitle="Expand to override defaults",
+        )
+        expander.set_expanded(False)
+        group.add(expander)
+
+        # pb_endpoint
+        endpoint_row = Adw.EntryRow(title="PB endpoint")
+        endpoint_row.set_text(str(effective(
+            self._system, self._user,
+            ("run",), "pb_endpoint",
+            "http://127.0.0.1:8080",
+        )))
+        endpoint_row.connect("changed", self._on_pb_endpoint_changed)
+        expander.add_row(endpoint_row)
+
+        # pb_model_id
+        model_id_row = Adw.EntryRow(title="PB model ID")
+        model_id_row.set_text(str(effective(
+            self._system, self._user,
+            ("run",), "pb_model_id",
+            "qwen-2.5-coder-1.5b-instruct-q4_k_m",
+        )))
+        model_id_row.connect("changed", self._on_pb_model_id_changed)
+        expander.add_row(model_id_row)
+
+        # pb_transport (http | unix)
+        transport_row = Adw.ActionRow(
+            title="PB transport",
+            subtitle="'http' = TCP loopback; 'unix' = AF_UNIX socket.",
+        )
+        transport_combo = Gtk.DropDown()
+        transport_combo.set_model(Gtk.StringList.new(["http", "unix"]))
+        current_transport = str(effective(
+            self._system, self._user,
+            ("run",), "pb_transport", "http",
+        ))
+        transport_combo.set_selected(1 if current_transport == "unix" else 0)
+        transport_combo.set_valign(Gtk.Align.CENTER)
+        transport_combo.connect("notify::selected", self._on_pb_transport_changed)
+        transport_row.add_suffix(transport_combo)
+        expander.add_row(transport_row)
+
+        # turn_timeout_seconds (Scope B B1 — was hardcoded 600.0 in client.py)
+        turn_lo, turn_hi = 30.0, 7200.0
+        turn_spec = get_field_spec(("run",), "turn_timeout_seconds")
+        if turn_spec and turn_spec.minimum is not None:
+            turn_lo = float(turn_spec.minimum)
+        if turn_spec and turn_spec.maximum is not None:
+            turn_hi = float(turn_spec.maximum)
+        turn_row = Adw.ActionRow(
+            title="Turn timeout",
+            subtitle=(
+                turn_spec.description if turn_spec and turn_spec.description
+                else "Client-side timeout for a single turn.run RPC. "
+                     "Raise for slow-emulation guests (Rosetta 2)."
+            ),
+        )
+        current_turn = float(effective(
+            self._system, self._user,
+            ("run",), "turn_timeout_seconds", 600.0,
+        ))
+        turn_spin = Gtk.SpinButton()
+        turn_spin.set_valign(Gtk.Align.CENTER)
+        turn_spin.set_adjustment(Gtk.Adjustment(
+            value=current_turn,
+            lower=turn_lo, upper=turn_hi,
+            step_increment=30, page_increment=300,
+        ))
+        turn_spin.set_digits(0)
+        turn_spin.set_numeric(True)
+        turn_spin.connect("value-changed", self._on_turn_timeout_changed)
+        turn_row.add_suffix(turn_spin)
+        suffix_lbl = Gtk.Label(label="s")
+        suffix_lbl.add_css_class("dim-label")
+        turn_row.add_suffix(suffix_lbl)
+        # Restart-required badge
+        badge = Gtk.Label(label="restart to apply")
+        badge.add_css_class("dim-label")
+        turn_row.add_suffix(badge)
+        expander.add_row(turn_row)
+
+    # ── Advanced PB / turn timeout handlers ─────────────────────────────
+
+    def _on_pb_endpoint_changed(self, entry) -> None:
+        text = entry.get_text().strip()
+        if text:
+            self._pending[("run", "pb_endpoint")] = text
+
+    def _on_pb_model_id_changed(self, entry) -> None:
+        text = entry.get_text().strip()
+        if text:
+            self._pending[("run", "pb_model_id")] = text
+
+    def _on_pb_transport_changed(self, combo, _pspec) -> None:
+        idx = combo.get_selected()
+        value = "unix" if idx == 1 else "http"
+        self._pending[("run", "pb_transport")] = value
+
+    def _on_turn_timeout_changed(self, spin: Gtk.SpinButton) -> None:
+        self._pending[("run", "turn_timeout_seconds")] = float(spin.get_value())
 
     def _add_knob(self, group: Adw.PreferencesGroup, knob: _Knob) -> None:
         row = Adw.ActionRow(title=knob.label, subtitle=knob.subtitle)
@@ -318,6 +529,18 @@ class ModelsPage(Adw.PreferencesPage):
         btn.connect("clicked", self._on_apply)
         row.add_suffix(btn)
         group.add(row)
+
+        # Phase 6 Scope B B3: confirm-on-apply summary. Shows the exact
+        # `[qb].backend` + `[qb.<x>].model` pair that Apply will write
+        # so the user is never surprised at next boot. BP-4.
+        confirm_row = Adw.ActionRow(title="On apply")
+        confirm_label = Gtk.Label()
+        confirm_label.set_wrap(True)
+        confirm_label.add_css_class("dim-label")
+        confirm_row.set_child(confirm_label)
+        group.add(confirm_row)
+        self._confirm_summary = confirm_label
+        self._update_confirm_summary()
 
         row2 = Adw.ActionRow(
             title="Config file", subtitle=f"User override: {USER_CONFIG_PATH}"

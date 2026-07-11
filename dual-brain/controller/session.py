@@ -28,6 +28,12 @@ from .undo import UndoEntry, UndoHistory
 # reaching QB — controls stripped, length capped, no unclosed XML tags.
 
 _CONTEXT_STRIP = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# Phase 6 Scope B: these used to be authoritative module constants; now
+# they are just defaults for code paths that don't know about SessionConfig
+# (e.g. bare unit tests). The real ceilings come from
+# cfg.session.max_shell_context_chars / max_recent_commands and flow in
+# through explicit kwargs. Keep the module constants as documentation of
+# the safe defaults (BP-2 backward-compat).
 _MAX_CONTEXT_LEN = 512
 _MAX_RECENT = 5
 
@@ -59,14 +65,27 @@ class ShellContext:
     active_window: str = ""
     hostname: str = ""
 
-    def render(self) -> str:
-        """Return the XML preamble string. Empty when no fields are populated."""
+    def render(
+        self,
+        *,
+        max_chars: int = _MAX_CONTEXT_LEN,
+        max_recent: int = _MAX_RECENT,
+    ) -> str:
+        """Return the XML preamble string. Empty when no fields are populated.
+
+        ``max_chars`` and ``max_recent`` come from
+        ``cfg.session.max_shell_context_chars`` /
+        ``cfg.session.max_recent_commands`` (Phase 6 Scope B). Defaults
+        preserve pre-Scope-B behavior for callers that don't pass them.
+        """
         parts = ["<context>"]
         any_field = False
         if self.cwd:
-            parts.append(f"cwd: {_clean(self.cwd)}")
+            parts.append(f"cwd: {_clean(self.cwd, max_chars)}")
             any_field = True
         if self.user:
+            # user/hostname stay capped at 64 — they're identifiers, not
+            # narrative content. Config controls the narrative caps only.
             parts.append(f"user: {_clean(self.user, 64)}")
             any_field = True
         if self.hostname:
@@ -76,18 +95,28 @@ class ShellContext:
             cmds = [c for c in self.recent_commands if isinstance(c, str) and c.strip()]
             if cmds:
                 parts.append("recent_commands:")
-                for c in cmds[-_MAX_RECENT:]:
-                    parts.append(f"  - {_clean(c)}")
+                for c in cmds[-max_recent:]:
+                    parts.append(f"  - {_clean(c, max_chars)}")
                 any_field = True
         if self.active_window:
-            parts.append(f"active_window: {_clean(self.active_window)}")
+            parts.append(f"active_window: {_clean(self.active_window, max_chars)}")
             any_field = True
         parts.append("</context>")
         return "\n".join(parts) if any_field else ""
 
     @classmethod
-    def from_params(cls, params: Optional[dict]) -> "ShellContext":
-        """Build from a JSON-RPC context dict. Returns empty context on None."""
+    def from_params(
+        cls,
+        params: Optional[dict],
+        *,
+        max_recent: int = _MAX_RECENT,
+    ) -> "ShellContext":
+        """Build from a JSON-RPC context dict. Returns empty context on None.
+
+        ``max_recent`` slices the incoming ``recent_commands`` list — the
+        caller passes ``cfg.session.max_recent_commands`` when driven by
+        the daemon, or falls through to the module default in tests.
+        """
         if not isinstance(params, dict):
             return cls()
         rc = params.get("recent_commands", [])
@@ -95,7 +124,7 @@ class ShellContext:
             rc = []
         return cls(
             cwd=str(params.get("cwd", "") or ""),
-            recent_commands=[str(x) for x in rc[-_MAX_RECENT:] if x],
+            recent_commands=[str(x) for x in rc[-max_recent:] if x],
             user=str(params.get("user", "") or ""),
             active_window=str(params.get("active_window", "") or ""),
             hostname=str(params.get("hostname", "") or ""),
