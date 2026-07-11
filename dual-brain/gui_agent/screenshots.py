@@ -14,11 +14,15 @@ Security (INV-8 / BP-3):
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+_ss_log = logging.getLogger(__name__)
 
 
 class ScreenshotUnavailableError(Exception):
@@ -51,6 +55,7 @@ class ScreenshotManager:
         self._portal_proxy = None
         self._gnome_proxy = None
 
+        self._init_error: str | None = None
         try:
             import gi
             gi.require_version("Gio", "2.0")
@@ -58,8 +63,13 @@ class ScreenshotManager:
             self._gio = Gio
             self._bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
             self._dbus_available = True
-        except (ImportError, ValueError, Exception):
-            pass
+        except (ImportError, ValueError, Exception) as exc:
+            # F-53 Scope A.P3: stash the reason so
+            # `ScreenshotUnavailableError` can carry a specific reason
+            # (Gio missing vs. no session bus vs. broken introspection)
+            # instead of the generic "not available".
+            self._init_error = f"{type(exc).__name__}: {exc}"[:400]
+            _ss_log.debug("screenshots.init failed: %s", self._init_error)
 
     @property
     def available(self) -> bool:
@@ -158,8 +168,13 @@ class ScreenshotManager:
                             import shutil
                             shutil.move(str(src), str(dest))
                         return dest
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-53 Scope A.P3: portal Screenshot method failed. Log so
+            # falling through to GNOME Shell fallback is visible in
+            # journalctl — otherwise a broken portal looks identical
+            # to no portal at all.
+            _ss_log.debug("screenshots.portal_call failed: %s: %s",
+                          type(exc).__name__, exc)
         return None
 
     def _try_gnome_shell(self, dest: Path, window_title: str) -> Path | None:
@@ -196,8 +211,14 @@ class ScreenshotManager:
                 success = unpacked[0] if isinstance(unpacked, tuple) else unpacked
                 if success and dest.exists():
                     return dest
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-53 Scope A.P3: GNOME Shell screenshot method failed.
+            # Log so the caller (which will raise
+            # ScreenshotUnavailableError) can attribute the failure to
+            # both portal + gnome fallback rather than a mysterious
+            # "no method worked".
+            _ss_log.debug("screenshots.gnome_shell failed: %s: %s",
+                          type(exc).__name__, exc)
         return None
 
     def _convert_to_jpeg(self, png_path: Path, quality: int) -> Path:
@@ -259,6 +280,11 @@ class ScreenshotManager:
                 from PIL import Image
                 with Image.open(path) as img:
                     return img.size
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-53 Scope A.P3: image dimension read is genuinely
+            # best-effort — a corrupt PNG header shouldn't crash the
+            # audit path. Log so a systemic corruption pattern is
+            # visible in journalctl.
+            _ss_log.debug("screenshots.image_dimensions failed for %r: %s: %s",
+                          path, type(exc).__name__, exc)
         return (0, 0)

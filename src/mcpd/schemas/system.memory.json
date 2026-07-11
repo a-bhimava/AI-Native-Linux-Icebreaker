@@ -4,5 +4,11 @@
   "description": "Returns total, used, free, and cached memory in MB.",
   "type": "object",
   "properties": {},
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x-icebreaker-trust": {
+    "tier": 0,
+    "reversible": true,
+    "requires_hitl": false,
+    "requires_cow": false
+  }
 }

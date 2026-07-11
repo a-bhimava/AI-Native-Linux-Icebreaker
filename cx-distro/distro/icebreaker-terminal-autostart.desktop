@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Icebreaker Terminal (Autostart)
+Comment=Auto-launch Icebreaker split-pane terminal on login
+# gnome-terminal is guaranteed in the incremental GNOME base
+# (packages-desktop.txt); ib-wait-sock waits for the daemon socket
+# instead of a blind sleep (F-9). Terminal=true is ignored by GNOME
+# autostart, hence the explicit gnome-terminal wrapper.
+Exec=gnome-terminal --full-screen -- /usr/libexec/icebreaker/ib-wait-sock /opt/icebreaker/venv/bin/python3 -m terminal --sock /run/icebreaker/controller.sock
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

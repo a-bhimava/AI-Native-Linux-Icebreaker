@@ -7,8 +7,12 @@ Right-click menu provides quick access to Chatbot, Settings, Audit.
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Optional
+
+
+_tray_log = logging.getLogger(__name__)
 
 import gi
 
@@ -107,7 +111,13 @@ class TrayIndicator(Gtk.Box):
             resp = self._client.status()
             result = resp.get("result", {})
             GLib.idle_add(self._handle_health, result)
-        except Exception:
+        except Exception as exc:
+            # F-53 Scope A.P3: any client-side error → tray goes OFFLINE.
+            # Log at debug (polls every 10s — warning would flood logs
+            # when the daemon is intentionally down). The tray icon +
+            # tooltip already surface OFFLINE to the user.
+            _tray_log.debug("tray.status_poll failed: %s: %s",
+                            type(exc).__name__, exc)
             GLib.idle_add(self._set_state, DaemonState.OFFLINE)
 
     def _handle_health(self, result: dict) -> bool:

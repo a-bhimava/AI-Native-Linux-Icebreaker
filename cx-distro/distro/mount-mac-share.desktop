@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Mount Mac Share
+Comment=Mounts the UTM Shared Directory from your Mac host
+Exec=sh -c 'pkexec /usr/bin/mount-mac-share'
+Icon=drive-harddisk-system
+Terminal=false
+Type=Application
+Categories=System;Utility;
+Keywords=mount;mac;share;utm;

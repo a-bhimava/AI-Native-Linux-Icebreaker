@@ -258,12 +258,29 @@ class Daemon:
 
                 try:
                     msg = parse_message(raw)
-                except Exception:
+                except Exception as exc:
+                    # F-53 Scope A.P1: previously swallowed silently — the
+                    # client got a "malformed JSON" error but the daemon
+                    # journal recorded nothing. Log the type + first bytes
+                    # so operators diagnosing wire-format regressions
+                    # (protocol version mismatch, framing corruption) can
+                    # grep journalctl. Debug level to avoid flooding on a
+                    # spammy client; escalate to warning in future if we
+                    # see repeated hits.
+                    excerpt = raw[:80] if isinstance(raw, (bytes, str)) else repr(raw)[:80]
+                    log.debug(
+                        "parse_message failed: %s: %s (first 80 bytes: %r)",
+                        type(exc).__name__, exc, excerpt,
+                    )
                     try:
                         resp = make_error("0", PARSE_ERROR, "malformed JSON")
                         session.transport.send(resp.to_bytes())
                     except TransportClosed:
-                        break
+                        # Legitimate swallow: torn connection while
+                        # reporting an earlier parse failure. Nothing more
+                        # to do — the outer loop's `while not shutdown`
+                        # exits cleanly on the next iteration.
+                        break  # noqa: BLE001-not-applicable-here
                     continue
 
                 if not is_request(msg):
@@ -323,6 +340,14 @@ class Daemon:
             resp = make_error(msg_id, INVALID_PARAMS, "missing 'input' string")
             session.transport.send(resp.to_bytes())
             return
+
+        # V6B Stage 2: optional context from the Terminal (cwd, recent
+        # commands, active_window). Sanitized in ShellContext.from_params;
+        # rendered into the QB preamble at the call site in main.py.
+        from .session import ShellContext
+        session.session_state.shell_context = ShellContext.from_params(
+            params.get("context")
+        )
 
         if not session._turn_lock.acquire(blocking=False):
             resp = make_error(msg_id, INTERNAL_ERROR, "turn already in progress")

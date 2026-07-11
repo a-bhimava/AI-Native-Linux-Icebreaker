@@ -1,0 +1,8 @@
+# v0 — Boots to GNOME desktop
+#
+# INTENTIONALLY EMPTY. V0 is the bare cached base (build-base.sh):
+# Ubuntu noble + GNOME + GDM autologin + icebreaker user. Zero Icebreaker code.
+# build-iso.sh applies manifests starting at v1; this file exists for
+# documentation symmetry only.
+#
+# Gate: see GROUND_TRUTH.md § 3 V0.

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Icebreaker Terminal
+Comment=AI-Native OS split-pane terminal
+Exec=/opt/icebreaker/venv/bin/python3 -m terminal --sock /run/icebreaker/controller.sock
+Icon=utilities-terminal
+Terminal=true
+Type=Application
+Categories=System;TerminalEmulator;
+Keywords=ai;terminal;tui;icebreaker;

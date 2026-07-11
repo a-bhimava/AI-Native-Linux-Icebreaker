@@ -2,9 +2,18 @@
 ## Architecting a Local LLM-Driven Ubuntu Fork
 
 **Classification:** Internal Technical Whitepaper  
-**Version:** 1.0  
-**Date:** May 2026  
+**Version:** 1.1 (revised 2026-07-09 — cloud QB architecture + Phase 7/8 scoped)
+**Original Date:** May 2026
 **Status:** Living Document — Reference Standard for Development
+
+## Revision History
+
+**v1.1 (2026-07-09) — Cloud QB architecture, Phase 7 broader-tools scope, Phase 8 autonomous agents scope**
+- Section 3 updated: QB is now cloud `gemini-2.5-flash` (was to be local Phi-4-mini). Trade-off: dramatically smarter content generation + tool orchestration, at the cost of internet dependency + ~$0.00018/turn + ~6-10s latency. Local QB (Phi-4-mini or similar) documented as the offline-mode fallback / future path. The QB→PB channel is now a **rich envelope** carrying `content` + `pb_hint` alongside the intent (V6.61 change; see GROUND_TRUTH F-41).
+- Section 6 updated: QB model recommendations rewritten; PB stays as `run7_cot_q4km.gguf` (Qwen 2.5 Coder 1.5B finetune, ~940 MB Q4_K_M).
+- Section 10 rewritten: Phase 5 status = complete; Phase 6 status = complete; Phase 6T status = complete; Deploy status = complete; Multi-arch (V6.6) status = complete; QB→PB rich envelope (V6.61) status = complete offline. **Phase 7 rescoped** to include broader MCP tool surface (M7.1-M7.7), not just hardening. **Phase 8 defined** as Autonomous Agent Loops (M8.1-M8.5); was undefined in v1.0.
+- Section 13 updated: KPI 1 (latency) target revised for cloud QB reality. p95 <15s for content-generation turns, p95 <3s for pure structural ops.
+
 
 ---
 
@@ -95,9 +104,11 @@ The Quarantined Brain is the model the user directly interacts with. It is a cap
 - Answering questions, drafting content, explaining system state
 - Formulating requests for system actions
 
-**Critical constraint:** The Quarantined Brain has **zero direct access** to any system execution tools, root directories, filesystem write operations, or network sockets bound to privileged ports. It cannot execute a single shell command. If it is fed a prompt injection attack, the damage is contained entirely within the perception layer — it has nothing to act on.
+**Critical constraint:** The Quarantined Brain has **zero direct access** to any system execution tools, root directories, filesystem write operations, or network sockets bound to privileged ports. It cannot execute a single shell command. If it is fed a prompt injection attack, the damage is contained entirely within the perception layer — it has nothing to act on. (Phase 7 M7.3-M7.4 will introduce a narrow, curated allowlist of external MCP servers — Playwright, MS Graph, Google Workspace — that QB may invoke; but these run as unprivileged subprocesses of `mcpd` under Landlock + seccomp + egress firewall + Tier ceiling, and are still separate from PB's privileged tool surface.)
 
-**Recommended model:** Phi-4-mini (3.8B parameters) — reasoning-dense, excellent instruction following, fits in ~4GB RAM at Q4 quantization.
+**Model in production (v1.1 revised 2026-07-09):** **`gemini-2.5-flash`** (cloud API). This deliberately replaces the original v1.0 recommendation of local Phi-4-mini. Rationale: for the goal of "OS does tasks end-to-end via AI workflows" (see Section 1 vision update), a small local QB cannot generate Word doc content, draft haiku for `poem.txt`, orchestrate MCP tool sequences, or produce Vega-Lite chart specs. Cloud QB earns those capabilities at the cost of ~$0.00018/turn + internet dependency + ~6-10s latency per turn. **QB→PB channel is now a rich envelope** carrying `content` (verbatim user-requested bytes) + `pb_hint` (QB coaching the executor on schema field placement + format) alongside the classic intent object — see GROUND_TRUTH F-41 for the v6.61 change that introduced this.
+
+**Future / offline fallback:** Local Phi-4-mini remains the target for offline-mode / air-gapped deployments. A router (whitepaper Phase 8 M8.x candidate) would select cloud vs local based on connectivity + query complexity + privacy label. Ship-first-then-fall-back pattern preferred over local-only.
 
 ### Brain 2: The Privileged Brain (Execution Layer)
 
@@ -291,15 +302,18 @@ Running frontier models (GPT-4 scale, 70B+ parameters) locally is not viable on 
 
 ### Model Recommendations
 
-**Privileged Brain (Execution):**
-- **Primary:** Qwen 2.5 Coder 1.5B — ~2GB RAM at Q4_K_M quantization. State-of-the-art Bash and system operation understanding for its size. Fine-tuned on NL2SH data as described in Section 7.
-- **Fallback:** Qwen 2.5 Coder 3B — ~4GB RAM. Higher capability for complex multi-step operations.
+**Privileged Brain (Execution) — shipped:**
+- **Production:** `run7_cot_q4km.gguf` — Qwen 2.5 Coder 1.5B fine-tuned via the Phase 4 pipeline (see Section 7). ~940 MB Q4_K_M. State-of-the-art NL→structured tool call generation for its size. Constrained-decoded via GBNF grammar (`inference/grammar/mcp_tool_call.gbnf`). 100% adversarial refusal rate; 95.5% grammar-valid MCP output on eval set. Runs on CPU under llama.cpp at ~5-15s per turn native, ~30-90s under Rosetta 2 emulation (F-25).
+- **Fallback:** Qwen 2.5 Coder 3B (unchanged from v1.0 recommendation) — for hardware with headroom.
 
-**Quarantined Brain (Perception):**
-- **Primary:** Phi-4-mini (3.8B) — ~4GB RAM at Q4 quantization. Reasoning-dense, excellent instruction following, fast on CPU.
-- **Fallback:** Gemma 3 4B — comparable capability, open weights, strong on general language tasks.
+**Quarantined Brain (Perception) — shipped:**
+- **Production:** **`gemini-2.5-flash`** cloud API. See Section 3 revision for rationale. Configured via `cx-distro/distro/controller.toml` line 12; key provisioned via `pkexec ib-setup-key` writing to root-only `/etc/icebreaker/locations.env`. Rich-envelope contract: QB emits intent + optional `content` + optional `pb_hint` (see F-41).
+- **Alternates supported by the backend registry** (`dual-brain/controller/backends/`): OpenAI (Phase 5 P2), Anthropic Claude, local llama.cpp fallback (for offline mode — activates on GEMINI_API_KEY unset per F-20 handling). The BrainBackend registry (BP-1 pattern) makes model swaps a config edit, not a code change.
+- **Future / offline path:** Local Phi-4-mini (or Gemma 3 4B) via llama.cpp for air-gapped deployments; Phase 8 candidate for a QB router.
 
-**Total RAM footprint:** ~6–8GB with both models loaded, leaving adequate headroom for the OS and user applications on a 16GB system.
+**Total RAM footprint (v1.1 shipped):** PB ~940 MB + llama-server overhead + Python controller venv ~500 MB ≈ 2 GB. QB is cloud API, no local RAM cost. Leaves ~13 GB free on a 16 GB system for user applications + kernel + XFCE desktop.
+
+**Total RAM footprint (offline mode — future):** Add ~4 GB for a local QB (Phi-4-mini or Gemma 3 4B). ~6-7 GB total; still fits in a 16 GB system.
 
 ### Inference Engine: llama.cpp
 
@@ -624,17 +638,122 @@ This section defines the **exact sequence** in which the project must be built. 
 
 ---
 
-### Phase 7: Integration, Hardening & Release Prep
-**Duration:** Weeks 23–26  
-**Goal:** A stable, secure, well-documented v1.0.
+### Phase 6T: AI Terminal + GUI Agent + RPA Bridge
+**Duration:** Weeks 20-22 (parallel with Phase 6 late milestones)
+**Status:** Complete (PRs #22-#30, 1749 tests)
+**Delivered:** Textual TUI dual-pane terminal with CoT streaming (`#` trigger); GUI Agent with AT-SPI + Landlock sandbox; App APIs for LibreOffice (UNO), Firefox (CDP), GNOME Files (D-Bus), and generic AT-SPI fallback (`dual-brain/gui_agent/app_apis/`); RPA Bridge with Robot Framework subprocess + 36-keyword allowlist (`dual-brain/rpa_bridge/`); B→C escalation from GUI Agent to RPA when App API unavailable; QB-monitored RPA workflows (text summaries only, no raw pixels per INV-1).
 
-**Tasks:**
-- End-to-end integration testing of the complete pipeline
-- Penetration testing: hire or simulate an adversary attempting prompt injection, sandbox escape, privilege escalation
-- Performance profiling: identify and resolve latency bottlenecks
-- Documentation: user guide, developer API reference, security architecture overview
-- Establish a responsible disclosure policy for security vulnerabilities
-- Cut v1.0 release, publish ISO
+---
+
+### Deploy: GCP VM + XFCE Desktop Polish
+**Duration:** Weeks 22-23 (post Phase 6T)
+**Status:** Complete (PRs #24-#26)
+**Delivered:** `cx-distro/rebuild/deploy.sh` for GCP VM with XRDP; GUI→daemon connection fixes (socket path, client API, threading); XFCE desktop polish (wallpaper, panel, dark theme, autostart); chatbot response streaming display fixes.
+
+---
+
+### Multi-arch (V6.6): amd64 + arm64 ISOs
+**Duration:** Week 23 (2026-07-08)
+**Status:** Complete (arm64 QEMU gate PASS; UTM Virtualize check pending per R11)
+**Delivered:** Both amd64 and arm64 ISOs. Refactor: `config/archs/{amd64,arm64}.conf` (single source of arch-specific truth) + Makefile + arch-aware `build-base.sh`/`build-iso.sh`/`qemu-gate.sh`. Cross-compiled `mcpd-arm64` (via `cross` crate under Docker) + `llama-server-arm64` (llama.cpp CMake toolchain, NEON). Venv cache in v2.manifest (55-min pip → 4-sec cache extract for repeat builds). Rationale: Apple Silicon UTM Virtualize mode runs arm64 natively at ~13-27× the speed of v6.51 amd64 under Rosetta 2 emulation.
+
+---
+
+### QB→PB Rich Envelope (V6.61)
+**Duration:** Week 23 (2026-07-09)
+**Status:** Complete offline; UTM verify pending
+**Delivered:** Fixes 5 of 7 Phase-5-era prompt bugs from the V6.6 UTM sweep. F-41 CSV content-hallucination (QB now emits `intent.content` verbatim; PB passes through), F-42 `_cot` NameError (module-level `_make_cot` helper), F-43 placeholder UUID leak (server-generated `intent_id`), F-44 verifier retry. QB + PB + verifier prompts rewritten with rubrics. See GROUND_TRUTH failure log for details.
+
+---
+
+### Phase 7: Broader MCP Tools + Hardening + v1.0 Release
+**Duration:** Weeks 24-38 (~10-14 weeks; scope revised 2026-07-09)
+**Goal:** Ship a v1.0 GPG-signed ISO that lets users complete real end-to-end tasks (Word docs, Excel sheets, browser automation, data visualization) not just filesystem-level ops.
+**Reference:** `docs/ROADMAP_Phase7_Phase8_2026-07-09.md`
+
+**Milestones:**
+
+**M7.1 — Trust-tier taxonomy formalized + MCP extension draft (2 wk)**
+- Move risk_level / tier assignment out of `main.py` into `docs/spec/trust-tiers.md`.
+- Draft MCP extension `x-icebreaker-trust` (per-tool JSON field: `{tier: 0|1|2|3, reversible, requires_hitl, requires_cow}`). Submit as public RFC to LF Agentic AI Foundation.
+- Schema check: every tool (in-house or external) must declare `x-icebreaker-trust` or `mcpd` fails startup (Rule R13 in GROUND_TRUTH.md).
+- ISO version: v6.7
+
+**M7.2 — Curated external MCP allowlist infrastructure (3 wk)**
+- `cx-distro/distro/mcp_allowlist.toml` schema: `{name, git_url, commit_sha, sha256, tier_ceiling, egress_hosts}`.
+- `mcpd` spawns external MCP servers as unprivileged subprocesses with scoped Landlock roots + seccomp filter (no fork/exec beyond initial subprocess) + `nftables` egress allowlist + Tier ceiling enforcement (external tools cannot produce Tier < 2 intents that skip HITL).
+- CI gate `external-mcp-integrity.sh` verifies SHA + Git SHA per entry before build.
+- ISO version: v6.8
+
+**M7.3 — Browser: Playwright MCP integration (2 wk)**
+- Playwright MCP as first allowlist entry (industry SOTA per Section 2 update: ~92% vs Anthropic Computer Use ~78% on benchmarks).
+- Default Tier 2 auto-execute-with-audit inside current tab; Tier 3 lockout for new tabs or external-domain navigation.
+- Firefox App API (`gui_agent/app_apis/firefox.py`) prefers Playwright MCP over direct CDP when available.
+- ISO version: v6.9
+
+**M7.4 — Office: MS Graph + Google Workspace MCP (3 wk)**
+- MS Graph (Microsoft 365 Agents Toolkit MCP, GA April 2026) + `taylorwilsdon/google_workspace_mcp` as second and third allowlist entries.
+- OAuth 2.1 flow per MCP spec 2025-11-25: `pkexec ib-setup-oauth --provider={ms365|google}` mirrors existing `ib-setup-key`. Tokens in `/etc/icebreaker/secrets/oauth-{provider}.token` root-only, forwarded to child processes via systemd credentials (never env vars).
+- End-to-end examples: `# make a Word doc listing my project files`, `# create an Excel sheet with name/size/date from ~/Downloads`.
+- Native cloud APIs beat AT-SPI here — we keep LibreOffice App API for local LibreOffice, but MS Word / Excel work even without LibreOffice installed.
+- ISO version: v6.10
+
+**M7.5 — Analytics + visualization tools (2 wk)**
+- `analytics.summarize(data)`: QB produces 1-3 sentence NL summary of structured tool output (formalizes existing summarize pipeline as a tool).
+- `analytics.chart(data, kind)`: QB produces a Vega-Lite JSON spec with data embedded; PB validates well-formed; `mcpd` renders to SVG (via `vega-cli` in v6 package list) into the Terminal's companion pane.
+- Clean fit for the QB↔PB split — QB's semantic strengths + PB's structural validation.
+- ISO version: v6.11
+
+**M7.6 — E2E hardening + adversarial pen-test (2 wk)**
+- Bare-metal GUI/RPA E2E tests (Phase 6T deferred item).
+- Adversarial pen-test: prompt injection through Word doc content, sandbox escape from external MCP server, OAuth token exfiltration attempts, browser MCP navigating malicious URLs. Third-party contract or internal red-team with documented threat model.
+- p95 latency profiling: <500ms for Tier 0, <15s for Tier 1 writes with content, <30s for Tier 2 external MCP calls.
+- ISO version: v6.12
+
+**M7.7 — Docs + GPG-signed v1.0 release (2 wk)**
+- User guide, developer API reference, security architecture overview.
+- ISO signed with fresh GPG key; `docs/security/release-signing.md` publishes public key.
+- INV-1 through INV-8 published as public architecture claims — Icebreaker's security-first framing is our differentiator vs the industry's cost/latency-first SLM pattern (see Section 2 update).
+- ISO version: v6.13 → v1.0
+
+**Phase 7 exit criteria:** 30+ mcpd tools (23 existing + 4 external MCP wrappers + 3+ new in-house) + all Phase 6T deferred items closed + pen-test report + `v1.0-amd64.iso` and `v1.0-arm64.iso` GPG-signed and published.
+
+---
+
+### Phase 8: Autonomous Agent Loops
+**Duration:** Weeks 39-50 (~10-12 weeks; scoped 2026-07-09, undefined in whitepaper v1.0)
+**Goal:** Icebreaker becomes an *agent runtime*, not just a natural-language command translator. Multi-turn planning, sub-goal decomposition, self-verification.
+**Reference architectures:** **TDP (Task-Decoupled Planning)** — published 82% token reduction from sub-goal scoping. **CODA (Cerebrum-Cerebellum)** — aligns with our QB↔PB semantic-vs-structural split.
+
+**Milestones:**
+
+**M8.1 — Multi-turn Goal state (3 wk)**
+- Extend `Session` (`dual-brain/controller/session.py`) with a `Goal` object: `{intent, plan_steps, executed_steps, remaining_steps, verification_criteria}`.
+- QB emits a plan when the user request maps to more than one atomic action ("install nginx AND start it AND show me logs" — today `system.unsupported`; tomorrow a 3-step plan).
+- HITL applies at plan-approval time (whole plan), unless a step escalates tier mid-plan.
+- ISO version: v1.1
+
+**M8.2 — Self-verification loop (2 wk)**
+- After each executed step, QB verifies the step's output matches sub-goal's expected outcome. Existing `qb_verifier` prompt extended.
+- On mismatch: re-plan, retry step (bounded), or escalate to human.
+- ISO version: v1.2
+
+**M8.3 — Sub-agent roles with tier ceilings (3 wk)**
+- Roles: `research_agent` (browser + summarize, Tier 1 read-only), `data_agent` (analytics + read + chart, Tier 1), `office_agent` (Word + Excel + email, Tier 2 with HITL). Each role gets a subset of the M7.2 allowlist.
+- Roles labeled with maximum tier they can produce. Nothing autonomous ever gets Tier 3.
+- ISO version: v1.3
+
+**M8.4 — LangGraph adapter (2 wk)**
+- Expose Icebreaker's execution surface as a LangGraph-compatible tool set. External LangGraph workflows execute on Icebreaker under our trust-tier + HITL rules.
+- Positions Icebreaker as a *constrained execution runtime* for agent frameworks, not a competitor.
+- ISO version: v1.4
+
+**M8.5 — Fleet-safe observability (2 wk)**
+- Session-level audit graph (steps + verifier votes + HITL decisions as a DAG); per-plan cost accounting; per-role rate limits.
+- Deferred to Phase 8 because Phase 7 v1.0 focuses on single-turn correctness first.
+- ISO version: v1.5
+
+**Phase 8 exit criteria:** Icebreaker executes a 3-4 step plan without human intervention within HITL boundaries; sub-agent role system in production; LangGraph adapter published + one worked example in `docs/examples/langgraph-icebreaker.md`.
 
 ---
 
@@ -772,10 +891,15 @@ This section documents the most likely ways this project fails. Each failure mod
 
 The project is considered successful when all of the following criteria are met simultaneously.
 
-### KPI 1: Execution Latency
-- **Target:** End-to-end from user input to command execution output in <100ms for Tier 0 and Tier 1 operations
-- **Measurement:** Automated benchmark suite running 500 representative NL2SH queries; report p50, p95, p99 latency
-- **Failure threshold:** p95 latency >500ms at any point in the execution pipeline
+### KPI 1: Execution Latency (revised 2026-07-09 for cloud QB architecture)
+- **Original v1.0 target** (local QB assumption): p95 <100ms for Tier 0/1 operations. **Retained as the offline-mode / future local-QB target.**
+- **v1.1 shipped target** (cloud QB architecture):
+  - **Tier 0 pure-structural** (`fs.list`, `system.status`, `network.status`): p95 <3s including Gemini round-trip.
+  - **Tier 1 content-writing** (`fs.write` with QB-generated content — CSV, JSON, haiku): p95 <15s including Gemini content generation. **Measured 8.2s avg, 10.2s max on native arm64 v6.6 UTM Virtualize** (see `Testing_Reports/2026-07-09_v6.6-arm64_UTM-test.md`).
+  - **Tier 2 external MCP** (Playwright, MS Graph — Phase 7 M7.3-M7.4): p95 <30s including tool-server RPC.
+- **Measurement:** Automated benchmark suite running 500 representative NL queries; report p50, p95, p99 latency by tier.
+- **Failure threshold:** p95 exceeds bounds above OR any pipeline stage introduces >500ms of *internal* overhead (excluding network round-trips).
+- **Rationale:** cloud QB adds ~4-6s of Gemini API round-trip per turn (unavoidable). The offline-mode target of <100ms remains available for local-QB deployments where privacy or air-gap requires it.
 
 ### KPI 2: Absolute Security Containment
 - **Target:** Zero successful sandbox escapes in adversarial testing; zero privilege escalation events in production telemetry

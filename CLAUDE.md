@@ -44,6 +44,12 @@ Read both before making any architectural change.
 ├── shell/                         # V1 shell trigger — preserved untouched; coexists with Controller
 ├── backups/                       # Local snapshots of VM state (e.g. backups/jun4/)
 ├── cx-distro/                     # ISO build pipeline (6-stage build.sh, Dockerfile, distro config — PRs #15–#21)
+│   └── rebuild/                   #   - VM deploy + ISO rebuild scripts (deploy.sh, rebuild.sh, monitor.sh)
+├── dual-brain/gui/                # GTK4/LibAdwaita GUI apps (chatbot, settings, audit viewer)
+│   ├── chatbot/                   #   - Copilot-style NL chat window (window.py, input_bar.py, message_list.py)
+│   ├── settings/                  #   - Settings window (backend config, model selection)
+│   ├── tray/                      #   - System tray indicator
+│   └── daemon_client.py           #   - GtkDaemonClient: wraps DaemonClient with GLib.idle_add for GTK thread safety
 └── models/
     └── checksums.sha256           # SHA-256 of all GGUF model weight files
 ```
@@ -60,7 +66,11 @@ Read both before making any architectural change.
 | Phase 5 | **Complete** | UX + Graduated Determinism. P0: hardened HITL, keymap, trust store, tier-2 review, audit hash-chain (PR #9). P1-A: env scrub, cost/limits, TOCTOU (PR #10). P1-BCD: audit viewer TUI, streaming, undo scaffold (PR #11). P2: OpenAI backend + verifier voting (PR #12), presenter registry + screen-reader + GTK (PR #13), daemon/client split + systemd (PR #14). 1347 tests, G1–G11 + G5.1–G5.P2b green. |
 | Phase 6 | **Complete** | ISO distribution. PRs #15–#21 merged: mcpd sd_notify (#15), UNIX transport (#16), systemd units (#17), Python packaging + config layering (#18), cx-distro scaffold + 6-stage build.sh (#19), first-boot + safe-mode + `--safe-mode` CLI (#20), CI gates G12–G15 + QEMU checklist + config layering test (#21). 1446 tests. |
 | Phase 6T | **Complete** | AI Terminal. PRs #22–#30: Textual TUI (#22–#24), GUI Agent + AT-SPI + Landlock (#25–#26), App APIs — LibreOffice/Firefox/GNOME Files (#27, #30), RPA Bridge + Robot Framework (#28), B→C escalation + QB-monitored RPA (#29), CI gates G16–G22 (#30). 1749 tests. |
-| Phase 7 | Not started | Hardening + release |
+| Deploy | **Complete** | VM deploy + GUI fixes. PR #24: deploy.sh for GCP VM with XRDP. PR #25: GUI→daemon connection fixes (socket path, client API, threading), XFCE desktop polish (wallpaper, panel, dark theme, autostart). PR #26: chatbot response display (token streaming, field names). |
+| Multi-arch (V6.6) | **Complete** | Both amd64 and arm64 ISOs. Refactor `config/archs/{amd64,arm64}.conf` + Makefile + arch-aware `build-base.sh`/`build-iso.sh`/`qemu-gate.sh`. Cross-compiled `mcpd-arm64` + `llama-server-arm64` (NEON). F-37 (grub-efi-arm64-bin), F-38 (arm64 vmlinuz gzip decompress), F-39 (SOCK_MAX/L4_TIMEOUT under cross-arch TCG), F-40 (per-arch mcpd install) fixed. Venv cache in v2.manifest (55 min pip → 4 sec extract). R11 rule added. arm64 QEMU gate PASS; UTM Virtualize check pending. |
+| QB→PB rich envelope (V6.61) | **Complete offline** | Fixes 5 of the 7 prompt bugs surfaced in the V6.6 UTM sweep. F-41 (CSV bug: literal user content reaches disk via new `intent.content` field), F-42 (`_cot` NameError on `system.unsupported` — module-level `_make_cot` helper), F-43 (placeholder UUID leak — server-generated `intent_id`), F-44 (verifier `verifier call failed` — single retry). QB prompt rewritten with content-extraction rule + `pb_hint` coaching + `system.unsupported` rubric. PB prompt rewritten with trust-QB-hint + passthrough + tool-name enforcement. Verifier prompt rewritten as 7-check rubric. v6.61-arm64 ISO built, downloaded, awaiting UTM verify. |
+| Phase 7 | **Broader Tools + Hardening + v1.0 GPG release** — scope revised 2026-07-09, see `docs/ROADMAP_Phase7_Phase8_2026-07-09.md` | Seven milestones: M7.1 trust-tier taxonomy + MCP extension proposal · M7.2 curated external MCP allowlist infra · M7.3 Playwright MCP for browsers · M7.4 MS Graph + Google Workspace MCP for Office · M7.5 analytics + Vega-Lite chart tool · M7.6 E2E hardening + pen-test · M7.7 docs + GPG-signed v1.0. ISO versions v6.7 → v6.13 → v1.0. Duration ~10-14 wk. **QB is cloud `gemini-2.5-flash`** (was to be local Phi-4-mini per original whitepaper; deliberate trade for content generation + orchestration power). |
+| Phase 8 | **Autonomous Agent Loops** — undefined in original whitepaper; scoped 2026-07-09 | Icebreaker becomes an agent runtime, not just a NL translator. Five milestones: M8.1 multi-turn Goal state · M8.2 self-verification loop · M8.3 sub-agent roles with tier ceilings · M8.4 LangGraph adapter · M8.5 fleet-safe observability. Reference architectures: TDP (Task-Decoupled Planning, 82% token reduction) + CODA (Cerebrum-Cerebellum). ISO versions v1.1+. Duration ~10-12 wk after v1.0. |
 
 **Never start a phase before its predecessors have passed their exit criteria.** See `docs/IMPLEMENTATION_PLAN.md § Go/No-Go Gate Checklist`.
 
@@ -445,6 +455,42 @@ If a change you make causes any of these to exceed budget, resolve the regressio
 
 ---
 
+## Deployment & Packaging Gotchas
+
+These are hard-won lessons from deployment. **Read before any ISO build, deploy.sh change, or systemd unit edit.**
+
+### PKG-1: pip Does NOT Ship Data Files
+`pip install dual-brain/` installs Python code but **not** `schemas/`, `prompts/`, `grammars/`, or `catalogue.toml`. Both `build.sh` Stage 3 and `deploy.sh` Step 8 must explicitly copy these into the venv's `site-packages/controller/` directory post-install.
+
+### PKG-2: model_registry.py Path Resolution
+`_DEFAULT_CHECKSUMS` resolves to `Path(__file__).parent.parent.parent / "models" / "checksums.sha256"`. In the venv this becomes `/opt/icebreaker/venv/lib/python3.12/models/checksums.sha256` — a path that doesn't exist unless you create it. Either symlink or copy `checksums.sha256` there, or pass the correct path via config.
+
+### PKG-3: systemd ProtectHome Blocks Symlinks
+`ProtectHome=yes` in systemd units makes `/home/` read-only. Model files symlinked from `/home/` to `/var/lib/icebreaker/models/` will fail with EACCES. Models must be **copied**, not symlinked, to system paths.
+
+### PKG-4: Daemon Socket Permissions
+`daemon.py` creates the socket with `chmod 0660` and chowns to the `icebreaker-users` group. The `icebreaker` user must be in the `icebreaker-users` group, and the socket directory (`/run/icebreaker/`) must be writable by root. Verify with `ls -la /run/icebreaker/controller.sock`.
+
+### PKG-5: XFCE ≠ GNOME for Desktop Config
+GSettings (`org.gnome.desktop.background`) has **no effect** on XFCE. XFCE uses xfconf XML files in `/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/`. The wallpaper, panel, and theme must be set via `xfce4-desktop.xml`, `xfce4-panel.xml`, and `xsettings.xml` respectively. Both the GSettings override (for `desktop` profile) and xfconf XML (for `vm` profile) must be maintained.
+
+### PKG-6: GUI Client API
+The `GtkDaemonClient` wraps `DaemonClient` and does **not** have a `.request()` method. The correct API:
+- `client.run_turn(text)` — synchronous, blocks on socket (must run in a thread for GTK)
+- `client.status()` — returns daemon status
+- `client.on(event, callback)` — register for streaming notifications (`token`, `cot`, `progress`, `info`)
+
+### PKG-7: .desktop Files Need Socket Path
+All GUI `.desktop` files must pass `--sock /run/icebreaker/controller.sock` to connect to the daemon. Without it, the GUI shows "Not connected to daemon."
+
+### PKG-8: git archive Excludes Uncommitted Changes
+`rebuild.sh` uses `git archive HEAD` to create the deployment tarball. Any uncommitted changes (including security fixes like socket permissions) will be **missing** from the ISO. Always commit before building.
+
+### PKG-9: GCP VM Project Mismatch
+The default gcloud project may differ from the VM's project. All gcloud commands in deploy/rebuild scripts must use `--project=${VM_PROJECT}` explicitly.
+
+---
+
 ## Quick Reference: Critical Commands
 
 ```bash
@@ -467,13 +513,22 @@ sha256sum --check models/checksums.sha256
 # Evaluate fine-tuned model
 cd privileged-brain && bash 07_evaluate.sh
 
-# Build ISO (Phase 6 only — all prior phases must be complete)
-cd cx-distro && bash build.sh
+# Build ISO on GCP VM (detached — survives SSH drops)
+bash cx-distro/rebuild/rebuild.sh --force
+
+# Deploy stack to GCP VM (native install, not ISO)
+bash cx-distro/rebuild/deploy.sh --gemini-key=KEY
+
+# Build ISO locally (Phase 6 only — all prior phases must be complete)
+cd cx-distro && sudo bash build.sh --force
 
 # Boot ISO in QEMU for testing
-qemu-system-x86_64 -m 8G -boot d -cdrom ainative.iso -enable-kvm
+qemu-system-x86_64 -m 8G -boot d -cdrom cx-distro/icebreaker.iso -enable-kvm
+
+# Boot ISO in VirtualBox (EFI mode, better macOS compatibility)
+# Import ISO as live CD in VM settings, enable EFI under System > Motherboard
 ```
 
 ---
 
-*Last updated: June 2026 (Phase 6T complete — PRs #22–#30 merged; 1749 tests; AI Terminal, GUI Agent, RPA Bridge, CI gates G16–G22). Update this file whenever an architectural decision changes, a new invariant is established, or a phase gate passes.*
+*Last updated: June 2026 (Deploy complete — PRs #24–#26 merged; GUI→daemon fixes, XFCE desktop polish, deploy.sh, Deployment & Packaging Gotchas section added). Update this file whenever an architectural decision changes, a new invariant is established, or a phase gate passes.*

@@ -51,6 +51,31 @@ pub async fn disk() -> Result<Value> {
     Ok(json!({ "filesystems": mounts }))
 }
 
+/// system.unsupported — F-35 catalogue landing pad.
+///
+/// Emitted by QB when the user's request has no matching tool. mcpd echoes
+/// the payload back so the Controller can render a helpful UNSUPPORTED card
+/// without invoking PB. No side effects, no /proc reads, no I/O — this call
+/// is *deliberately* a passthrough. The point is that QB has a legitimate
+/// action to emit other than a plausible-but-wrong lookalike.
+///
+/// Params (per schemas/system.unsupported.json):
+///   requested_intent   REQUIRED — the user's raw query
+///   suggestion         OPTIONAL — QB's suggested adjacent action or hint
+///   alternative_actions OPTIONAL — catalogue action names QB thinks are adjacent
+pub async fn unsupported(
+    requested_intent: &str,
+    suggestion: Option<&str>,
+    alternative_actions: Option<&Value>,
+) -> Result<Value> {
+    Ok(json!({
+        "status": "unsupported",
+        "requested_intent": requested_intent,
+        "suggestion": suggestion.unwrap_or(""),
+        "alternative_actions": alternative_actions.cloned().unwrap_or_else(|| json!([])),
+    }))
+}
+
 // ── IO wrappers ───────────────────────────────────────────────────────────────
 
 fn read_uptime_secs() -> Result<u64> {

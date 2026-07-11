@@ -1,0 +1,15 @@
+# v7 — Chatbot GUI
+# Scope: gui pkg + icebreaker-chatbot.desktop + F-8 fixes (3s connect timeout, threaded connect, Retry banner) + guarded imports
+# Gate: GROUND_TRUTH.md § 3 V7.
+#
+# STUB ON PURPOSE (rules R2 + D-4): implement version_overlay() only when
+# V6 is GREEN on the Status Board. Implementing ahead of the gate
+# recreates the big-bang integration failure this project exists to kill.
+
+VERSION_PACKAGES=""
+
+version_overlay() {
+    echo "FATAL: v7.manifest is not implemented yet." >&2
+    echo "Rule R2: implement it only after V6 is GREEN in incremental/GROUND_TRUTH.md." >&2
+    return 1
+}

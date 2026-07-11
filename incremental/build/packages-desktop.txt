@@ -1,0 +1,115 @@
+# Canonical apt package list for the Icebreaker incremental base (GNOME/desktop).
+# sha256 of this file (comments stripped) + UBUNTU_BASE keys the base-image cache.
+# Changing ANY package here forces a full base rebuild (~60 min). Think first.
+# Lines starting with # and blank lines are ignored.
+
+# ── Kernel + live boot ──
+linux-generic
+live-boot
+systemd-sysv
+
+# ── Core system ──
+sudo
+bash
+coreutils
+python3
+python3-venv
+python3-pip
+python3-full
+curl
+wget
+ca-certificates
+net-tools
+iproute2
+iputils-ping
+openssh-client
+openssh-server
+less
+vim
+nano
+locales
+man-db
+dbus-x11
+dbus-broker
+bash-completion
+
+# ── X server + guest agents ──
+xserver-xorg
+xserver-xorg-core
+xserver-xorg-video-all
+xinit
+x11-xserver-utils
+x11-utils
+spice-vdagent
+qemu-guest-agent
+
+# ── Network management ──
+network-manager
+network-manager-gnome
+isc-dhcp-client
+wpasupplicant
+netcat-openbsd
+dnsutils
+
+# ── GNOME desktop (profile: desktop) ──
+ubuntu-desktop
+ubuntu-standard
+gdm3
+gnome-terminal
+gnome-text-editor
+nautilus
+
+# ── GTK4 + LibAdwaita + accessibility (needed from V7, in base per F-10) ──
+python3-gi
+gir1.2-gtk-4.0
+gir1.2-adw-1
+libadwaita-1-0
+adwaita-icon-theme
+at-spi2-core
+libatk-bridge2.0-0
+libglib2.0-bin
+dconf-cli
+dconf-gsettings-backend
+
+# ── Fonts ──
+fonts-dejavu
+fonts-liberation
+fonts-noto-core
+fonts-ubuntu
+fontconfig
+
+# ── Mesa / GPU (QEMU/UTM rendering) ──
+mesa-vulkan-drivers
+mesa-utils
+libgl1-mesa-dri
+libglx-mesa0
+libgles2
+
+# ── Debug + admin tools ──
+htop
+strace
+lsof
+tree
+jq
+file
+pv
+rsync
+git
+unzip
+zip
+xz-utils
+zstd
+socat
+screen
+tmux
+pciutils
+usbutils
+
+# ── Python tooling (ib-debug runs on system python3) ──
+python3-rich
+python3-requests
+python3-psutil
+
+# ── Polkit ──
+policykit-1
+polkitd

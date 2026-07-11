@@ -26,6 +26,16 @@ class VerifierConfig:
     require: int = 0
     parallel: bool = True
     timeout_seconds: int = 30
+    # F-49 (2026-07-10): retry strategy when verifier rejects. The v6.61
+    # UTM sweep showed legitimate writes rejected as 'verifier call failed';
+    # the empirical answer for which strategy is right depends on workload.
+    # Exposed as a runtime knob rather than a hard-coded string match.
+    #   off                 — never retry, first vote is authoritative
+    #   on_call_failed_only — retry only if reason contains "verifier call
+    #                         failed" (F-44 behavior; default)
+    #   on_any_rejection    — retry once on any verified=false
+    #   skip_tier_01        — bypass verifier entirely for Tier 0/1
+    retry_mode: str = "on_call_failed_only"
 
 
 @dataclass(frozen=True)
@@ -102,13 +112,21 @@ class SingleVerifier(VerifierStrategy):
                 verified_count=1 if verified else 0,
                 individual_reasons=[reason],
             )
-        except Exception:
+        except Exception as exc:
+            # F-53 (2026-07-10): surface the actual exception in the reason
+            # string so retry logic and downstream logs can distinguish
+            # (a) network flake, (b) response-schema rejection, (c) empty
+            # completion, (d) semantic issues. The prior blanket 'verifier
+            # call failed' string was uninformative and led to false retry
+            # decisions AND opaque user-facing errors ("verifier rejected:
+            # verifier call failed").
+            reason = f"verifier call failed: {type(exc).__name__}: {exc}"[:400]
             return VerifierResult(
                 verified=False,
-                reason="verifier call failed",
+                reason=reason,
                 votes_cast=1,
                 verified_count=0,
-                individual_reasons=["verifier call failed"],
+                individual_reasons=[reason],
             )
 
 
@@ -137,8 +155,12 @@ class MajorityVoter(VerifierStrategy):
                 max_retries=1,
             )
             return resp.content_json
-        except Exception:
-            return {"verified": False, "reason": "verifier call failed"}
+        except Exception as exc:
+            # F-53 v6.65: same as line 115 — surface the exception type + msg
+            # so the retry-mode dispatch in main.py sees the real failure and
+            # user-visible reason strings actually tell the operator why.
+            reason = f"verifier call failed: {type(exc).__name__}: {exc}"[:400]
+            return {"verified": False, "reason": reason}
 
     def verify(
         self,
@@ -194,8 +216,12 @@ class MajorityVoter(VerifierStrategy):
             for future in as_completed(futures):
                 try:
                     results.append(future.result(timeout=self._cfg.timeout_seconds))
-                except Exception:
-                    results.append({"verified": False, "reason": "vote timed out"})
+                except Exception as exc:
+                    # F-53 v6.65: surface the actual exception type + message
+                    # in the vote's individual reason so users and audit logs
+                    # can distinguish timeout vs API error vs schema failure.
+                    reason = f"vote failed: {type(exc).__name__}: {exc}"[:400]
+                    results.append({"verified": False, "reason": reason})
         return results
 
     def _run_sequential(

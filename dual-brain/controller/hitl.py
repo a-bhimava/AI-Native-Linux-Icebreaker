@@ -14,6 +14,7 @@ import os
 import re
 import select
 import signal
+import threading
 import sys
 import time
 import uuid
@@ -456,14 +457,38 @@ class HitlPrompt:
             if elapsed < self._lockout_seconds:
                 time.sleep(self._lockout_seconds - elapsed)
 
-            old_handler = signal.getsignal(signal.SIGINT)
+            # F-45 (2026-07-09): install SIGINT-as-deny handler only when we
+            # are on the MAIN thread. `signal.signal()` raises ValueError with
+            # message "signal only works in main thread of the main
+            # interpreter" from any other thread. Under the daemon's asyncio
+            # worker pool a Tier 3 HITL prompt used to crash the entire turn
+            # with this error — a critical INV-6 regression because the safety
+            # gate itself was unenforceable. Now: on the main thread we still
+            # install the deny handler; on any worker thread we skip it and
+            # rely on the user's explicit keyboard decision (Approve/Deny via
+            # the keymap). Ctrl+C on a worker-thread prompt just does whatever
+            # the inherited handler does — acceptable since HITL is otherwise
+            # driven by explicit key input.
+            old_handler = None
             sigint_fired = [False]
 
             def _sigint_deny(signum, frame):
                 sigint_fired[0] = True
 
+            _on_main_thread = threading.current_thread() is threading.main_thread()
+            _signal_installed = False
             try:
-                signal.signal(signal.SIGINT, _sigint_deny)
+                if _on_main_thread:
+                    old_handler = signal.getsignal(signal.SIGINT)
+                    try:
+                        signal.signal(signal.SIGINT, _sigint_deny)
+                        _signal_installed = True
+                    except ValueError:
+                        # Defensive: signal.signal can also fail if the main
+                        # thread has been reparented (extremely rare, but
+                        # bpython embedding does this). Fall through to
+                        # keyboard-only decision path.
+                        _signal_installed = False
                 decision = self._presenter.read_decision(self._timeout_seconds)
                 if sigint_fired[0]:
                     self.key_pressed_class = "sigint"
@@ -473,7 +498,8 @@ class HitlPrompt:
                     print(f"\n  {fail} Interrupted — operation denied.", flush=True)
                     return Decision.DENIED
             finally:
-                signal.signal(signal.SIGINT, old_handler)
+                if _signal_installed and old_handler is not None:
+                    signal.signal(signal.SIGINT, old_handler)
 
             self.key_pressed_class = self._presenter.last_key_class
             self.decision_latency_ms = (time.monotonic() - prompt_shown_at) * 1000

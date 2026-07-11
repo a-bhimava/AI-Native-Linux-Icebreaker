@@ -14,6 +14,13 @@
           "type": "string",
           "enum": ["local", "anthropic", "gemini", "openai"]
         },
+        "fallback_chain": {
+          "type": "array",
+          "items": {"type": "string", "enum": ["local", "anthropic", "gemini", "openai"]},
+          "maxItems": 4,
+          "uniqueItems": true,
+          "description": "v6.65: ordered list of QB backends to try after the primary fails on transport/API error. Skipped on schema-validation failures (those are prompt issues that retrying the same backend won't fix). Empty = current behavior (no fallback)."
+        },
         "local": {"$ref": "#/definitions/local_section"},
         "anthropic": {"$ref": "#/definitions/api_section"},
         "gemini": {"$ref": "#/definitions/api_section"},
@@ -58,6 +65,23 @@
         }
       }
     },
+    "mcpd": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read_roots": {
+              "type": "array",
+              "items": {"type": "string", "pattern": "^/"},
+              "description": "F-28: extra absolute-path read roots passed to mcpd via MCPD_FS_READ_ROOTS. Landlock + validate() honour these on top of STATIC_ROOTS + $HOME."
+            }
+          }
+        }
+      }
+    },
     "run": {
       "type": "object",
       "additionalProperties": false,
@@ -67,8 +91,8 @@
         "audit_log":            {"type": "string", "description": "Path to the append-only audit log (INV-8). Supports ~/ expansion."},
         "pb_endpoint":          {"type": "string", "description": "HTTP endpoint for the Privileged Brain llama-server."},
         "pb_model_id":          {"type": "string", "description": "Model ID for PB (used in audit rows)."},
-        "pb_max_tokens":        {"type": "integer", "minimum": 1, "maximum": 4096},
-        "pb_timeout_seconds":   {"type": "integer", "minimum": 1, "maximum": 300},
+        "pb_max_tokens":        {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "pb_timeout_seconds":   {"type": "integer", "minimum": 1, "maximum": 7200},
         "mcpd_timeout_seconds": {"type": "number",  "minimum": 0.1, "maximum": 300.0},
         "qb_max_retries":       {"type": "integer", "minimum": 1, "maximum": 10},
         "mcpd_schemas_dir":     {"type": "string", "description": "Directory containing mcpd tool JSON schemas. Empty = auto-detect from mcpd_binary."},
@@ -188,6 +212,11 @@
         "timeout_seconds": {
           "type": "integer", "minimum": 1, "maximum": 300,
           "description": "Per-vote timeout in seconds."
+        },
+        "retry_mode": {
+          "type": "string",
+          "enum": ["off", "on_call_failed_only", "on_any_rejection", "skip_tier_01"],
+          "description": "F-49: how aggressively to retry when the verifier rejects an intent. off = never; on_call_failed_only = retry only if reason contains 'verifier call failed' (F-44 default); on_any_rejection = retry once on any verified=false; skip_tier_01 = bypass verifier entirely for Tier 0/1 intents (fastest, drops defense-in-depth for auto-execute tiers)."
         }
       }
     },
@@ -442,8 +471,8 @@
           "description": "Transport for llama-server. 'http' today; 'unix' reserved for Phase 6 distro packaging."
         },
         "grammar_path": {"type": "string"},
-        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 32768},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}
+        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 7200}
       }
     },
     "api_section": {
@@ -457,8 +486,8 @@
           "pattern": "^[A-Z][A-Z0-9_]*$",
           "minLength": 1
         },
-        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 32768},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}
+        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 7200}
       }
     }
   }

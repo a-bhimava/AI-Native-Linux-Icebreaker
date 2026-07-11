@@ -122,6 +122,7 @@ class ChatbotWindow(Adw.ApplicationWindow):
         audit_btn = Gtk.Button(icon_name="document-open-recent-symbolic")
         audit_btn.add_css_class("flat")
         audit_btn.set_tooltip_text("Audit Log")
+        audit_btn.connect("clicked", self._on_open_audit)
         sidebar.append(audit_btn)
 
         spacer = Gtk.Box()
@@ -243,7 +244,10 @@ class ChatbotWindow(Adw.ApplicationWindow):
                 return
             result = resp.get("result", resp)
             GLib.idle_add(self._handle_turn_result, result)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
+            # F-53 Scope A.P3: `str(exc)` reaches the user via
+            # `_handle_turn_error`, which sanitizes and displays it in
+            # the chat as "Error: <type>: <msg>". Nothing swallowed.
             GLib.idle_add(self._handle_turn_error, str(exc))
 
     def _handle_turn_error(self, msg: str) -> bool:
@@ -283,8 +287,12 @@ class ChatbotWindow(Adw.ApplicationWindow):
 
     def _on_cot(self, params: dict) -> None:
         if self._current_row and self._current_row.cot:
-            step_text = params.get("step", params.get("text", ""))
-            state = params.get("state", "pending")
+            heading = params.get("heading", params.get("step_name", ""))
+            body = params.get("body", "")
+            step_text = f"{heading} — {body}" if body else heading
+            raw_state = params.get("step_state", "pending")
+            state = {"active": "pending", "done": "done",
+                     "failed": "error"}.get(raw_state, "pending")
             self._current_row.cot.add_step(step_text, state)
 
     def _on_token(self, params: dict) -> None:
@@ -293,9 +301,9 @@ class ChatbotWindow(Adw.ApplicationWindow):
             self._current_row.set_text(text)
 
     def _on_progress(self, params: dict) -> None:
-        stage = params.get("stage", "")
-        if self._current_row and self._current_row.cot:
-            self._current_row.cot.add_step(stage, "pending")
+        label = params.get("step_label", params.get("step_name", ""))
+        if self._current_row and self._current_row.cot and label:
+            self._current_row.cot.add_step(label, "pending")
 
     def _on_info(self, params: dict) -> None:
         msg = params.get("message", "")
@@ -316,4 +324,9 @@ class ChatbotWindow(Adw.ApplicationWindow):
     def _on_open_settings(self, _btn: Gtk.Button) -> None:
         from ..settings.window import SettingsWindow
         win = SettingsWindow(app=self.get_application())
+        win.present()
+
+    def _on_open_audit(self, _btn: Gtk.Button) -> None:
+        from ..audit.window import AuditWindow
+        win = AuditWindow(app=self.get_application())
         win.present()

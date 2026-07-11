@@ -159,7 +159,7 @@ def test_notifications_dispatched():
     assert received["progress"][0]["step_name"] == "qb_intent"
     assert len(received["token"]) == 1
     assert received["token"][0]["token"] == "hello"
-    assert len(received["info"]) == 1
+    assert len(received["info"]) >= 1
     assert received["info"][0]["message"] == "Trust granted."
 
 

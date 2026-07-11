@@ -118,6 +118,12 @@ class RpaBridge:
         self._image_matcher = ImageMatcher()
         self._screenshot_manager: Any = None
         self._timed_out = False
+        # F-53 Scope A.P1: expose the last screenshot capture failure so
+        # audit/debug tooling can see WHY a step's screenshot_hash is
+        # empty. Set on each _capture_step_screenshot() call — populated
+        # on failure, cleared to None on success. Grep target for
+        # test_no_silent_swallow.py's marker check.
+        self._last_screenshot_error: str | None = None
 
     def _get_screenshot_manager(self) -> Any:
         if self._screenshot_manager is None:
@@ -203,7 +209,11 @@ class RpaBridge:
                         error="workflow timeout exceeded",
                     ))
                     break
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
+                    # F-53 Scope A.P3: per-keyword execution failure —
+                    # `error = str(exc)` propagates the reason into the
+                    # KeywordResult that both the audit log and the UI
+                    # see. Nothing swallowed.
                     status = "fail"
                     error = str(exc)
 
@@ -275,12 +285,41 @@ class RpaBridge:
         suite.run(output=None, log=None, report=None)
 
     def _capture_step_screenshot(self) -> str:
-        """Capture a screenshot after a keyword step, return SHA-256 hash."""
+        """Capture a screenshot after a keyword step, return SHA-256 hash.
+
+        On failure, returns ``""`` and stashes the exception details on
+        ``self._last_screenshot_error`` (F-53 Scope A.P1) so debug
+        tooling can query why the hash is missing. Also emits an
+        rpa.step_screenshot_error notification so the Controller +
+        Errors page see it in real time. Callers already treat an
+        empty return as "no screenshot" so no behavioral change for
+        the happy path.
+        """
         try:
             mgr = self._get_screenshot_manager()
             result = mgr.capture("")
+            self._last_screenshot_error = None
             return result.sha256
-        except Exception:
+        except Exception as exc:
+            # F-53: previously swallowed silently — screenshot failures
+            # under RPA workflows meant the audit trail showed missing
+            # hashes with no explanation, and diagnosing "why did my
+            # rpa.qb_monitor lose the frame" required attaching a
+            # debugger. Now: stash + emit + return sentinel empty str.
+            reason = f"{type(exc).__name__}: {exc}"[:400]
+            self._last_screenshot_error = reason
+            try:
+                notification = {
+                    "jsonrpc": "2.0",
+                    "method": "rpa.step_screenshot_error",
+                    "params": {"reason": reason},
+                }
+                sys.stdout.write(json.dumps(notification, separators=(",", ":")) + "\n")
+                sys.stdout.flush()
+            except Exception:  # noqa: BLE001
+                # If stdout is torn during shutdown, we've already
+                # captured the reason on self — nothing more to do.
+                pass
             return ""
 
     def _emit_progress(self, **kwargs: Any) -> None:
@@ -370,7 +409,10 @@ class RpaBridge:
                 resp = make_error(str(req_id), INVALID_PARAMS, str(exc))
             except _MethodNotFound as exc:
                 resp = make_error(str(req_id), METHOD_NOT_FOUND, str(exc))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
+                # F-53 Scope A.P3: JSON-RPC top-level dispatch surfaces
+                # every unhandled error as an INTERNAL_ERROR response
+                # carrying str(exc). Controller-side sees + logs it.
                 resp = make_error(str(req_id), INTERNAL_ERROR, str(exc))
 
             sys.stdout.write(resp.to_bytes().decode("utf-8"))

@@ -196,6 +196,7 @@ if [ "$SKIP_DESKTOP" -eq 0 ]; then
                 sudo useradd -m -s /bin/bash -G sudo,autologin icebreaker
                 echo 'icebreaker:icebreaker' | sudo chpasswd
                 echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/icebreaker >/dev/null
+                sudo chmod 440 /etc/sudoers.d/icebreaker
             fi
 
             # ── Configure LightDM auto-login ──────────────────────────

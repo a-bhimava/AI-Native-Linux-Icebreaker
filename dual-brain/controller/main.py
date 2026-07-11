@@ -9,9 +9,12 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generator, Optional
+
+import jsonschema
 
 from .audit import AuditFields, AuditLog, Outcome, make_entry
 from .hitl import Decision, HitlPresenter, HitlPrompt, TerminalPresenter
@@ -22,6 +25,8 @@ from .mcpd_client import JsonRpcError, McpdClient, McpdProcessError, McpdTimeout
 from .risk_classifier import ClassificationResult, Tier, classify
 from .tier2_review import Tier2Reviewer, get_reviewer
 from .trust_store import TrustStore
+from .logger import SystemLogger
+from .backends.base import BrainSchemaError
 from .verifier import VerifierConfig, VerifierStrategy, make_verifier
 
 _SUMMARISE_SCHEMA = {
@@ -81,6 +86,232 @@ _STEP_INDEX: dict[str, int] = {
 }
 
 
+# F-42: module-level CoT event builder. `run_turn_streaming` also defines a
+# nested `_cot` closure that captures `t0`; sites outside that closure (e.g.
+# `_emit_unsupported`) must use this factory instead — passing `t0` explicitly.
+# Without this helper, `_emit_unsupported` raised `NameError: name '_cot' is
+# not defined` on every `system.unsupported` intent, crashing the turn.
+def _make_cot(
+    t0: float, name: str, state: str, body: str = "", **data: Any,
+):
+    """Build a CotEvent for use outside `run_turn_streaming`'s closure.
+
+    Deferred import of CotEvent avoids a top-of-module circular import with
+    `.turn_events`; the local import inside `run_turn_streaming` uses the same
+    module and gets it from bytecode cache after the first turn.
+    """
+    from .turn_events import CotEvent
+    return CotEvent(
+        step_index=_STEP_INDEX.get(name, 0),
+        step_name=name,
+        step_state=state,
+        heading=_COT_HEADINGS.get(name, name),
+        body=body,
+        data=dict(data) if data else {},
+        timestamp_ms=(time.monotonic() - t0) * 1000,
+    )
+
+
+# F-43 + F-47 (2026-07-09): server-owned intent fields must NEVER be trusted
+# from model output. Gemini 2.5-flash memorized placeholder values from
+# training data and echoed them back — 'd9f0e1c2-b3a4-5678-…' / '12345' /
+# 'TBD' / 'DO_NOT_EMIT' for intent_id; '1.0' for schema_version which needs
+# the pattern ^\d+\.\d+\.\d+$. Both bypass any prompt instruction to "not
+# emit" because Gemini's response_schema constrains it to emit *something*
+# for every documented field.
+#
+# Strategy: whatever the model produced for a server-owned field gets
+# discarded and replaced before schema validation runs. intent_store.put()
+# generates the ACTUAL opaque UUID that PB sees; the intent_id here is only
+# for schema conformance + audit trail. schema_version is bumped to the
+# current catalog version; timestamp is server clock at parse time.
+#
+# Must be called from BOTH run_turn_streaming and _run_turn_inner — the
+# streaming path had the F-43 fix but the non-streaming RPC-dispatch path
+# didn't, so direct socket callers still saw placeholder UUIDs (F-47b).
+def _normalize_server_owned_fields(raw_intent: dict) -> None:
+    """Overwrite server-generated intent fields with authoritative values.
+
+    Mutates the dict in place. Idempotent — safe to call multiple times
+    with the same input.
+
+    Extend when adding new server-owned fields to the intent schema.
+    """
+    raw_intent["intent_id"] = str(uuid.uuid4())
+    raw_intent["schema_version"] = "1.0.0"
+    raw_intent["timestamp"] = time.time()
+
+
+# F-53 v6.65 (2026-07-10): pipeline-wide exception logging helper. Every
+# `except Exception:` site in the daemon should call this before deciding
+# what to do with the swallowed exception (surface, retry, fall back, or
+# genuinely ignore in a destructor-safe context). Writes a structured line
+# to SystemLogger with {source, exc_type, exc_message, traceback_hash} so
+# the audit trail records what got swallowed. Users can turn on
+# `[dev] verbose_errors = true` in controller.toml to include the full
+# traceback in user-visible reasons (off by default).
+def _log_exception(logger, source: str, exc: BaseException) -> None:
+    """Log a swallowed exception. Never raises."""
+    if logger is None:
+        return
+    import hashlib
+    import traceback as _tb
+    try:
+        tb_text = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+        tb_hash = hashlib.sha256(tb_text.encode("utf-8", "replace")).hexdigest()[:16]
+        logger.log("controller", "exception_swallowed", {
+            "source": source,
+            "exc_type": type(exc).__name__,
+            "exc_message": str(exc)[:1000],
+            "traceback_hash": tb_hash,
+        })
+    except Exception:
+        # SystemLogger itself failed — swallow this one for real to avoid
+        # infinite recursion when the log file is unwritable.
+        pass
+
+
+def _format_exception_reason(exc: BaseException, *, verbose: bool = False) -> str:
+    """Produce a user-visible reason string from an exception."""
+    base = f"{type(exc).__name__}: {exc}"[:400]
+    if not verbose:
+        return base
+    import traceback as _tb
+    tb = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+    return (base + "\n\n" + tb)[:4000]
+
+
+# F-52 (2026-07-10): fields the server generates post-parse. The backend
+# response_schema is relaxed on these (see _relax_server_owned_for_backend);
+# the downstream Controller-level validate() re-enforces the full schema
+# AFTER _normalize_server_owned_fields has run.
+_SERVER_OWNED_INTENT_FIELDS = ("intent_id", "schema_version", "timestamp")
+
+
+def _relax_server_owned_for_backend(schema: dict) -> dict:
+    """Return a copy of the intent schema with server-owned fields relaxed.
+
+    Concretely: (a) remove them from the top-level ``required`` array so the
+    backend doesn't retry when the model omits them; (b) strip their
+    ``format`` constraint (UUID / regex) so the backend doesn't reject when
+    the model emits placeholder strings like 'DO_NOT_EMIT' or '12345'.
+
+    Retains everything else in the schema unchanged — including the strict
+    format on `action`, `target`, and `content`. Only the fields the server
+    unconditionally rewrites are relaxed.
+    """
+    import copy
+    relaxed = copy.deepcopy(schema)
+    if "required" in relaxed and isinstance(relaxed["required"], list):
+        relaxed["required"] = [
+            f for f in relaxed["required"] if f not in _SERVER_OWNED_INTENT_FIELDS
+        ]
+    props = relaxed.get("properties", {})
+    for field in _SERVER_OWNED_INTENT_FIELDS:
+        entry = props.get(field)
+        if not isinstance(entry, dict):
+            continue
+        entry.pop("format", None)
+        entry.pop("pattern", None)
+    return relaxed
+
+
+# F-49 (2026-07-10): verifier retry dispatch.
+def _should_retry_verifier(retry_mode: str, vresult: Any) -> bool:
+    """Decide whether to run a second verifier vote after the first rejects.
+
+    Modes:
+      off                 — never retry
+      on_call_failed_only — retry only when the failure reason contains the
+                            substring 'verifier call failed' (network flake
+                            or single-shot LLM error, not a semantic reject).
+                            Matches F-44's original behaviour.
+      on_any_rejection    — retry once on any verified=false, regardless of
+                            reason. Trades an extra Gemini roundtrip for
+                            tolerance of single-vote flake.
+      skip_tier_01        — handled at the caller by short-circuiting the
+                            whole verifier step for Tier 0/1 intents; when
+                            we DO run it (Tier 2/3), retry behaves like
+                            on_call_failed_only.
+    """
+    if retry_mode == "off":
+        return False
+    reason = (getattr(vresult, "reason", "") or "").lower()
+    if retry_mode == "on_any_rejection":
+        return True
+    if retry_mode == "skip_tier_01":
+        # Skip already handled at the caller; retry logic falls back to the
+        # conservative default so Tier 2/3 still gets the call-failed retry.
+        return "verifier call failed" in reason
+    # Default: on_call_failed_only
+    return "verifier call failed" in reason
+
+# F-32: actions whose params require a concrete target path — if QB ships
+# an empty target or "/" for any of these, the Controller short-circuits with
+# a friendly error before hitting the sandbox's cryptic whitelist rejection.
+_PATH_REQUIRING_ACTIONS = frozenset({
+    "fs.list", "fs.read", "fs.stat", "fs.write", "fs.delete",
+    "service.logs", "process.inspect", "package.query",
+})
+
+# F-35: single source of truth for actions QB is allowed to emit.
+# Must stay in sync with src/mcpd/src/tools/mod.rs TOOLS + system.unsupported.
+# If QB emits an action outside this set, the Controller REWRITES the intent
+# into system.unsupported before risk-classification — never silently invokes
+# a bogus tool.
+_SUPPORTED_ACTIONS = frozenset({
+    # Read-only Tier 0
+    "system.status", "system.uptime", "system.cpu", "system.memory", "system.disk",
+    "process.list", "process.inspect",
+    "fs.read", "fs.list", "fs.stat",
+    "service.logs",
+    "network.status", "network.dns.read",
+    "package.query",
+    # Write Tier 1 (home) / Tier 3 (elsewhere)
+    "fs.write",
+    # System changes Tier 2
+    "package.install", "package.remove", "package.upgrade",
+    "service.start", "service.stop", "service.restart",
+    # Destructive Tier 3
+    "fs.delete",
+    # F-35: catalogue landing pad — never a lookalike
+    "system.unsupported",
+})
+
+
+def _build_qb_input(session: Any, user_input: str) -> str:
+    """V6B Stage 2: prepend a <context> XML block to the user query when
+    the daemon received a ShellContext for this turn.
+
+    Absent context: return user_input unchanged (backwards-compatible with
+    every call path that never sets shell_context).
+    Present context: return
+        <context>...</context>
+        <query>
+        <user_input>
+        </query>
+    XML tags are the pattern QB prompts (see prompts/qb_*.txt "CONTEXT USAGE")
+    are trained to key off; wrapping the user's raw text in <query> defends
+    against context injection by an untrusted terminal.
+    """
+    ctx = getattr(session, "shell_context", None)
+    if ctx is None:
+        return user_input
+    preamble = ""
+    render = getattr(ctx, "render", None)
+    if callable(render):
+        try:
+            preamble = render() or ""
+        except Exception:
+            # F-53: context render can fail if the shell state is unavailable
+            # (no cwd, no session). Fall back to bare query; logging here
+            # would require plumbing the logger down — not worth the noise.
+            preamble = ""
+    if not preamble:
+        return user_input
+    return f"{preamble}\n<query>\n{user_input}\n</query>"
+
+
 @dataclass(frozen=True)
 class TurnResult:
     success: bool
@@ -135,9 +366,26 @@ class Controller:
         self._intent_schema: dict = json.loads(
             (Path(__file__).parent / "schemas" / "intent.json").read_text(encoding="utf-8")
         )
+        # F-52 (2026-07-10): the backend applies response_schema BEFORE
+        # returning content_json, so any field the model gets "wrong" here
+        # triggers a retry loop and eventually leaks as an error. But we
+        # regenerate `intent_id`, `schema_version`, and `timestamp`
+        # server-side (see _normalize_server_owned_fields) — the model's
+        # value is discarded before validate() ever sees it. Presenting a
+        # schema that requires format=uuid on intent_id creates a false
+        # rejection loop: Gemini 2.5-flash memorizes and echoes placeholder
+        # UUIDs like 'DO_NOT_EMIT', backend rejects, retries, gets the same
+        # placeholder, gives up. Solve by handing the backend a schema that
+        # drops the "required" flag and "format" constraint on these three
+        # fields. Downstream validate() still enforces the full schema
+        # AFTER normalization.
+        self._backend_intent_schema: dict = _relax_server_owned_for_backend(
+            self._intent_schema
+        )
         vcfg = getattr(cfg, "verifier", None) or VerifierConfig()
         self._verifier: VerifierStrategy = make_verifier(vcfg)
         self._rpa_step_events: list = []
+        self._system_logger = SystemLogger("/var/log/icebreaker/system.jsonl")
 
     def backend_name(self) -> str:
         return self._cfg.qb.name
@@ -148,10 +396,12 @@ class Controller:
             result = self._run_turn_inner(user_input, session, t0)
         except Exception as exc:
             duration = (time.monotonic() - t0) * 1000
+            _log_exception(self._system_logger, "controller.run_turn", exc)
             try:
                 self._audit.write_fields(self._make_error_fields(session, str(exc), duration))
-            except Exception:
-                pass
+            except Exception as audit_exc:
+                # F-53: audit failure is rare but critical to know about.
+                _log_exception(self._system_logger, "controller.audit_write", audit_exc)
             session.touch()
             return TurnResult(
                 success=False,
@@ -230,12 +480,19 @@ class Controller:
             yield _cot("qb_intent", "active",
                         body="Parsing natural language into structured intent")
             session.add_user_message(user_input)
+            # V6B Stage 2: prepend a <context> block if the caller provided
+            # shell state (cwd, recent commands). Lets QB resolve "here",
+            # "this folder", relative paths against the actual environment.
+            qb_input = _build_qb_input(session, user_input)
             qb_response = self._qb.complete(
-                system=qb_system, user=user_input,
-                schema=self._intent_schema,
+                system=qb_system, user=qb_input,
+                schema=self._backend_intent_schema,
                 max_retries=self._cfg.run.qb_max_retries,
             )
             raw_intent = qb_response.content_json
+            # F-43 + F-47 (2026-07-09): overwrite server-owned fields — see
+            # _normalize_server_owned_fields() docstring for the full context.
+            _normalize_server_owned_fields(raw_intent)
             session.add_assistant_message(json.dumps(raw_intent))
             qb_cost += qb_response.cost_usd or 0.0
             qb_tokens_in += qb_response.tokens_in
@@ -265,6 +522,53 @@ class Controller:
                 intent["target_realpath"] = os.path.realpath(raw_target)
             else:
                 intent["target_realpath"] = ""
+
+            # F-32: QB sometimes emits target="" or target="/" for queries too
+            # ambiguous to resolve via context, which then fails downstream at
+            # mcpd with a cryptic "not under any whitelisted root" error.
+            # Short-circuit here with a friendly, actionable message before
+            # spending PB tokens or hitting the sandbox.
+            if intent["action"] in _PATH_REQUIRING_ACTIONS and raw_target in ("", "/"):
+                friendly = (
+                    "Query too ambiguous to route safely. Try naming a "
+                    "specific directory (e.g. 'here', 'my Documents folder', "
+                    "'/tmp'). Received target: "
+                    + (repr(raw_target) if raw_target else "(empty)")
+                )
+                yield _cot("schema_validation", "failed", body=friendly)
+                duration = (time.monotonic() - t0) * 1000
+                self._audit.write_fields(self._make_error_fields(
+                    session, friendly, duration))
+                yield ResultEvent(result=TurnResult(
+                    success=False,
+                    output=friendly,
+                    outcome=Outcome.SCHEMA_REJECTED,
+                    tier=0,
+                    backend=session.backend, duration_ms=duration,
+                    cost_usd=qb_cost if qb_cost > 0 else None,
+                    tokens_in=qb_tokens_in, tokens_out=qb_tokens_out,
+                ))
+                return
+
+            # F-35: catalogue landing pad. If QB emitted an action not in the
+            # supported set (either the explicit system.unsupported, or an
+            # unlisted action that slipped past syntax-only schema validation),
+            # short-circuit here with a friendly UNSUPPORTED card. Never invoke
+            # PB or mcpd — the point is to tell the user "I can't do that"
+            # instead of silently substituting a lookalike.
+            if (intent["action"] == "system.unsupported"
+                    or intent["action"] not in _SUPPORTED_ACTIONS):
+                for ev in self._emit_unsupported(
+                    session, intent, user_input, qb_response,
+                    qb_cost, qb_tokens_in, qb_tokens_out, t0,
+                ):
+                    yield ev
+                return
+
+            try:
+                self._system_logger.log("controller", "intent_generated", {"intent": intent})
+            except Exception as e:
+                yield _cot("system_logger", "failed", body=f"Failed to log intent: {e}")
 
             # Step 3: Risk classification
             yield _progress("risk_classification")
@@ -436,12 +740,54 @@ class Controller:
             yield _cot("pb_tool_call", "active",
                         body="Privileged Brain generating MCP tool call")
             tool_schema = self._get_tool_schema(intent["action"])
-            pb_user = session.build_pb_user_turn(intent_id, intent["action"], tool_schema)
-            pb_system = self._prompts.get("pb")
-            pb_response = self._pb.complete(
-                system=pb_system, user=pb_user, schema=None, max_retries=1,
+            # F-27: pass the validated intent target so PB doesn't hallucinate
+            # F-41: forward QB's `content` + `pb_hint` when present so PB has
+            # the verbatim bytes + format coaching it needs (fixes the "column
+            # of ones" CSV bug and similar content-fabrication regressions).
+            pb_user = session.build_pb_user_turn(
+                intent_id, intent["action"], tool_schema,
+                target=intent.get("target", ""),
+                content=intent.get("content", ""),
+                pb_hint=intent.get("pb_hint", ""),
             )
-            tool_call = pb_response.content_json
+            pb_system = self._prompts.get("pb")
+            try:
+                pb_response = self._pb.complete(
+                    system=pb_system, user=pb_user, schema=None, max_retries=1,
+                )
+                tool_call = pb_response.content_json
+            except BrainSchemaError as exc:
+                raw = exc.last_payload_excerpt.strip()
+                if raw.upper().startswith("REFUSE:"):
+                    reason = raw[len("REFUSE:"):].strip()
+                    yield _cot("pb_tool_call", "failed",
+                                body=f"PB refused: {reason}")
+                    duration = (time.monotonic() - t0) * 1000
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id,
+                        turn_index=session.turn_index,
+                        intent_id=intent_id, action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"],
+                        risk_level=intent["risk_level"],
+                        outcome=Outcome.PB_SCHEMA_ERROR, duration_ms=duration,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=total_tokens_in, tokens_out=0,
+                        cost_estimate_usd=qb_cost,
+                        extra={"pb_refused": True,
+                               "refusal_reason": reason},
+                    ))
+                    yield ResultEvent(result=TurnResult(
+                        success=False,
+                        output=f"Privileged Brain refused: {reason}",
+                        outcome=Outcome.PB_SCHEMA_ERROR,
+                        tier=int(cls_result.tier),
+                        backend=session.backend, duration_ms=duration,
+                        cost_usd=qb_cost if qb_cost > 0 else None,
+                        tokens_in=total_tokens_in, tokens_out=0,
+                    ))
+                    return
+                raise
             pb_cost = pb_response.cost_usd or 0.0
             total_cost = qb_cost + pb_cost
             total_tokens_in = qb_tokens_in + pb_response.tokens_in
@@ -481,10 +827,45 @@ class Controller:
 
             # Step 8: QB verifier
             yield _progress("qb_verify")
-            yield _cot("qb_verify", "active",
-                        body="QB verifying intent↔tool-call alignment")
             verifier_system = self._prompts.get("qb_verifier")
-            vresult = self._verifier.verify(intent, tool_call, self._qb, verifier_system)
+            # F-49 (2026-07-10): dispatch by config.verifier.retry_mode.
+            # Defaults to F-44 behaviour (retry on "verifier call failed").
+            # 'skip_tier_01' short-circuits the verifier entirely for
+            # low-tier auto-execute intents — trade defense-in-depth for
+            # ~2 s per turn latency.
+            # Defensive: some test fixtures use a bare namespace object with
+            # no `verifier` attribute at all — guard both levels of the walk.
+            _vcfg = getattr(self._cfg, "verifier", None)
+            retry_mode = getattr(_vcfg, "retry_mode", "on_call_failed_only")
+            if retry_mode == "skip_tier_01" and int(cls_result.tier) <= 1:
+                yield _cot("qb_verify", "done",
+                            body="Skipped (retry_mode=skip_tier_01, tier≤1)",
+                            skipped=True, retry_mode=retry_mode,
+                            skip_reason="tier_gate")
+                # Fake a passing vresult so downstream flow continues.
+                from .verifier import VerifierResult
+                vresult = VerifierResult(
+                    verified=True,
+                    reason="skipped (skip_tier_01)",
+                    votes_cast=0,
+                    verified_count=0,
+                )
+            else:
+                yield _cot("qb_verify", "active",
+                            body="QB verifying intent↔tool-call alignment",
+                            retry_mode=retry_mode)
+                vresult = self._verifier.verify(
+                    intent, tool_call, self._qb, verifier_system,
+                )
+                if not vresult.verified and _should_retry_verifier(
+                    retry_mode, vresult
+                ):
+                    yield _cot("qb_verify", "active",
+                                body=f"Retry 1/1 ({retry_mode}): {vresult.reason}",
+                                retry_mode=retry_mode)
+                    vresult = self._verifier.verify(
+                        intent, tool_call, self._qb, verifier_system,
+                    )
             if not vresult.verified:
                 yield _cot("qb_verify", "failed",
                             body=f"Rejected: {vresult.reason}",
@@ -583,7 +964,11 @@ class Controller:
                     gui_result = gui.handle_request(
                         tool_name, tool_call.get("params", {}),
                     )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
+                    # F-53 Scope A.P3: `str(exc)` is surfaced twice —
+                    # once via `_cot(...body=str(exc))` for CoT display
+                    # and once via `GuiEvent(error=str(exc))` for the
+                    # companion panel. Nothing swallowed.
                     yield _cot("mcpd_dispatch", "failed", body=str(exc))
                     yield GuiEvent(
                         phase="complete",
@@ -967,9 +1352,16 @@ class Controller:
 
             if self._cfg.session.stream_output:
                 summarise_system = (
-                    "Summarise the following tool output in 1-3 plain sentences "
-                    "for the user. Be concise and factual. Output only JSON: "
-                    '{"summary": "<text>"}'
+                    "Summarise the tool output in 1-3 plain sentences for the "
+                    "user. Be concise and factual — confirm what happened, "
+                    "not what could happen. "
+                    "For fs.write results, name the file and the byte count; "
+                    "if the executed content differs from what was expected, "
+                    "say so. For fs.read, name the file and the first line "
+                    "(≤ 80 chars, quoted). For fs.list, give the count of "
+                    "entries and split into directories vs files. For read-only "
+                    "system queries, quote the key figure. "
+                    'Output only JSON: {"summary": "<text>"}'
                 )
                 user_msg = json.dumps(
                     {"tool_output": truncated, "action": intent.get("action"),
@@ -993,8 +1385,12 @@ class Controller:
                     except (json.JSONDecodeError, AttributeError):
                         summary = accumulated[:200]
                     yield TokenEvent(token="", accumulated=summary, final=True)
-                except Exception:
-                    summary = truncated[:200]
+                except Exception as exc:
+                    # F-53 v6.65: surface streaming failure so users know a
+                    # bare fallback got shown instead of a real summary.
+                    _log_exception(self._system_logger,
+                                   "controller.qb_summarize.stream", exc)
+                    summary = f"[summary generation failed: {type(exc).__name__}] " + truncated[:200]
             else:
                 summary = self._qb_summarise(truncated, intent)
 
@@ -1041,15 +1437,24 @@ class Controller:
                     tokens_in=0, tokens_out=0, cost_estimate_usd=0.0,
                     extra={"cancelled_at_step": current_step},
                 ))
-            except Exception:
-                pass
+            except Exception as audit_exc:
+                # F-53 v6.65: audit failure during cancellation isn't user-
+                # visible but IS security-relevant (missed audit row = INV-8
+                # regression). Surface it to SystemLogger so operators tuning
+                # audit-log permissions see failures they'd otherwise miss.
+                _log_exception(self._system_logger,
+                               "controller.cancel_audit_write", audit_exc)
             return
         except Exception as exc:
             duration = (time.monotonic() - t0) * 1000
+            _log_exception(self._system_logger,
+                           "controller.run_turn_streaming", exc)
             try:
                 self._audit.write_fields(self._make_error_fields(session, str(exc), duration))
-            except Exception:
-                pass
+            except Exception as audit_exc:
+                # F-53: audit failure is worth surfacing separately.
+                _log_exception(self._system_logger,
+                               "controller.audit_write_streaming", audit_exc)
             yield ErrorEvent(
                 error_type=type(exc).__name__,
                 message=str(exc),
@@ -1063,13 +1468,19 @@ class Controller:
 
         # ── Step 1: QB → Intent Object ────────────────────────────────────────
         session.add_user_message(user_input)
+        # V6B Stage 2: prepend <context> block (see run_turn_streaming twin).
+        qb_input = _build_qb_input(session, user_input)
         qb_response = self._qb.complete(
             system=qb_system,
-            user=user_input,
-            schema=self._intent_schema,
+            user=qb_input,
+            schema=self._backend_intent_schema,
             max_retries=self._cfg.run.qb_max_retries,
         )
         raw_intent = qb_response.content_json
+        # F-47b: same server-owned-field override the streaming path uses.
+        # Without this the non-streaming RPC path lets Gemini's placeholder
+        # UUIDs / non-conformant schema_version leak into validation.
+        _normalize_server_owned_fields(raw_intent)
         session.add_assistant_message(json.dumps(raw_intent))
         qb_cost += qb_response.cost_usd or 0.0
         qb_tokens_in += qb_response.tokens_in
@@ -1089,6 +1500,25 @@ class Controller:
             intent["target_realpath"] = os.path.realpath(raw_target)
         else:
             intent["target_realpath"] = ""
+
+        # F-32: short-circuit ambiguous targets before spending PB tokens.
+        if intent["action"] in _PATH_REQUIRING_ACTIONS and raw_target in ("", "/"):
+            friendly = (
+                "Query too ambiguous to route safely. Try naming a specific "
+                "directory (e.g. 'here', 'my Documents folder', '/tmp'). "
+                "Received target: "
+                + (repr(raw_target) if raw_target else "(empty)")
+            )
+            return self._schema_rejected(session, friendly, qb_response, t0)
+
+        # F-35: catalogue landing pad — see run_turn_streaming twin comment.
+        # Non-streaming path returns a TurnResult directly (no CoT events).
+        if (intent["action"] == "system.unsupported"
+                or intent["action"] not in _SUPPORTED_ACTIONS):
+            return self._unsupported_result(
+                session, intent, user_input, qb_response,
+                qb_cost, qb_tokens_in, qb_tokens_out, t0,
+            )
 
         # ── Step 3: Risk classification ───────────────────────────────────────
         cls_result = classify(intent)
@@ -1223,15 +1653,52 @@ class Controller:
 
         # ── Step 6: PB → tool call ────────────────────────────────────────────
         tool_schema = self._get_tool_schema(intent["action"])
-        pb_user = session.build_pb_user_turn(intent_id, intent["action"], tool_schema)
-        pb_system = self._prompts.get("pb")
-        pb_response = self._pb.complete(
-            system=pb_system,
-            user=pb_user,
-            schema=None,
-            max_retries=1,
+        # F-27 + F-41: pass validated intent target so PB doesn't hallucinate;
+        # forward QB's content + pb_hint when present so PB uses verbatim bytes.
+        pb_user = session.build_pb_user_turn(
+            intent_id, intent["action"], tool_schema,
+            target=intent.get("target", ""),
+            content=intent.get("content", ""),
+            pb_hint=intent.get("pb_hint", ""),
         )
-        tool_call = pb_response.content_json
+        pb_system = self._prompts.get("pb")
+        try:
+            pb_response = self._pb.complete(
+                system=pb_system,
+                user=pb_user,
+                schema=None,
+                max_retries=1,
+            )
+            tool_call = pb_response.content_json
+        except BrainSchemaError as exc:
+            raw = exc.last_payload_excerpt.strip()
+            if raw.upper().startswith("REFUSE:"):
+                reason = raw[len("REFUSE:"):].strip()
+                duration = (time.monotonic() - t0) * 1000
+                self._audit.write_fields(AuditFields(
+                    session_id=session.session_id,
+                    turn_index=session.turn_index,
+                    intent_id=intent_id, action=intent["action"],
+                    target=intent["target"], tier=int(cls_result.tier),
+                    reason=intent["reason"],
+                    risk_level=intent["risk_level"],
+                    outcome=Outcome.PB_SCHEMA_ERROR, duration_ms=duration,
+                    backend=session.backend, model=self._cfg.qb.model,
+                    tokens_in=total_tokens_in, tokens_out=0,
+                    cost_estimate_usd=qb_cost,
+                    extra={"pb_refused": True,
+                           "refusal_reason": reason},
+                ))
+                return TurnResult(
+                    success=False,
+                    output=f"Privileged Brain refused: {reason}",
+                    outcome=Outcome.PB_SCHEMA_ERROR,
+                    tier=int(cls_result.tier),
+                    backend=session.backend, duration_ms=duration,
+                    cost_usd=qb_cost if qb_cost > 0 else None,
+                    tokens_in=total_tokens_in, tokens_out=0,
+                )
+            raise
         pb_cost = pb_response.cost_usd or 0.0
         total_cost = qb_cost + pb_cost
         total_tokens_in = qb_tokens_in + pb_response.tokens_in
@@ -1324,7 +1791,10 @@ class Controller:
                 gui_result = gui.handle_request(
                     tool_name, tool_call.get("params", {}),
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
+                # F-53 Scope A.P3: GUI Agent dispatch failure — recorded
+                # to audit (Outcome.GUI_ERROR) with duration, tokens,
+                # and the raw exception surfaces via the caller path.
                 duration = (time.monotonic() - t0) * 1000
                 self._audit.write_fields(AuditFields(
                     session_id=session.session_id, turn_index=session.turn_index,
@@ -1467,8 +1937,15 @@ class Controller:
                 max_retries=1,
             )
             return resp.content_json.get("summary", raw_output[:200])
-        except Exception:
-            return raw_output[:200]
+        except Exception as exc:
+            # F-53 v6.65: previously swallowed silently — the user would see
+            # raw tool bytes instead of a summary and have no idea the QB
+            # summarize call had failed. This is exactly the class of bug
+            # v6.65's exception surfacing was meant to kill. Log the swallow
+            # for the audit trail; prefix the raw output so the user sees
+            # WHY they're looking at unformatted bytes.
+            _log_exception(self._system_logger, "controller.qb_summarize", exc)
+            return f"[summary generation failed: {type(exc).__name__}] " + raw_output[:200]
 
     def _qb_explain(self, intent: dict, cls_result: Any) -> str:
         explain_system = (
@@ -1491,8 +1968,12 @@ class Controller:
                 max_retries=1,
             )
             return resp.content_json.get("explanation", "No explanation available.")
-        except Exception:
-            return "Could not generate explanation."
+        except Exception as exc:
+            # F-53 v6.65: same reasoning as _qb_summarise above. Surface the
+            # failure type so users hitting the HITL "explain" button see
+            # what went wrong instead of a generic apology.
+            _log_exception(self._system_logger, "controller.qb_explain", exc)
+            return f"Could not generate explanation ({type(exc).__name__})."
 
     def _validate_tool_call(self, tool_call: dict, expected_action: str) -> None:
         if not isinstance(tool_call, dict):
@@ -1505,6 +1986,19 @@ class Controller:
         params = tool_call.get("params")
         if params is not None and not isinstance(params, dict):
             raise ValueError("PB params must be a JSON object or absent")
+        if params is not None:
+            tool_schema = self._get_tool_schema(expected_action)
+            if tool_schema.get("properties"):
+                try:
+                    jsonschema.validate(params, tool_schema)
+                except jsonschema.ValidationError as exc:
+                    path = " -> ".join(
+                        str(p) for p in exc.absolute_path
+                    ) or "root"
+                    raise ValueError(
+                        f"PB params failed schema validation at "
+                        f"{path}: {exc.message}"
+                    ) from None
 
     def _get_tool_schema(self, action: str) -> dict:
         if self._schemas_dir:
@@ -1698,8 +2192,12 @@ class Controller:
                     err = msg["error"]
                     rpa_result["error"] = err.get("message", str(err)) if isinstance(err, dict) else str(err)
                     rpa_result["success"] = False
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-53 v6.65: RPA stream parse failure means the RPA subprocess
+            # sent garbage or the pipe closed unexpectedly. Log so operators
+            # tuning RPA workflows see why an execution "silently succeeded"
+            # with an incomplete rpa_result dict.
+            _log_exception(self._system_logger, "controller.rpa_stream_parse", exc)
 
         # Wait for process to exit
         try:
@@ -1754,15 +2252,25 @@ class Controller:
             "required": ["on_track"],
         }
         try:
-            response = self._qb.generate(
-                f"Is this RPA workflow progressing correctly? {state_summary}",
-                session,
-                response_schema=_PROGRESS_SCHEMA,
+            response = self._qb.complete(
+                system=(
+                    "You monitor RPA workflow progress. Given a keyword "
+                    "execution summary, assess if the workflow is on track. "
+                    'Output JSON: {"on_track": true/false, "concern": "text"}'
+                ),
+                user=state_summary,
+                schema=_PROGRESS_SCHEMA,
+                max_retries=1,
             )
-            if isinstance(response, dict):
-                return response.get("on_track", True), response.get("concern", "")
-            return True, ""
-        except Exception:
+            result = response.content_json
+            return result.get("on_track", True), result.get("concern", "")
+        except Exception as exc:
+            # F-53 v6.65: on-track check failure defaults to on_track=True
+            # (fail-open — better UX than blocking every RPA turn). But log
+            # the exception so users see why the monitor is silently
+            # passing everything.
+            _log_exception(self._system_logger,
+                           "controller.rpa_on_track_check", exc)
             return True, ""
 
     @staticmethod
@@ -1876,6 +2384,104 @@ class Controller:
             duration_ms=duration, cost_usd=cost if cost > 0 else None,
             tokens_in=qb_response.tokens_in, tokens_out=qb_response.tokens_out,
         )
+
+    # ── F-35: system.unsupported short-circuit helpers ────────────────────────
+
+    def _unsupported_payload(self, intent: dict, user_input: str) -> tuple[str, str, list]:
+        """Extract UNSUPPORTED payload from an intent (rewriting if needed).
+
+        If QB emitted `action=system.unsupported`, use its params verbatim.
+        If QB emitted an unlisted action (`_SUPPORTED_ACTIONS` guard rewrite),
+        synthesize a suggestion naming the phantom action so the user sees
+        exactly what QB tried to do.
+
+        Returns (requested_intent, suggestion, alternative_actions).
+        """
+        params = intent.get("params") or {}
+        if intent.get("action") == "system.unsupported":
+            requested = str(params.get("requested_intent") or user_input)[:512]
+            suggestion = str(params.get("suggestion") or "")[:512]
+            alt_raw = params.get("alternative_actions") or []
+            alt = [str(a)[:32] for a in alt_raw if isinstance(a, str)][:5]
+            return requested, suggestion, alt
+        # Rewritten: QB emitted an unlisted action. Name it so the user sees why.
+        phantom = intent.get("action", "<none>")
+        requested = user_input[:512]
+        suggestion = (
+            f"Requested action '{phantom}' is not in the catalogue. "
+            "The Quarantined Brain tried to substitute a tool that doesn't exist "
+            "— refused before execution (F-35 lookalike guard)."
+        )
+        return requested, suggestion, []
+
+    def _write_unsupported_audit(
+        self, session: Any, intent: dict, requested: str, suggestion: str,
+        qb_response: Any, duration: float,
+    ) -> None:
+        self._audit.write_fields(AuditFields(
+            session_id=session.session_id, turn_index=session.turn_index,
+            intent_id=intent.get("intent_id", ""),
+            action="system.unsupported",  # normalize even on rewrite
+            target="",
+            tier=0,
+            reason=f"unsupported:{requested[:80]}",
+            risk_level="low",
+            outcome=Outcome.UNSUPPORTED, duration_ms=duration,
+            backend=session.backend, model=self._cfg.qb.model,
+            tokens_in=qb_response.tokens_in, tokens_out=qb_response.tokens_out,
+            cost_estimate_usd=qb_response.cost_usd or 0.0,
+            extra={"suggestion": suggestion[:256]},
+        ))
+
+    def _unsupported_result(
+        self, session: Any, intent: dict, user_input: str, qb_response: Any,
+        qb_cost: float, qb_tokens_in: int, qb_tokens_out: int, t0: float,
+    ) -> TurnResult:
+        """Non-streaming F-35 short-circuit."""
+        requested, suggestion, _alt = self._unsupported_payload(intent, user_input)
+        duration = (time.monotonic() - t0) * 1000
+        friendly = suggestion or f"I can't do that: '{requested}'."
+        self._write_unsupported_audit(session, intent, requested, suggestion, qb_response, duration)
+        return TurnResult(
+            success=False, output=friendly,
+            outcome=Outcome.UNSUPPORTED, tier=0,
+            backend=session.backend, duration_ms=duration,
+            cost_usd=qb_cost if qb_cost > 0 else None,
+            tokens_in=qb_tokens_in, tokens_out=qb_tokens_out,
+        )
+
+    def _emit_unsupported(
+        self, session: Any, intent: dict, user_input: str, qb_response: Any,
+        qb_cost: float, qb_tokens_in: int, qb_tokens_out: int, t0: float,
+    ):
+        """Streaming F-35 short-circuit — yields a friendly CoT card + ResultEvent."""
+        requested, suggestion, alt = self._unsupported_payload(intent, user_input)
+        # New CoT step: neither error nor success — informative UNSUPPORTED card.
+        # 'done' state so TUI treats it as concluded; the outcome=UNSUPPORTED
+        # is what drives yellow styling (Track A4).
+        body = suggestion or f"I can't do that: '{requested}'."
+        if alt:
+            body += f"  (Adjacent supported actions: {', '.join(alt)})"
+        # F-42: `_cot` is a nested closure inside run_turn_streaming — not in
+        # scope here. Use _make_cot(t0, ...) instead.
+        yield _make_cot(t0, "schema_validation", "done",
+                        body="Intent accepted as UNSUPPORTED — no matching tool")
+        # F-35 + F-48: yellow CoT card via styles.tcss keyed on step_NAME.
+        # Terminal's CotCard.on_mount maps step_name → CSS class ("s-unsupported").
+        # step_state must be one of {pending, active, done, failed} per
+        # turn_events._COT_STEP_STATES; the F-42 fix used step_state="unsupported"
+        # which crashed the whole turn. Use "done" for state (step is complete)
+        # and preserve "unsupported" for name (drives yellow styling).
+        yield _make_cot(t0, "unsupported", "done", body=body)
+        duration = (time.monotonic() - t0) * 1000
+        self._write_unsupported_audit(session, intent, requested, suggestion, qb_response, duration)
+        yield ResultEvent(result=TurnResult(
+            success=False, output=body,
+            outcome=Outcome.UNSUPPORTED, tier=0,
+            backend=session.backend, duration_ms=duration,
+            cost_usd=qb_cost if qb_cost > 0 else None,
+            tokens_in=qb_tokens_in, tokens_out=qb_tokens_out,
+        ))
 
     def _make_error_fields(self, session: Any, error: str, duration: float) -> AuditFields:
         return AuditFields(

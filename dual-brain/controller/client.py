@@ -41,6 +41,9 @@ class DaemonClient:
     __slots__ = (
         "_sock_path", "_transport", "_reader_thread",
         "_pending", "_pending_lock", "_closed",
+        # Phase 6 Scope A.P1: rate-limit warning about malformed JSON in
+        # the reader loop — one message per connection, not per bad packet.
+        "_malformed_warned",
     )
 
     def __init__(self, sock_path: str) -> None:
@@ -50,12 +53,16 @@ class DaemonClient:
         self._pending: dict[str, tuple[threading.Event, list]] = {}
         self._pending_lock = threading.Lock()
         self._closed = False
+        self._malformed_warned = False
 
     def connect(self) -> None:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.connect(self._sock_path)
         self._transport = UnixSocketTransport(sock)
         self._closed = False
+        # Reset the per-connection warning flag so operators see one
+        # warning per fresh connection, not one per client-lifetime.
+        self._malformed_warned = False
         self._reader_thread = threading.Thread(
             target=self._reader_loop, daemon=True, name="client-reader",
         )
@@ -103,8 +110,17 @@ class DaemonClient:
 
     # ── Public API ──────────────────────────────────────────────────────
 
-    def run_turn(self, user_input: str) -> dict:
-        return self.send_request("turn.run", {"input": user_input}, timeout=120.0)
+    def run_turn(self, user_input: str, context: dict | None = None) -> dict:
+        # F-25: 600 s so a single turn under emulated x86 (Rosetta 2) has
+        # room. Native x86-64 / arm64 completes in seconds; harmless slack.
+        # V6B Stage 2: optional context (cwd, recent_commands, active_window)
+        # captured by the caller (Terminal / ib_run.py) — rendered by the
+        # Controller into a <context> preamble in front of the user query
+        # so QB can resolve ambiguous references like "here" or "this folder".
+        params: dict = {"input": user_input}
+        if context is not None:
+            params["context"] = context
+        return self.send_request("turn.run", params, timeout=600.0)
 
     def new_session(self, backend: str | None = None) -> dict:
         params = {"backend": backend} if backend else {}
@@ -130,12 +146,34 @@ class DaemonClient:
             try:
                 raw = self._transport.recv(timeout=1.0)
             except TransportClosed:
-                break
+                if self._closed:
+                    break
+                self._on_info({"message": "Connection to daemon lost. Reconnecting..."})
+                if not self._reconnect_with_backoff():
+                    break
+                self._on_info({"message": "Reconnected to daemon"})
+                continue
             if raw is None:
                 continue
             try:
                 msg = parse_message(raw)
-            except Exception:
+            except Exception as exc:
+                # F-53 Scope A.P1: previously swallowed silently — a torn
+                # framing byte or truncated JSON would cascade into "nothing
+                # is happening" symptoms with zero diagnostic. Warn ONCE per
+                # connection with the exception type + first bytes so the
+                # operator can look upstream (protocol version mismatch,
+                # transport corruption, etc.). Rate-limited via the flag on
+                # __slots__ so a flooded reader doesn't spam stderr.
+                if not self._malformed_warned:
+                    self._malformed_warned = True
+                    excerpt = raw[:80] if isinstance(raw, (bytes, str)) else repr(raw)[:80]
+                    print(
+                        f"WARN: client reader: dropped malformed message: "
+                        f"{type(exc).__name__}: {exc} (first 80 bytes: {excerpt!r}). "
+                        f"Further parse errors on this connection will be silent.",
+                        file=sys.stderr,
+                    )
                 continue
 
             if is_response(msg):
@@ -148,6 +186,20 @@ class DaemonClient:
                     event.set()
             elif is_notification(msg):
                 self._dispatch_notification(msg)
+
+    def _reconnect_with_backoff(self) -> bool:
+        delay = 1.0
+        max_delay = 30.0
+        while not self._closed:
+            try:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.connect(self._sock_path)
+                self._transport = UnixSocketTransport(sock)
+                return True
+            except (OSError, ConnectionRefusedError):
+                time.sleep(delay)
+                delay = min(delay * 2, max_delay)
+        return False
 
     def _dispatch_notification(self, msg: dict) -> None:
         method = msg.get("method", "")

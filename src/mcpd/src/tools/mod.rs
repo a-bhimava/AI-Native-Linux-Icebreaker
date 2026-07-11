@@ -32,6 +32,13 @@ const TOOLS: &[ToolDescriptor] = &[
                      category: "system", tier: 0, read_only: true },
     ToolDescriptor { name: "system.disk", description: "Returns disk usage for all mounted filesystems.",
                      category: "system", tier: 0, read_only: true },
+    // F-35: catalogue landing pad. QB uses this when a query has no matching tool,
+    // instead of silently substituting a lookalike (e.g. fs.list for "cd").
+    // mcpd echoes the payload back; the Controller renders a friendly UNSUPPORTED
+    // card and never invokes PB. Read-only, Tier 0, always auto-approved.
+    ToolDescriptor { name: "system.unsupported",
+                     description: "Landing pad for user intents with no matching tool. Echoes back requested_intent + suggestion. Never a lookalike (F-35).",
+                     category: "system", tier: 0, read_only: true },
     ToolDescriptor { name: "process.list", description: "Lists all running processes with PID, name, CPU%, and memory%.",
                      category: "process", tier: 0, read_only: true },
     ToolDescriptor { name: "process.inspect", description: "Returns detailed info about a specific process by PID.",
@@ -96,10 +103,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn list_all_advertises_twenty_two_tools() {
+    fn list_all_advertises_twenty_three_tools() {
+        // F-35: 22 real tools + system.unsupported landing pad.
         let v = list_all().unwrap();
         let tools = v["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 22);
+        assert_eq!(tools.len(), 23);
+    }
+
+    #[test]
+    fn list_all_includes_system_unsupported_as_tier0_readonly() {
+        // F-35 invariant: the landing pad is auto-approved and side-effect-free.
+        let v = list_all().unwrap();
+        let unsup = v["tools"].as_array().unwrap().iter()
+            .find(|t| t["name"] == "system.unsupported")
+            .expect("system.unsupported must be in the catalogue");
+        assert_eq!(unsup["tier"], 0, "system.unsupported must be Tier 0 (auto-execute)");
+        assert_eq!(unsup["read_only"], true, "system.unsupported must be read_only");
+        assert_eq!(unsup["category"], "system");
     }
 
     #[test]

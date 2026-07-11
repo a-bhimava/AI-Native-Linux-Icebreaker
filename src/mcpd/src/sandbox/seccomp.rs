@@ -200,6 +200,8 @@ pub(crate) fn allowed_syscalls() -> Vec<i64> {
         libc::SYS_pwrite64,
         libc::SYS_readv,
         libc::SYS_writev,
+        libc::SYS_fsync,            // F-33: safe_write / canonicalize_write call file.sync_all()
+        libc::SYS_fdatasync,        // sibling of fsync — data-only sync sibling
         libc::SYS_openat,
         libc::SYS_openat2,
         libc::SYS_close,
@@ -209,6 +211,8 @@ pub(crate) fn allowed_syscalls() -> Vec<i64> {
         libc::SYS_fcntl,
         libc::SYS_ioctl,
         libc::SYS_dup,
+        // V6.6: dup2 exists only on x86_64. aarch64 uses dup3 (with 0 flags).
+        #[cfg(target_arch = "x86_64")]
         libc::SYS_dup2,             // older glibc fd-dup fallback (== dup3 w/o flags)
         libc::SYS_dup3,
         // ── Stat / link / dir creation ────────────────────────────────────
@@ -218,7 +222,12 @@ pub(crate) fn allowed_syscalls() -> Vec<i64> {
         libc::SYS_fstatfs,
         libc::SYS_statx,
         libc::SYS_getcwd,
+        // V6.6: readlink exists only on x86_64. aarch64 uses readlinkat only.
+        #[cfg(target_arch = "x86_64")]
+        libc::SYS_readlink,         // F-29 fallback: std::fs::canonicalize
         libc::SYS_readlinkat,
+        // V6.6: mkdir exists only on x86_64. aarch64 uses mkdirat only.
+        #[cfg(target_arch = "x86_64")]
         libc::SYS_mkdir,            // audit log dir creation (older path)
         libc::SYS_mkdirat,          // audit log dir creation (modern path)
         // ── Memory ────────────────────────────────────────────────────────
@@ -242,11 +251,15 @@ pub(crate) fn allowed_syscalls() -> Vec<i64> {
         // ── Async / event loop (tokio epoll-based reactor) ────────────────
         libc::SYS_epoll_create1,
         libc::SYS_epoll_ctl,
+        // V6.6: epoll_wait exists only on x86_64. aarch64 uses epoll_pwait only.
+        #[cfg(target_arch = "x86_64")]
         libc::SYS_epoll_wait,       // legacy epoll_wait — tokio reactor on glibc 2.36
         libc::SYS_epoll_pwait,
         libc::SYS_epoll_pwait2,
         libc::SYS_eventfd2,
         libc::SYS_pipe2,
+        // V6.6: poll exists only on x86_64. aarch64 uses ppoll only.
+        #[cfg(target_arch = "x86_64")]
         libc::SYS_poll,
         libc::SYS_ppoll,
         // ── Timers (tokio time::sleep, intervals) ─────────────────────────
@@ -308,6 +321,8 @@ pub(crate) fn allowed_syscalls() -> Vec<i64> {
         // ── Process exec (M1.6 spawns journalctl, M1.8 spawns dpkg-query) ─
         libc::SYS_execve,
         libc::SYS_execveat,
+        // V6.6: vfork exists only on x86_64. aarch64 uses clone/clone3 only.
+        #[cfg(target_arch = "x86_64")]
         libc::SYS_vfork,
         // ── Landlock (M1.3 installation) ──────────────────────────────────
         libc::SYS_landlock_create_ruleset,
@@ -332,24 +347,39 @@ mod tests {
 
     #[test]
     fn allowlist_includes_critical_syscalls() {
+        // V6.6: syscalls split into arch-neutral and x86-only groups.
+        // aarch64 lacks SYS_epoll_wait / SYS_dup2 (uses epoll_pwait/dup3
+        // instead), and lacks SYS_vfork/SYS_readlink/SYS_mkdir/SYS_poll.
+        // Arch-conditional constants in libc::SYS_* cannot appear on the
+        // wrong arch's build — the test must gate them too.
         let a = allowed_syscalls();
-        for nr in [
+        let arch_neutral = [
             libc::SYS_read,
             libc::SYS_write,
+            libc::SYS_fsync,           // F-33: safe_write durability sync
             libc::SYS_openat2,
             libc::SYS_close,
             libc::SYS_futex,
-            libc::SYS_epoll_wait,
             libc::SYS_epoll_pwait,
-            libc::SYS_dup2,
             libc::SYS_dup3,
             libc::SYS_clone3,
             libc::SYS_rseq,
             libc::SYS_sched_getaffinity,
             libc::SYS_exit_group,
             libc::SYS_landlock_create_ruleset,
-        ] {
-            assert!(a.contains(&nr), "syscall {} must be allowed", nr);
+        ];
+        for nr in arch_neutral {
+            assert!(a.contains(&nr), "arch-neutral syscall {} must be allowed", nr);
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            let x86_only = [
+                libc::SYS_epoll_wait,
+                libc::SYS_dup2,
+            ];
+            for nr in x86_only {
+                assert!(a.contains(&nr), "x86_64 syscall {} must be allowed", nr);
+            }
         }
     }
 

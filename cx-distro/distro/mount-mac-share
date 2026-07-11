@@ -1,0 +1,27 @@
+#!/bin/bash
+# mount-mac-share - Mounts a UTM VirtFS/9p shared directory
+
+# UTM default 9p tag is usually "share" or "VirtualBox" equivalent, but UTM explicitly uses the tag name the user configures.
+# By default we will try mounting with the tag "share".
+
+if [ "$EUID" -ne 0 ]; then
+    # Re-run with pkexec (GUI sudo) if not root
+    pkexec "$0" "$@"
+    exit $?
+fi
+
+MOUNT_POINT="/mnt/mac"
+mkdir -p "$MOUNT_POINT"
+
+# Try to mount the 9p share (UTM uses trans=virtio)
+# The tag in UTM is typically "share"
+if mount -t 9p -o trans=virtio,version=9p2000.L,msize=1048576 share "$MOUNT_POINT"; then
+    zenity --info --title="Icebreaker" --text="Mac shared folder successfully mounted at $MOUNT_POINT" 2>/dev/null
+    
+    # Optional: open Thunar to show the mounted folder
+    if [ -n "$SUDO_USER" ]; then
+        su - "$SUDO_USER" -c "thunar $MOUNT_POINT &"
+    fi
+else
+    zenity --error --title="Icebreaker" --text="Failed to mount the shared folder. Please ensure 'Shared Directory' is enabled in UTM settings with the name 'share'." 2>/dev/null
+fi

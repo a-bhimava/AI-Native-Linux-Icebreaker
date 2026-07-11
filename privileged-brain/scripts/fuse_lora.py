@@ -39,7 +39,11 @@ def main():
     print(f"Output      : {args.output_dir}")
     print()
 
-    # Load on CPU for merging (avoids MPS precision issues during merge)
+    # INV-7 note: HuggingFace from_pretrained() downloads models into a
+    # content-addressed cache (~/.cache/huggingface/hub/) with SHA-256
+    # verification at download time. The critical INV-7 checkpoint is the
+    # OUTPUT — the fused GGUF produced by 05_convert_and_import.sh, which
+    # records its hash in models/checksums.sha256 after quantization.
     print("Loading base model on CPU for merging...")
     base_model = AutoModelForCausalLM.from_pretrained(
         model_id,

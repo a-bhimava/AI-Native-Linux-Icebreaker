@@ -10,12 +10,34 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import signal
 import sys
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator
+
+
+_shutdown_log = logging.getLogger(__name__ + ".shutdown")
+
+
+def _try_close(obj: Any, label: str) -> None:
+    """F-53 Scope A.P2 shutdown helper: call ``obj.close()`` and log the
+    exception type on failure without letting it abort the surrounding
+    finally block. The label lets journalctl distinguish which subsystem
+    failed to close (e.g. client vs mcpd) — a torn socket during exit
+    used to look identical to a broken mcpd, wasting triage time.
+    """
+    if obj is None:
+        return
+    try:
+        obj.close()
+    except Exception as exc:  # noqa: BLE001
+        _shutdown_log.warning(
+            "shutdown.close(%s) raised: %s: %s",
+            label, type(exc).__name__, exc,
+        )
 
 from .audit import AuditLog
 from .backends.base import BrainBackend, BrainProviderError, RequestEnvelope
@@ -28,34 +50,75 @@ from .session import SessionState
 
 
 class _UnconfiguredBackend(BrainBackend):
-    """Stub QB for when the configured backend fails to initialize.
+    """Stub brain for when the configured backend fails to initialize.
 
-    Every call returns a structured error directing the user to configure
-    their API key. The daemon stays up so the chatbot can display the
-    message instead of showing "Not connected to daemon."
+    Every call returns a structured error naming WHICH brain is missing and
+    how to fix it (F-20: a PB failure must never present as a QB failure).
+    The daemon stays up so UIs can display the message instead of showing
+    "Not connected to daemon."
     """
 
-    __slots__ = ("_reason",)
+    __slots__ = ("_reason", "_brain", "_remedy")
     backend_name = "unconfigured"
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, brain: str = "Quarantined Brain",
+                 remedy: str | None = None) -> None:
         self._reason = reason
-        self._auditor = type("_NoOp", (), {"intercept": lambda self, x: None})()
+        self._brain = brain
+        self._remedy = remedy or (
+            "Set GEMINI_API_KEY in /etc/icebreaker/locations.env and "
+            "restart icebreaker-controller, or run: sudo ib-setup-key"
+        )
+        self._auditor = type("_NoOp", (), {"intercept": lambda self, x: None, "call_count": 0})()
         self._attempt_count = 0
 
     def _call_provider(
         self, envelope: RequestEnvelope
     ) -> tuple[str, int, int]:
         raise BrainProviderError(
-            f"Quarantined Brain not available: {self._reason}. "
-            "Set GEMINI_API_KEY in /etc/icebreaker/locations.env and "
-            "restart icebreaker-controller, or run: icebreaker --settings"
+            f"{self._brain} not available: {self._reason}. {self._remedy}"
         )
 
 
+def _mcpd_extra_env(cfg: ControllerConfig) -> dict[str, str]:
+    """F-28: build extra env for mcpd from RunConfig.
+
+    Currently: MCPD_FS_READ_ROOTS (config-driven read allowlist). Landlock
+    honours these at the kernel level and mcpd's userspace validate() accepts
+    them as additional roots on top of STATIC_ROOTS + $HOME.
+    """
+    env: dict[str, str] = {}
+    read_roots = getattr(cfg.run, "mcpd_fs_read_roots", "") or ""
+    if read_roots:
+        env["MCPD_FS_READ_ROOTS"] = read_roots
+    return env
+
+
 def _build_qb(cfg: ControllerConfig) -> Any:
+    from dataclasses import replace as _replace
+
     from .backends import anthropic_backend, gemini_backend, llama_local_backend, openai_backend  # noqa: F401
-    return make_backend(cfg)
+    from .fallback_backend import FallbackChain
+
+    primary = make_backend(cfg)
+    if not cfg.qb_fallbacks:
+        return primary
+
+    fallbacks = []
+    for fb_cfg in cfg.qb_fallbacks:
+        try:
+            fallbacks.append(make_backend(_replace(cfg, qb=fb_cfg)))
+        except Exception as exc:
+            # BP-2: bad fallback config shouldn't break startup — the
+            # primary is still functional. Log to stderr and skip.
+            print(
+                f"WARN: fallback backend {fb_cfg.name!r} init failed: {exc}; "
+                "skipping.",
+                file=sys.stderr,
+            )
+    if not fallbacks:
+        return primary
+    return FallbackChain(primary=primary, fallbacks=fallbacks)
 
 
 def _build_qb_safe(cfg: ControllerConfig) -> Any:
@@ -66,7 +129,7 @@ def _build_qb_safe(cfg: ControllerConfig) -> Any:
         reason = str(exc)
         print(f"WARN: QB backend init failed: {reason}", file=sys.stderr)
         print("WARN: Starting with unconfigured QB — user commands will return an error.", file=sys.stderr)
-        return _UnconfiguredBackend(reason)
+        return _UnconfiguredBackend(reason, brain="Quarantined Brain")
 
 
 def _build_pb(cfg: ControllerConfig) -> Any:
@@ -81,6 +144,32 @@ def _build_pb(cfg: ControllerConfig) -> Any:
         transport=cfg.run.pb_transport,
     )
     return LlamaCppLocalBackend(pb_cfg)
+
+
+def _build_pb_safe(cfg: ControllerConfig) -> Any:
+    """Build PB with fallback to stub when llama-server isn't up yet.
+
+    The pbd service may not be ready (model not installed, still starting).
+    Fall back to _UnconfiguredBackend so the controller starts and serves
+    NL requests that don't require PB execution.
+    """
+    try:
+        return _build_pb(cfg)
+    except Exception as exc:
+        reason = str(exc)
+        print(f"WARN: PB backend init failed: {reason}", file=sys.stderr)
+        print("WARN: Starting with unconfigured PB — tool execution unavailable.", file=sys.stderr)
+        return _UnconfiguredBackend(
+            reason,
+            brain="Privileged Brain",
+            remedy=(
+                "The local execution model is not installed (arrives in V6). "
+                "Your request WAS understood by the Quarantined Brain — only "
+                "execution is unavailable. To install the PB model: sudo "
+                "/opt/icebreaker/venv/bin/python3 -m controller.model_registry "
+                "install --id qwen-2.5-coder-1.5b-instruct-q4_k_m"
+            ),
+        )
 
 
 @contextmanager
@@ -102,13 +191,14 @@ def _build_controller(
     mcpd: McpdClient | None = None
     try:
         qb = _build_qb(cfg)
-        pb = _build_pb(cfg)
+        pb = _build_pb_safe(cfg)
         # spawn() is the factory: it Popen's mcpd and returns a connected
         # client. The bare constructor takes an already-spawned process plus
         # keyword-only binary_path/default_timeout, so must not be called here.
         mcpd = McpdClient.spawn(
             Path(cfg.run.mcpd_binary).expanduser(),
             default_timeout=cfg.run.mcpd_timeout_seconds,
+            extra_env=_mcpd_extra_env(cfg),
         )
         store = IntentStore()
         prompts = PromptLoader(cfg.prompts)
@@ -209,10 +299,11 @@ def _run_daemon(config_path: Path | None) -> int:
         mcpd: McpdClient | None = None
         try:
             qb = _build_qb_safe(cfg)
-            pb = _build_pb(cfg)
+            pb = _build_pb_safe(cfg)
             mcpd = McpdClient.spawn(
                 Path(cfg.run.mcpd_binary).expanduser(),
                 default_timeout=cfg.run.mcpd_timeout_seconds,
+                extra_env=_mcpd_extra_env(cfg),
             )
             store = IntentStore()
             prompts = PromptLoader(cfg.prompts)
@@ -239,22 +330,39 @@ def _run_daemon(config_path: Path | None) -> int:
 
 
 def _run_terminal(config_path: Path | None) -> int:
-    """Start daemon in background thread, launch AI Terminal TUI as foreground."""
-    from .daemon import Daemon
-    from .client import DaemonClient
-    from terminal.app import AiTerminalApp
+    """Start daemon in background thread, launch AI Terminal TUI as foreground.
 
-    daemon_thread = None
-    daemon_obj = None
+    Resilient startup: if the daemon layer fails to initialise (missing mcpd
+    binary, missing model weights, bad config) the TUI is still launched in
+    shell-only mode so the user always gets a working terminal window.
+    The daemon startup error is shown inside the TUI output panel.
+    """
+    try:
+        from .daemon import Daemon
+        from .client import DaemonClient
+        from terminal.app import AiTerminalApp
+    except ImportError as _import_exc:
+        print(
+            f"FATAL: Icebreaker TUI import failed: {_import_exc}\n"
+            "Check that textual>=0.80 is installed and the 'terminal' package is in the venv.",
+            file=sys.stderr,
+        )
+        return 1
+
     mcpd: McpdClient | None = None
+    client: DaemonClient | None = None
+    _daemon_startup_error: str = ""
+
+    # ── Phase 1: try to start the daemon ──────────────────────────────────
     try:
         cfg = load(config_path)
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
         qb = _build_qb_safe(cfg)
-        pb = _build_pb(cfg)
+        pb = _build_pb_safe(cfg)
         mcpd = McpdClient.spawn(
             Path(cfg.run.mcpd_binary).expanduser(),
             default_timeout=cfg.run.mcpd_timeout_seconds,
+            extra_env=_mcpd_extra_env(cfg),
         )
         store = IntentStore()
         prompts = PromptLoader(cfg.prompts)
@@ -270,11 +378,8 @@ def _run_terminal(config_path: Path | None) -> int:
         )
         daemon_obj = Daemon(cfg.daemon, controller, cfg, audit)
 
-        def _daemon_thread_fn() -> None:
-            daemon_obj.start()
-
         daemon_thread = threading.Thread(
-            target=_daemon_thread_fn, daemon=True, name="terminal-daemon",
+            target=daemon_obj.start, daemon=True, name="terminal-daemon",
         )
         daemon_thread.start()
 
@@ -285,25 +390,41 @@ def _run_terminal(config_path: Path | None) -> int:
                 break
             time.sleep(0.1)
 
-        client: DaemonClient | None = None
+        # ── Phase 2: try to connect the TUI client to the daemon ──────────
         try:
-            client = DaemonClient(sock_path)
+            from terminal.daemon_client import TextualDaemonClient
+            client = TextualDaemonClient(sock_path)
             client.connect()
-        except Exception:
+        except Exception as conn_exc:
+            _daemon_startup_error = (
+                f"Daemon started but client connection failed: {conn_exc}\n"
+                "Running in shell-only mode."
+            )
             client = None
 
-        app = AiTerminalApp(daemon_client=client)
-        app.run()
+    except Exception as daemon_exc:
+        # Log for sysadmin triage, then fall through to shell-only TUI.
+        _daemon_startup_error = (
+            f"Daemon startup failed: {daemon_exc}\n"
+            "Running in shell-only mode — NL commands unavailable."
+        )
+        print(f"WARN: {_daemon_startup_error}", file=sys.stderr)
+        _try_close(mcpd, "mcpd-after-startup-error")
+        mcpd = None
 
-        if client is not None:
-            client.close()
-        return 0
-    except Exception as exc:
-        print(f"Fatal: {exc}", file=sys.stderr)
-        return 1
+    # ── Phase 3: always launch the TUI (with or without daemon) ───────────
+    try:
+        app = AiTerminalApp(
+            daemon_client=client,
+            startup_warning=_daemon_startup_error or None,
+        )
+        app.run()
     finally:
-        if mcpd is not None:
-            mcpd.close()
+        _try_close(client, "client")
+        _try_close(mcpd, "mcpd")
+
+    return 0
+
 
 
 def _run_gui(mode: str, config_path: Path | None) -> int:
@@ -316,10 +437,11 @@ def _run_gui(mode: str, config_path: Path | None) -> int:
         cfg = load(config_path)
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
         qb = _build_qb_safe(cfg)
-        pb = _build_pb(cfg)
+        pb = _build_pb_safe(cfg)
         mcpd = McpdClient.spawn(
             Path(cfg.run.mcpd_binary).expanduser(),
             default_timeout=cfg.run.mcpd_timeout_seconds,
+            extra_env=_mcpd_extra_env(cfg),
         )
         store = IntentStore()
         prompts = PromptLoader(cfg.prompts)
@@ -384,6 +506,12 @@ def _run_connect(socket_path: str, config_path: Path | None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import logging
+    # Enable info/debug logging by configuring the root logger level (default is WARNING)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
     parser = argparse.ArgumentParser(
         prog="python -m controller",
         description="Icebreaker Controller — natural language → safe OS operations",

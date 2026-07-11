@@ -1,0 +1,130 @@
+# v6 — Privileged Brain + mcpd execution
+# Adds:
+#   - run7_cot_q4km.gguf (940 MB) → /var/lib/icebreaker/models/ + INV-7
+#     checksums.sha256 (source hash verified against repo manifest at build)
+#   - llama-server (STATIC build — F-21: the old shared-lib build shipped a
+#     17 KB binary without libllama.so/libggml.so; probable original cause
+#     of "cannot access Privileged Brain")
+#   - start-pbd (model-registry resolve + INV-7 verify + UNIX-socket bind)
+#   - icebreaker-pbd.service, enabled (runs as _icebreaker_pb — sysusers.d
+#     shipped by v2 creates the user at boot)
+#   - reverts v2's ICEBREAKER_SOCKET_TIMEOUT=0 hack so wait-for-sockets
+#     actually waits for pbd.sock at controller start
+# mcpd + schemas already installed by v2. HITL flow is in the controller code.
+# Gate: GROUND_TRUTH.md § 3 V6.
+
+# V6.3 Stage 3: wmctrl for best-effort active-window context. Tiny (<50 KB)
+# X11 utility; empty output on non-X11 fallback so ib_trigger + Textual TUI
+# degrade gracefully.
+VERSION_PACKAGES="wmctrl"
+
+# Expected model hash from the repo manifest (single source of truth).
+# Model is GGUF format = architecture-neutral (identical file works on
+# amd64+AVX2, arm64+NEON, and everything in between). No per-arch
+# variants needed.
+_V6_MODEL="run7_cot_q4km.gguf"
+_V6_MODEL_SRC="/home/aditya/models/run7_cot_q4km.gguf"
+
+# V6.6: llama-server binary is per-arch. LLAMA_BUILD_DIR comes from
+# config/archs/${ARCH}.conf (sourced by build-iso.sh before evaluating
+# this manifest). amd64: build-portable (AVX2). arm64: build-arm64 (NEON).
+#
+# F-36 rule R10 (revised 2026-07-08): CPU support window is Haswell+ on
+# amd64 (2013 min); ARMv8-A on arm64 (mandatory NEON — any ARMv8 CPU).
+# Sandy Bridge / Ivy Bridge / Bulldozer x86 CPUs are OUT of the support
+# window; first-boot surfaces "AVX2 required" on unsupported x86 hardware
+# instead of crash-looping pbd.
+_V6_LLAMA_STATIC="${REPO_ROOT}/cx-distro/.build/llama.cpp/${LLAMA_BUILD_DIR:-build-portable}/bin/llama-server"
+
+# V6.6: per-arch mcpd binary. Falls back to legacy unsuffixed path when
+# ARCH=amd64 and only the pre-6.6 unsuffixed mcpd exists (V0-V6.51
+# rebuild compatibility).
+_V6_MCPD_ARCH="${REPO_ROOT}/cx-distro/.build/mcpd-${ARCH:-amd64}"
+_V6_MCPD_LEGACY="${REPO_ROOT}/cx-distro/.build/mcpd"
+
+version_overlay() {
+    local chroot="$1" repo="$2"
+
+    # ── 1. Model + checksums (INV-7) ──
+    echo "[v6] Verifying model source hash against repo manifest..."
+    local expected actual
+    expected="$(grep -F "$_V6_MODEL" "${repo}/models/checksums.sha256" | awk '{print $1}')"
+    [ -n "$expected" ] || { echo "FATAL[v6]: ${_V6_MODEL} not in models/checksums.sha256" >&2; return 1; }
+    [ -f "$_V6_MODEL_SRC" ] || { echo "FATAL[v6]: model not staged at ${_V6_MODEL_SRC}" >&2; return 1; }
+    actual="$(sha256sum "$_V6_MODEL_SRC" | awk '{print $1}')"
+    [ "$expected" = "$actual" ] || {
+        echo "FATAL[v6]: INV-7 — model hash mismatch (expected ${expected}, got ${actual})" >&2
+        return 1
+    }
+    echo "[v6] Embedding model (940 MB — this takes a minute)..."
+    install -Dm644 "$_V6_MODEL_SRC" "${chroot}/var/lib/icebreaker/models/${_V6_MODEL}"
+    install -Dm644 "${repo}/models/checksums.sha256" \
+        "${chroot}/var/lib/icebreaker/models/checksums.sha256"
+
+    # ── 2. llama-server (static, F-21) ──
+    [ -f "$_V6_LLAMA_STATIC" ] || {
+        echo "FATAL[v6]: portable llama-server not built at ${_V6_LLAMA_STATIC}" >&2
+        echo "  Build it: sudo bash /tmp/build-llama-portable.sh (see F-24)" >&2
+        return 1
+    }
+    install -Dm755 "$_V6_LLAMA_STATIC" "${chroot}/usr/libexec/icebreaker/llama-server"
+    # F-21 tripwire: every dynamic dependency must resolve INSIDE the chroot.
+    if chroot "$chroot" ldd /usr/libexec/icebreaker/llama-server 2>/dev/null | grep -q "not found"; then
+        echo "FATAL[v6]: F-21 — llama-server has unresolved shared libs in the chroot:" >&2
+        chroot "$chroot" ldd /usr/libexec/icebreaker/llama-server | grep "not found" >&2
+        return 1
+    fi
+    # V6.6: architecture-conditional binary checks.
+    # amd64: F-24 AVX-512 tripwire (zmm regs would SIGILL under Rosetta 2).
+    # arm64: sanity check that the binary is actually ARM aarch64 ELF —
+    #        prevents an accidental amd64 llama-server shipping in an arm64 ISO.
+    if [ "${ARCH:-amd64}" = "amd64" ]; then
+        if command -v objdump >/dev/null 2>&1; then
+            if objdump -d "${chroot}/usr/libexec/icebreaker/llama-server" 2>/dev/null | grep -qE 'zmm[0-9]'; then
+                echo "FATAL[v6]: F-24 — llama-server contains AVX-512 (zmm) instructions;" >&2
+                echo "  will SIGILL on Apple Silicon UTM. Rebuild with -DGGML_AVX512=OFF." >&2
+                return 1
+            fi
+        fi
+    else
+        if command -v file >/dev/null 2>&1; then
+            _fdesc="$(file "${chroot}/usr/libexec/icebreaker/llama-server" 2>/dev/null || true)"
+            case "$_fdesc" in
+                *"ARM aarch64"*) : ;;  # correct arch
+                *) echo "FATAL[v6]: llama-server is not ARM aarch64 ELF (got: ${_fdesc}). Wrong LLAMA_BUILD_DIR?" >&2; return 1 ;;
+            esac
+        fi
+    fi
+
+    # ── 3. start-pbd + pbd unit, enabled ──
+    install -Dm755 "${repo}/dual-brain/scripts/start-pbd" \
+        "${chroot}/usr/libexec/icebreaker/start-pbd"
+    bash -n "${chroot}/usr/libexec/icebreaker/start-pbd" || \
+        { echo "FATAL[v6]: start-pbd syntax error" >&2; return 1; }
+    install -Dm644 "${repo}/dual-brain/controller/systemd/icebreaker-pbd.service" \
+        "${chroot}/etc/systemd/system/icebreaker-pbd.service"
+    mkdir -p "${chroot}/etc/systemd/system/multi-user.target.wants"
+    ln -sf /etc/systemd/system/icebreaker-pbd.service \
+        "${chroot}/etc/systemd/system/multi-user.target.wants/icebreaker-pbd.service"
+
+    # ── 4. Revert v2's wait-for-sockets bypass ──
+    sed -i '/^ICEBREAKER_SOCKET_TIMEOUT=0$/d' "${chroot}/etc/icebreaker/locations.env"
+
+    # ── 5. Icebreaker Control Center (V6.6) ──
+    # The Python module already ships via v2's dual-brain/gui/ copy into
+    # the venv (gui.control is a subpackage). We only need to install the
+    # .desktop launcher so it appears in GNOME's app grid.
+    if [ -f "${repo}/cx-distro/distro/icebreaker-control.desktop" ]; then
+        install -Dm644 "${repo}/cx-distro/distro/icebreaker-control.desktop" \
+            "${chroot}/usr/share/applications/icebreaker-control.desktop"
+        # V6.6: quick sanity — .desktop file must reference the venv python
+        # since /usr/bin/python3 lacks GTK bindings in some minbase configs.
+        grep -qE "^Exec=(env( [A-Z][A-Z_0-9]*=[A-Za-z0-9_/-]+)+ )?/opt/icebreaker/venv/bin/python3" \
+            "${chroot}/usr/share/applications/icebreaker-control.desktop" || {
+            echo "FATAL[v6]: Control Center .desktop Exec= does not point at the venv python" >&2
+            return 1
+        }
+    fi
+
+    echo "[v6] overlay complete"
+}

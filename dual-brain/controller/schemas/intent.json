@@ -36,6 +36,18 @@
         ]
       }
     },
+    "content": {
+      "type": "string",
+      "maxLength": 65536,
+      "pattern": "^[^\\x00]*$",
+      "description": "Optional QB-produced verbatim payload for the intent (e.g. the exact bytes to write for fs.write). NOT a parameter — never interpolated into a command; PB is instructed to copy it into params.content unchanged. Newlines and other control chars are allowed here (unlike params values); NUL bytes are not."
+    },
+    "pb_hint": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^[^\\x00]*$",
+      "description": "Optional short natural-language coaching from QB to PB describing which tool-schema field carries the semantic payload and any format constraints (e.g. 'put the CSV data in params.content, exactly 5 lines each just the character 1'). PB is instructed to follow it before consulting its own training. Not interpolated into a command."
+    },
     "reason": {
       "type": "string",
       "enum": ["user_requested", "ai_autonomous", "scheduled"],

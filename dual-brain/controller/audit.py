@@ -124,6 +124,9 @@ class Outcome(str, Enum):
     RPA_TIMEOUT             = "rpa_timeout"               # RPA workflow exceeded timeout
     RPA_QB_PAUSED           = "rpa_qb_paused"             # QB flagged workflow off-track
 
+    # F-35: catalogue landing pad — QB signalled the intent has no supported tool
+    UNSUPPORTED             = "unsupported"               # action=system.unsupported OR unlisted; PB/mcpd never invoked
+
 
 # ── Required entry fields ──────────────────────────────────────────────────
 

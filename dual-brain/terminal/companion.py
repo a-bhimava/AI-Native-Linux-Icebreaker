@@ -9,6 +9,7 @@ Dual-mode:
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from rich.text import Text
@@ -16,11 +17,18 @@ from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Label, Static
 
+
+# Phase 6 Scope A.P2: module logger used by screen-reader announcement
+# and CoT-card swallows. Textual dev tools + journalctl pick this up
+# under debug level so production stays quiet.
+log = logging.getLogger(__name__)
+
 _STATE_GLYPHS = {
-    "pending": "○",
-    "active":  "◉",
-    "done":    "✓",
-    "failed":  "✗",
+    "pending":     "○",
+    "active":      "◉",
+    "done":        "✓",
+    "failed":      "✗",
+    "unsupported": "ⓘ",  # F-35: informative, not an error
 }
 
 _TIER_LABELS = {
@@ -151,11 +159,17 @@ class CompanionPanel(Static):
         badge_card = Static(badge_text, classes="cot-card s-pending")
         container.mount(badge_card)
 
-        glyph = "✓" if success else "✗"
-        style = "#5e8787" if success else "#f87171"
+        # F-35: UNSUPPORTED is neither success nor error — it's an informative
+        # "I can't do that, here's what I can" outcome. Yellow glyph + border.
+        if outcome == "unsupported":
+            glyph, style, css = "ⓘ", "#f4c430", "cot-card s-unsupported"
+        elif success:
+            glyph, style, css = "✓", "#5e8787", "cot-card s-done"
+        else:
+            glyph, style, css = "✗", "#f87171", "cot-card s-failed"
         summary_card = Static(
             Text(f"{glyph} {outcome}", style=f"bold {style}"),
-            classes="cot-card s-done" if success else "cot-card s-failed",
+            classes=css,
         )
         container.mount(summary_card)
 
@@ -234,8 +248,15 @@ class CompanionPanel(Static):
             sr_parts.append(f"in {app_name}")
         try:
             self.app.notify(" ".join(sr_parts), timeout=3)
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-53 Scope A.P2: screen-reader announcement dropped.
+            # `self.app.notify` requires an active Textual App context
+            # which can be absent during teardown or in tests. Silent
+            # loss of a11y announcements is bad UX for screen-reader
+            # users; debug-log so operators diagnosing "reader went
+            # quiet mid-run" have a trail.
+            log.debug("tui.companion.notify(gui) dropped: %s: %s",
+                      type(exc).__name__, exc)
 
     def handle_rpa(self, params: dict) -> None:
         """Render an RPA Bridge automation event card."""
@@ -304,8 +325,12 @@ class CompanionPanel(Static):
             sr_parts.append(f"{timeout_ms / 1000:.0f}s remaining")
         try:
             self.app.notify(" ".join(sr_parts), timeout=3)
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-53 Scope A.P2: same as handle_gui's screen-reader
+            # notify swallow. Debug-log so an inactive app context
+            # is diagnosable.
+            log.debug("tui.companion.notify(rpa) dropped: %s: %s",
+                      type(exc).__name__, exc)
 
     def clear(self) -> None:
         """Reset for a new turn."""

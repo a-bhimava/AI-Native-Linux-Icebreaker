@@ -1,0 +1,74 @@
+#!/bin/bash
+# ib-setup-key — configure an API key for a Quarantined Brain provider.
+#
+# Usage:
+#   ib-setup-key                                  # interactive; sets GEMINI_API_KEY
+#   ib-setup-key --env-var ANTHROPIC_API_KEY      # interactive; sets a specific var
+#   ib-setup-key --env-var OPENAI_API_KEY <<<key  # non-interactive (stdin)
+#
+# Writes VAR=VALUE into /etc/icebreaker/locations.env (0640
+# root:icebreaker-users, BP-8: value never echoed, never logged) and
+# restarts the controller. When invoked from the GUI via pkexec, stdin is
+# a single line — no prompt is drawn.
+
+set -euo pipefail
+
+[ "$(id -u)" = "0" ] || exec sudo "$0" "$@"
+
+ENV_FILE=/etc/icebreaker/locations.env
+ENV_VAR="GEMINI_API_KEY"   # backwards-compat default
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --env-var) ENV_VAR="$2"; shift 2 ;;
+        -h|--help)
+            grep -E '^# ' "$0" | sed 's/^# //'
+            exit 0
+            ;;
+        *) echo "unknown arg: $1" >&2; exit 2 ;;
+    esac
+done
+
+# Whitelist of accepted variable names — protects against a malicious
+# --env-var landing in the env file with a shell-metachar value.
+case "$ENV_VAR" in
+    GEMINI_API_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY) ;;
+    *) echo "Unsupported env var: $ENV_VAR" >&2
+       echo "Supported: GEMINI_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY" >&2
+       exit 2 ;;
+esac
+
+if [ -t 0 ]; then
+    read -rsp "Paste your ${ENV_VAR%_API_KEY} API key (input hidden): " KEY
+    echo
+else
+    # Non-interactive (stdin) — read one line.
+    IFS= read -r KEY
+fi
+
+[ -n "$KEY" ] || { echo "No key entered — nothing changed." >&2; exit 1; }
+case "$KEY" in
+    *[[:space:]]*) echo "Key contains whitespace — aborting." >&2; exit 1 ;;
+esac
+
+touch "$ENV_FILE"
+grep -v "^${ENV_VAR}=" "$ENV_FILE" > "${ENV_FILE}.tmp" || true
+printf '%s=%s\n' "$ENV_VAR" "$KEY" >> "${ENV_FILE}.tmp"
+mv "${ENV_FILE}.tmp" "$ENV_FILE"
+chown root:icebreaker-users "$ENV_FILE"
+chmod 640 "$ENV_FILE"
+
+echo "Key installed. Restarting controller..."
+systemctl restart icebreaker-controller
+
+for _ in $(seq 1 45); do
+    systemctl is-active --quiet icebreaker-controller && break
+    sleep 1
+done
+if systemctl is-active --quiet icebreaker-controller; then
+    echo "Controller running with the new key."
+    echo "Try: # list files in my home directory"
+else
+    echo "WARN: controller not active yet — check: systemctl status icebreaker-controller" >&2
+    exit 1
+fi

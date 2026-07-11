@@ -9,12 +9,97 @@ INV-2-extended: add_tool_result_summary() is the ONLY path for mcpd output into
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
 from .undo import UndoEntry, UndoHistory
+
+
+# ── V6B Stage 2: ShellContext ─────────────────────────────────────────────
+# The Terminal collects the user's shell state each turn (cwd, recent
+# commands, current window title) and passes it in the run_turn RPC.
+# The Controller renders it as an XML-tagged preamble in front of the
+# user's query so QB can resolve ambiguous references like "here", "this
+# folder", "the file I was editing" — see prompts/qb_*.txt Context Usage.
+# INV-2 stance: fields ARE user data but validated & sanitized here before
+# reaching QB — controls stripped, length capped, no unclosed XML tags.
+
+_CONTEXT_STRIP = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_MAX_CONTEXT_LEN = 512
+_MAX_RECENT = 5
+
+
+def _clean(s: str, limit: int = _MAX_CONTEXT_LEN) -> str:
+    """Strip control chars, neutralize XML delimiters, cap length."""
+    if not isinstance(s, str):
+        return ""
+    out = _CONTEXT_STRIP.sub("", s)
+    # Prevent the model from seeing a closing </context> inside a value
+    # that would let a malicious cwd escape the block. Escape < and >.
+    out = out.replace("<", "&lt;").replace(">", "&gt;")
+    if len(out) > limit:
+        out = out[:limit] + "…"
+    return out
+
+
+@dataclass
+class ShellContext:
+    """Environmental context captured by the Terminal on each turn.
+
+    Populated by the Terminal on every run_turn RPC. Rendered by the
+    Controller into a <context> preamble before the user's <query>.
+    See prompts/qb_*.txt for how QB is instructed to use it.
+    """
+    cwd: str = ""
+    recent_commands: list = field(default_factory=list)
+    user: str = ""
+    active_window: str = ""
+    hostname: str = ""
+
+    def render(self) -> str:
+        """Return the XML preamble string. Empty when no fields are populated."""
+        parts = ["<context>"]
+        any_field = False
+        if self.cwd:
+            parts.append(f"cwd: {_clean(self.cwd)}")
+            any_field = True
+        if self.user:
+            parts.append(f"user: {_clean(self.user, 64)}")
+            any_field = True
+        if self.hostname:
+            parts.append(f"hostname: {_clean(self.hostname, 64)}")
+            any_field = True
+        if self.recent_commands:
+            cmds = [c for c in self.recent_commands if isinstance(c, str) and c.strip()]
+            if cmds:
+                parts.append("recent_commands:")
+                for c in cmds[-_MAX_RECENT:]:
+                    parts.append(f"  - {_clean(c)}")
+                any_field = True
+        if self.active_window:
+            parts.append(f"active_window: {_clean(self.active_window)}")
+            any_field = True
+        parts.append("</context>")
+        return "\n".join(parts) if any_field else ""
+
+    @classmethod
+    def from_params(cls, params: Optional[dict]) -> "ShellContext":
+        """Build from a JSON-RPC context dict. Returns empty context on None."""
+        if not isinstance(params, dict):
+            return cls()
+        rc = params.get("recent_commands", [])
+        if not isinstance(rc, list):
+            rc = []
+        return cls(
+            cwd=str(params.get("cwd", "") or ""),
+            recent_commands=[str(x) for x in rc[-_MAX_RECENT:] if x],
+            user=str(params.get("user", "") or ""),
+            active_window=str(params.get("active_window", "") or ""),
+            hostname=str(params.get("hostname", "") or ""),
+        )
 
 
 @dataclass
@@ -28,6 +113,10 @@ class SessionState:
     _accumulated_cost_usd: float = field(init=False, default=0.0, repr=False)
     _turn_timestamps: list = field(init=False, default_factory=list, repr=False)
     _undo_history: UndoHistory = field(init=False, default_factory=UndoHistory, repr=False)
+    # V6B Stage 2: latest shell context from the current turn's RPC.
+    # Set by daemon._handle_turn_run before entering run_turn_streaming;
+    # consumed at the QB call site in main.py to build the <context> preamble.
+    shell_context: ShellContext = field(init=False, default_factory=lambda: ShellContext(), repr=False)
 
     def __post_init__(self) -> None:
         self._last_activity = time.monotonic()
@@ -66,12 +155,45 @@ class SessionState:
     def get_qb_history(self) -> list:
         return [dict(msg) for msg in self._qb_messages]
 
-    def build_pb_user_turn(self, intent_id: str, allowed_tool: str, tool_schema: dict) -> str:
-        """INV-2: PB receives ONLY intent_id + tool scaffold. Never raw user text."""
-        return json.dumps(
-            {"intent_id": intent_id, "allowed_tool": allowed_tool, "tool_schema": tool_schema},
-            separators=(",", ":"),
-        )
+    def build_pb_user_turn(
+        self,
+        intent_id: str,
+        allowed_tool: str,
+        tool_schema: dict,
+        target: str = "",
+        content: str = "",
+        pb_hint: str = "",
+    ) -> str:
+        """F-27: PB receives intent_id + tool scaffold + the VALIDATED target
+        from the intent. Never raw user text. Per INV-1, the schema-validated
+        Intent Object (which includes target) flows to PB; only free-form user
+        text is forbidden. Without target PB has to invent params from nothing
+        and consistently hallucinates /tmp regardless of what the user asked.
+
+        F-41 QB→PB rich envelope: when QB has extracted the file bytes the user
+        wants written (fs.write of a new textual/data file) it stores them in
+        ``intent.content``. Pass that through to PB as ``expected_content`` so
+        PB can copy it verbatim into ``params.content`` — previously PB had to
+        invent CSV/JSON sample data because the user's request never reached it,
+        yielding the well-known "column of ones → name,age,…" bug.
+
+        F-41 pb_hint: short natural-language coaching from QB naming the exact
+        schema field that carries the semantic payload and any format constraints
+        (e.g. "put the content in params.content unchanged"). Both fields are
+        optional; legacy intents that carry neither work exactly as before.
+        """
+        payload = {
+            "intent_id": intent_id,
+            "allowed_tool": allowed_tool,
+            "tool_schema": tool_schema,
+        }
+        if target:
+            payload["target"] = target
+        if content:
+            payload["expected_content"] = content
+        if pb_hint:
+            payload["pb_hint"] = pb_hint
+        return json.dumps(payload, separators=(",", ":"))
 
     def add_cost(self, usd: float) -> None:
         self._accumulated_cost_usd += usd

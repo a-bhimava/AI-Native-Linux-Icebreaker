@@ -36,7 +36,7 @@ BUILD_LOG="/tmp/icebreaker-build.log"
 BUILD_ARGS=""
 for arg in "$@"; do
     case "$arg" in
-        --no-models|--skip-to=*|--force)
+        --no-models|--skip-to=*|--force|--profile=*)
             BUILD_ARGS="${BUILD_ARGS} ${arg}"
             ;;
         --help|-h)
@@ -180,7 +180,7 @@ ${SSH_CMD} --command="
         RUSTUP_HOME=/home/aditya/.rustup \
         CARGO_HOME=/home/aditya/.cargo \
         PATH=/home/aditya/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-        bash build.sh ${BUILD_ARGS} \
+        bash build_v2.sh ${BUILD_ARGS} \
         > ${BUILD_LOG} 2>&1 &
     echo \"Build started (PID: \$!)\"
     echo \"Log: ${BUILD_LOG}\"

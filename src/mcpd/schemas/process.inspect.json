@@ -11,6 +11,14 @@
       "description": "Process ID to inspect (Linux PID_MAX_LIMIT = 4194304)."
     }
   },
-  "required": ["pid"],
-  "additionalProperties": false
+  "required": [
+    "pid"
+  ],
+  "additionalProperties": false,
+  "x-icebreaker-trust": {
+    "tier": 0,
+    "reversible": true,
+    "requires_hitl": false,
+    "requires_cow": false
+  }
 }

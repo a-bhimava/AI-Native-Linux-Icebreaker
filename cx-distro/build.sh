@@ -245,7 +245,18 @@ if [ "$SKIP_TO" -le 3 ]; then
     python3 -m venv --system-site-packages "${VENV_DIR}"
 
     info "Installing icebreaker-controller..."
-    "${VENV_DIR}/bin/pip" install --no-cache-dir "${REPO_ROOT}/dual-brain/" 2>&1 | tail -5
+    "${VENV_DIR}/bin/pip" install --no-cache-dir "${REPO_ROOT}/dual-brain/[gui,rpa]" 2>&1 | tail -5
+
+    # pip doesn't ship data files — copy them into the installed package.
+    CONTROLLER_PKG=$(find "${VENV_DIR}" -path '*/site-packages/controller/model_registry.py' \
+        -exec dirname {} \; | head -1)
+    if [ -n "$CONTROLLER_PKG" ]; then
+        cp "${REPO_ROOT}/dual-brain/controller/catalogue.toml" "${CONTROLLER_PKG}/catalogue.toml"
+        cp -a "${REPO_ROOT}/dual-brain/controller/schemas"  "${CONTROLLER_PKG}/schemas"
+        cp -a "${REPO_ROOT}/dual-brain/controller/prompts"  "${CONTROLLER_PKG}/prompts"
+        cp -a "${REPO_ROOT}/dual-brain/controller/grammars" "${CONTROLLER_PKG}/grammars"
+        info "Data files copied into venv package"
+    fi
 
     # Verify entry point.
     "${VENV_DIR}/bin/python3" -m controller --help >/dev/null 2>&1 || \
@@ -267,6 +278,8 @@ if [ "$SKIP_TO" -le 4 ]; then
         "${CHROOT}/etc/icebreaker/controller.toml"
     install -Dm644 "${SCRIPT_DIR}/distro/locations.env" \
         "${CHROOT}/etc/icebreaker/locations.env"
+    install -Dm644 "${SCRIPT_DIR}/distro/10-icebreaker.rules" \
+        "${CHROOT}/etc/polkit-1/rules.d/10-icebreaker.rules"
 
     # ── /etc/systemd/system/ ────────────────────────────────────────────
     for unit in "${REPO_ROOT}"/dual-brain/controller/systemd/*.service \
@@ -284,6 +297,13 @@ if [ "$SKIP_TO" -le 4 ]; then
     # ── /usr/bin/ ───────────────────────────────────────────────────────
     install -Dm755 "${SCRIPT_DIR}/distro/icebreaker-cli" \
         "${CHROOT}/usr/bin/icebreaker"
+    install -Dm755 "${SCRIPT_DIR}/distro/mount-mac-share" \
+        "${CHROOT}/usr/bin/mount-mac-share"
+    # ib_debug.py — Icebreaker System Diagnostic Monitor
+    install -Dm755 "${REPO_ROOT}/dual-brain/scripts/ib_debug.py" \
+        "${CHROOT}/usr/bin/ib_debug.py"
+    # convenience symlink: 'ib-debug snapshot' instead of 'python3 /usr/bin/ib_debug.py snapshot'
+    ln -sf /usr/bin/ib_debug.py "${CHROOT}/usr/bin/ib-debug" 2>/dev/null || true
 
     # ── /usr/libexec/icebreaker/ ────────────────────────────────────────
     install -Dm755 "${BUILD_DIR}/mcpd" \
@@ -321,6 +341,16 @@ if [ "$SKIP_TO" -le 4 ]; then
         install -Dm644 "$prompt" \
             "${CHROOT}/usr/share/icebreaker/prompts/$(basename "$prompt")"
     done
+
+    # Shell # trigger — installed for all users via /etc/skel.
+    install -Dm755 "${REPO_ROOT}/shell/ib_trigger.bash" \
+        "${CHROOT}/usr/share/icebreaker/shell/ib_trigger.bash"
+    mkdir -p "${CHROOT}/etc/skel"
+    {
+        echo ""
+        echo "# Icebreaker # trigger — type \"# <intent>\" to run AI commands"
+        echo "source /usr/share/icebreaker/shell/ib_trigger.bash"
+    } >> "${CHROOT}/etc/skel/.bashrc"
 
     # ── /opt/icebreaker/venv/ ───────────────────────────────────────────
     mkdir -p "${CHROOT}/opt/icebreaker"
@@ -366,6 +396,12 @@ if [ "$SKIP_TO" -le 4 ]; then
     if [ -f "${SCRIPT_DIR}/distro/icebreaker-chatbot-autostart.desktop" ]; then
         install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-chatbot-autostart.desktop" \
             "${CHROOT}/etc/xdg/autostart/icebreaker-chatbot.desktop"
+    fi
+
+    # ── Terminal autostart ─────────────────────────────────────────────
+    if [ -f "${SCRIPT_DIR}/distro/icebreaker-terminal-autostart.desktop" ]; then
+        install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-terminal-autostart.desktop" \
+            "${CHROOT}/etc/xdg/autostart/icebreaker-terminal.desktop"
     fi
 
     # ── Build manifest ──────────────────────────────────────────────────
@@ -416,7 +452,7 @@ SOURCES
 
     # ── Profile-specific desktop/DM setup ─────────────────────────────
     if [ "$PROFILE" = "desktop" ]; then
-        _DESKTOP_PKGS="ubuntu-desktop-minimal gdm3 gnome-terminal gnome-text-editor nautilus"
+        _DESKTOP_PKGS="ubuntu-desktop ubuntu-standard libreoffice vlc gimp thunderbird gdm3 gnome-terminal gnome-text-editor nautilus"
     else
         _DESKTOP_PKGS="xfce4 xfce4-terminal lightdm lightdm-gtk-greeter thunar mousepad zenity"
     fi
@@ -425,40 +461,165 @@ SOURCES
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq
 
-        # Core system packages.
-        apt-get install -y --no-install-recommends \
+        # Core system packages — NO --no-install-recommends so all recommended
+        # deps are pulled in. This is a testing build; we want everything.
+        apt-get install -y \
             linux-generic \
             live-boot \
             systemd-sysv \
-            sudo bash coreutils python3 python3-venv python3-pip \
-            curl ca-certificates \
-            net-tools iproute2 iputils-ping \
-            openssh-client less vim-tiny locales \
-            dbus-x11
+            sudo bash coreutils python3 python3-venv python3-pip python3-full \
+            curl wget ca-certificates \
+            net-tools iproute2 iputils-ping iputils-tracepath \
+            openssh-client openssh-server \
+            less vim nano gedit \
+            locales man-db manpages \
+            dbus-x11 dbus-broker \
+            bash-completion
 
-        # Desktop environment (profile-selected).
-        apt-get install -y --no-install-recommends ${_DESKTOP_PKGS}
+        # X server — full install, not minimal
+        apt-get install -y \
+            xserver-xorg \
+            xserver-xorg-core \
+            xserver-xorg-video-all \
+            xinit \
+            x11-xserver-utils \
+            x11-utils \
+            x11-apps \
+            spice-vdagent \
+            qemu-guest-agent
 
-        # GTK4 + LibAdwaita for the Icebreaker GUI apps.
-        apt-get install -y --no-install-recommends \
+        # Network management — full stack
+        apt-get install -y \
+            network-manager \
+            network-manager-gnome \
+            isc-dhcp-client \
+            wireless-tools \
+            wpasupplicant \
+            nmap \
+            netcat-openbsd \
+            tcpdump \
+            traceroute \
+            dnsutils \
+            whois
+
+        # Desktop environment (profile-selected) — full with recommends
+        apt-get install -y ${_DESKTOP_PKGS}
+
+        # GTK4 + LibAdwaita + accessibility stack
+        apt-get install -y \
             python3-gi \
             gir1.2-gtk-4.0 \
             gir1.2-adw-1 \
             libadwaita-1-0 \
-            adwaita-icon-theme
+            adwaita-icon-theme \
+            at-spi2-core \
+            libatk-bridge2.0-0 \
+            libglib2.0-bin \
+            dconf-cli \
+            dconf-gsettings-backend
+
+        # Fonts — needed for GTK4/GNOME rendering
+        apt-get install -y \
+            fonts-dejavu \
+            fonts-dejavu-core \
+            fonts-dejavu-extra \
+            fonts-liberation \
+            fonts-noto-core \
+            fonts-ubuntu \
+            fontconfig
+
+        # Mesa / GPU for GNOME rendering and compositing in QEMU/UTM
+        # Note: libgl1-mesa-glx and libgles2-mesa were renamed in Ubuntu Noble
+        apt-get install -y \
+            mesa-vulkan-drivers \
+            mesa-utils \
+            libgl1-mesa-dri \
+            libglx-mesa0 \
+            libgles2
+
+        # System debugging and testing tools (the 'bloat' that is actually useful)
+        apt-get install -y \
+            htop \
+            btop \
+            iotop \
+            strace \
+            ltrace \
+            lsof \
+            tree \
+            jq \
+            file \
+            xxd \
+            hexdump \
+            pv \
+            rsync \
+            git \
+            unzip \
+            zip \
+            tar \
+            gzip \
+            bzip2 \
+            xz-utils \
+            socat \
+            screen \
+            tmux \
+            inxi \
+            dmidecode \
+            usbutils \
+            pciutils \
+            lshw \
+            sysstat \
+            acpi \
+            bsdextrautils
+
+        # Python tooling for running ib_debug.py and other scripts
+        apt-get install -y \
+            python3-rich \
+            python3-requests \
+            python3-toml \
+            python3-psutil \
+            python3-dbus \
+            python3-gi-cairo \
+            python3-seccomp
+
+        # Polkit for D-Bus auth
+        apt-get install -y \
+            policykit-1 \
+            polkitd
+
+        # Log viewing
+        apt-get install -y \
+            lnav \
+            multitail
 
         locale-gen en_US.UTF-8
+
+        # Virtio kernel modules for QEMU/UTM emulated NICs and disk.
+        cat >> /etc/initramfs-tools/modules << 'VIRTIO'
+virtio
+virtio_pci
+virtio_net
+virtio_blk
+virtio_scsi
+9p
+9pnet_virtio
+e1000
+e1000e
+VIRTIO
+        update-initramfs -u -k all 2>&1 | tail -3
     "
 
     # ── Display manager enablement + auto-login ────────────────────────
     if [ "$PROFILE" = "desktop" ]; then
         chroot "${ISO_CHROOT}" bash -c "systemctl enable gdm || true"
+        chroot "${ISO_CHROOT}" bash -c "systemctl enable NetworkManager || true"
 
         chroot "${ISO_CHROOT}" bash -c "
             groupadd -rf icebreaker-users
             useradd -m -s /bin/bash -G sudo,icebreaker-users icebreaker
             echo 'icebreaker:icebreaker' | chpasswd
             echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
+            # sudo refuses any sudoers file that is not mode 440 (world-readable = broken sudo).
+            chmod 440 /etc/sudoers.d/icebreaker
             mkdir -p /etc/gdm3
             cat > /etc/gdm3/custom.conf <<'GDMCFG'
 [daemon]
@@ -473,6 +634,7 @@ GDMCFG
         "
     else
         chroot "${ISO_CHROOT}" bash -c "systemctl enable lightdm || true"
+        chroot "${ISO_CHROOT}" bash -c "systemctl enable NetworkManager || true"
 
         chroot "${ISO_CHROOT}" bash -c "
             groupadd -rf autologin
@@ -480,6 +642,8 @@ GDMCFG
             useradd -m -s /bin/bash -G sudo,autologin,icebreaker-users icebreaker
             echo 'icebreaker:icebreaker' | chpasswd
             echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
+            # sudo refuses any sudoers file that is not mode 440 (world-readable = broken sudo).
+            chmod 440 /etc/sudoers.d/icebreaker
             mkdir -p /etc/lightdm/lightdm.conf.d
             cat > /etc/lightdm/lightdm.conf.d/50-autologin.conf <<'LDMCFG'
 [Seat:*]
@@ -499,6 +663,17 @@ LDMCFG
     [ -d "${CHROOT}" ] || die "includes.chroot not found — run Stage 4 first"
     cp -a "${CHROOT}"/* "${ISO_CHROOT}/"
 
+    # Wire # trigger into the primary user's .bashrc.
+    # Must happen AFTER cp-a and AFTER useradd (which creates ~/.bashrc from skel).
+    if [ -f "${ISO_CHROOT}/home/icebreaker/.bashrc" ]; then
+        {
+            echo ""
+            echo "# Icebreaker # trigger — type \"# <intent>\" to run AI commands"
+            echo "source /usr/share/icebreaker/shell/ib_trigger.bash"
+        } >> "${ISO_CHROOT}/home/icebreaker/.bashrc"
+        info "Wired # trigger into /home/icebreaker/.bashrc"
+    fi
+
     # ── 5c2: Compile GSettings schemas (wallpaper override) ─────────────
     if [ -f "${ISO_CHROOT}/usr/share/glib-2.0/schemas/99_icebreaker.gschema.override" ]; then
         chroot "${ISO_CHROOT}" glib-compile-schemas /usr/share/glib-2.0/schemas/ 2>/dev/null || true
@@ -509,13 +684,15 @@ LDMCFG
     info "Enabling Icebreaker systemd services..."
     mkdir -p "${ISO_CHROOT}/etc/systemd/system/multi-user.target.wants"
     mkdir -p "${ISO_CHROOT}/etc/systemd/system/sockets.target.wants"
+    # Enable Icebreaker systemd services (excluding icebreaker-qbd.service per selection constraint)
     for svc in icebreaker-first-boot.service icebreaker-pbd.service \
-               icebreaker-qbd.service icebreaker-controller.service; do
+               icebreaker-controller.service; do
         ln -sf "/etc/systemd/system/${svc}" \
             "${ISO_CHROOT}/etc/systemd/system/multi-user.target.wants/${svc}"
     done
-    ln -sf /etc/systemd/system/icebreaker-controller.socket \
-        "${ISO_CHROOT}/etc/systemd/system/sockets.target.wants/icebreaker-controller.socket"
+    # Systemd socket activation is disabled to prevent socket binding conflicts with the python controller daemon.
+    # ln -sf /etc/systemd/system/icebreaker-controller.socket \
+    #     "${ISO_CHROOT}/etc/systemd/system/sockets.target.wants/icebreaker-controller.socket"
 
     # ── 5d: Extract kernel + initrd ────────────────────────────────────
     info "Extracting kernel and initrd..."
@@ -536,7 +713,7 @@ LDMCFG
 
     info "Creating squashfs (this takes several minutes)..."
     mksquashfs "${ISO_CHROOT}" "${ISO_STAGING}/live/filesystem.squashfs" \
-        -comp xz -Xbcj x86 -b 1M -no-duplicates \
+        -noI -noD -noF -noX -b 1M -no-duplicates \
         -e boot/vmlinuz-\* boot/initrd.img-\* \
         2>&1 | tail -5
     info "Squashfs: $(du -h "${ISO_STAGING}/live/filesystem.squashfs" | awk '{print $1}')"
@@ -651,6 +828,7 @@ GRUBCFG
     # ── 5g: Assemble ISO with xorriso ──────────────────────────────────
     info "Creating ISO image..."
     xorriso -as mkisofs \
+        -iso-level 3 \
         -isohybrid-mbr "$ISOHDPFX" \
         -c isolinux/boot.cat \
         -b isolinux/isolinux.bin \
@@ -673,5 +851,11 @@ GRUBCFG
 
     info "ISO built: ${ISO_FILE} (${ISO_SIZE})"
     info "SHA-256: ${ISO_HASH}"
+    
+    # Move the final ISO to the mandatory destination path
+    ISO_DEST="/Users/aditya/Documents/Icebreaker/ISO/icebreaker_full_ubuntu.iso"
+    mkdir -p "$(dirname "$ISO_DEST")"
+    mv "$ISO_FILE" "$ISO_DEST"
+    info "Final ISO moved to ${ISO_DEST}"
     info "Build complete."
 fi

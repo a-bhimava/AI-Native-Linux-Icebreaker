@@ -282,7 +282,12 @@ class GuiAgent:
                 resp = make_error(str(req_id), INVALID_PARAMS, str(exc))
             except _MethodNotFound as exc:
                 resp = make_error(str(req_id), METHOD_NOT_FOUND, str(exc))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
+                # F-53 Scope A.P3: JSON-RPC top-level dispatch —
+                # every unhandled error becomes an INTERNAL_ERROR
+                # response carrying `str(exc)` back to the caller.
+                # The Controller's daemon logs the resulting error
+                # reply; nothing is truly swallowed.
                 resp = make_error(str(req_id), INTERNAL_ERROR, str(exc))
 
             sys.stdout.write(resp.to_bytes().decode("utf-8"))

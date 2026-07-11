@@ -4,5 +4,11 @@
   "description": "Parse /etc/resolv.conf and return nameservers, search domains, and default domain. Read-only Tier 0.",
   "type": "object",
   "properties": {},
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x-icebreaker-trust": {
+    "tier": 0,
+    "reversible": true,
+    "requires_hitl": false,
+    "requires_cow": false
+  }
 }

@@ -57,6 +57,14 @@ llama-quantize \
 
 SIZE=$(du -sh conversion/models/privileged-brain-q4_k_m.gguf | cut -f1)
 echo "  Quantized model: conversion/models/privileged-brain-q4_k_m.gguf ($SIZE)"
+
+# INV-7: Record SHA-256 of quantized model
+CKSUM_FILE="$(cd "$SCRIPT_DIR/.." && pwd)/models/checksums.sha256"
+if [ -d "$(dirname "$CKSUM_FILE")" ]; then
+  echo "Recording model checksum (INV-7)..."
+  sha256sum conversion/models/privileged-brain-q4_k_m.gguf >> "$CKSUM_FILE" 2>/dev/null || true
+  echo "  Checksum appended to $CKSUM_FILE"
+fi
 echo ""
 
 # --- Step 5: Import into Ollama ---
@@ -67,13 +75,17 @@ GGUF_ABS="$(pwd)/conversion/models/privileged-brain-q4_k_m.gguf"
 cat > conversion/Modelfile <<MODELFILE_EOF
 FROM $GGUF_ABS
 
-SYSTEM """You are the Privileged Brain — a system execution engine for an AI-native OS. You receive natural language descriptions of system administration tasks and output ONLY the corresponding Bash command or shell pipeline.
+SYSTEM """You control a Linux system through MCP tool calls.
+You receive a JSON object with intent_id, allowed_tool, and tool_schema.
+Execute EXACTLY ONE tool call. Output ONLY the JSON call.
+
+Output format: {"tool":"<allowed_tool>","params":<params matching tool_schema>}
 
 Rules:
-1. Output ONLY the command — no explanations, no markdown, no code fences.
-2. Prefer minimal-scope, reversible commands.
-3. Never read or process external data (emails, documents, URLs).
-4. If a request is ambiguous or dangerous, output: REFUSE: <one-line reason>."""
+- Use only the allowed_tool specified in the input
+- params must match tool_schema exactly
+- No explanation. No reasoning. One JSON object only.
+- If input is malformed: output {"tool":"system.status","params":{}}"""
 
 PARAMETER temperature 0.1
 PARAMETER top_p 0.9

@@ -27,6 +27,8 @@ const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("system.cpu",     include_str!("../schemas/system.cpu.json")),
     ("system.memory",  include_str!("../schemas/system.memory.json")),
     ("system.disk",    include_str!("../schemas/system.disk.json")),
+    // F-35: catalogue landing pad for queries QB can't map. Never a lookalike.
+    ("system.unsupported", include_str!("../schemas/system.unsupported.json")),
     ("process.list",   include_str!("../schemas/process.list.json")),
     ("process.inspect", include_str!("../schemas/process.inspect.json")),
     ("fs.read",        include_str!("../schemas/fs.read.json")),
@@ -187,10 +189,12 @@ mod tests {
     }
 
     #[test]
-    fn registered_methods_includes_all_twenty_two() {
+    fn registered_methods_includes_all_twenty_three() {
+        // F-35: 22 real tools + system.unsupported (catalogue landing pad).
         let methods: Vec<&str> = registered_methods().collect();
-        assert_eq!(methods.len(), 22);
+        assert_eq!(methods.len(), 23);
         assert!(methods.contains(&"system.status"));
+        assert!(methods.contains(&"system.unsupported"));
         assert!(methods.contains(&"process.inspect"));
         assert!(methods.contains(&"fs.read"));
         assert!(methods.contains(&"fs.list"));

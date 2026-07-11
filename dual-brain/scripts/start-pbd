@@ -23,6 +23,8 @@ fi
 : "${ICEBREAKER_MODELS_DIR:=/var/lib/icebreaker/models}"
 : "${ICEBREAKER_SOCKET_DIR:=/run/icebreaker}"
 : "${ICEBREAKER_LLAMA_SERVER:=/usr/libexec/icebreaker/llama-server}"
+: "${ICEBREAKER_CHECKSUMS:=${ICEBREAKER_MODELS_DIR}/checksums.sha256}"
+export ICEBREAKER_CHECKSUMS
 
 SOCKET_PATH="${ICEBREAKER_SOCKET_DIR}/pbd.sock"
 
@@ -44,28 +46,12 @@ MODEL_FILE=$("${ICEBREAKER_VENV_PYTHON}" -m controller.model_registry \
     resolve --id "${PB_MODEL_ID}")
 echo "[start-pbd] resolved model: ${MODEL_FILE}"
 
-# ── Checksum verification (INV-7) ───────────────────────────────────────
-CHECKSUMS="${ICEBREAKER_MODELS_DIR}/checksums.sha256"
-if [ ! -f "${CHECKSUMS}" ]; then
-    echo "[start-pbd] FATAL: checksums file missing: ${CHECKSUMS}" >&2
-    exit 1
-fi
-
-if ! grep -qF "$(basename "${MODEL_FILE}")" "${CHECKSUMS}"; then
-    echo "[start-pbd] FATAL: model not in checksums file: $(basename "${MODEL_FILE}")" >&2
-    exit 1
-fi
-
-# Verify the specific model file.
-EXPECTED_HASH=$(grep -F "$(basename "${MODEL_FILE}")" "${CHECKSUMS}" | head -1 | awk '{print $1}')
-ACTUAL_HASH=$(sha256sum "${MODEL_FILE}" | awk '{print $1}')
-if [ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]; then
-    echo "[start-pbd] FATAL: checksum mismatch for ${MODEL_FILE}" >&2
-    echo "[start-pbd]   expected: ${EXPECTED_HASH}" >&2
-    echo "[start-pbd]   actual:   ${ACTUAL_HASH}" >&2
-    exit 1
-fi
-echo "[start-pbd] checksum verified: ${MODEL_FILE}"
+# ── Checksum already verified by model_registry resolve (INV-7, F-23) ──
+# `resolve --id ...` above only returns a path after computing sha256 and
+# comparing against models/checksums.sha256 (see model_registry.py:317-322).
+# Duplicating that here doubled a 940 MB sha256 hash on every start — under
+# emulation without SHA-NI that pushed start-pbd past the 900 s gate limit.
+echo "[start-pbd] checksum verified by model_registry (INV-7)"
 
 # ── Clean up stale socket ───────────────────────────────────────────────
 if [ -e "${SOCKET_PATH}" ]; then
