@@ -93,7 +93,33 @@ class IcebreakerApp(Adw.Application):
         # instead of the generic "Not connected".
         self._daemon_connect_error: str | None = None
         if self._sock_path:
-            self._client = GtkDaemonClient(self._sock_path)
+            # Phase 6 Scope B: load config to pass user-tuned client
+            # timeouts. If load fails, fall back to DaemonClient defaults.
+            _client_kwargs = {}
+            try:
+                from controller.config import load_layered
+                _cfg = load_layered()
+                _client_kwargs = {
+                    "turn_timeout_seconds": float(_cfg.run.turn_timeout_seconds),
+                    "reader_recv_timeout_seconds": float(
+                        _cfg.daemon.reader_recv_timeout_seconds
+                    ),
+                    "max_reconnect_delay_seconds": float(
+                        _cfg.daemon.max_reconnect_delay_seconds
+                    ),
+                }
+            except Exception as cfg_exc:  # noqa: BLE001
+                # Config-driven client timeouts are best-effort — the
+                # DaemonClient defaults preserve pre-Scope-B behavior if
+                # the layered config isn't loadable (e.g. running the GUI
+                # against a locally-built dev tree). Log so the
+                # discrepancy is diagnosable.
+                log.debug(
+                    "gui.app: falling back to DaemonClient default "
+                    "timeouts (config load failed: %s: %s)",
+                    type(cfg_exc).__name__, cfg_exc,
+                )
+            self._client = GtkDaemonClient(self._sock_path, **_client_kwargs)
             try:
                 self._client.connect()
             except Exception as exc:

@@ -97,7 +97,11 @@ class CatalogueError(ModelRegistryError):
 # ─── Constants ──────────────────────────────────────────────────────────────
 
 
-SUPPORTED_CATALOGUE_VERSIONS: tuple[str, ...] = ("1",)
+SUPPORTED_CATALOGUE_VERSIONS: tuple[str, ...] = ("1", "2")
+# Phase 6 Scope C: v2 adds [[preset]] tables for cloud QB backends.
+# The [[model]] parser (this module) ignores presets — they're consumed
+# by controller.preset_registry. Bumping the tuple lets a v2 catalogue
+# load without the model parser rejecting it.
 ALLOW_LIST_LICENSES: frozenset[str] = frozenset(
     {"Apache-2.0", "MIT", "BSD-3-Clause", "BSD-2-Clause"}
 )
@@ -442,15 +446,29 @@ class HardwareProbe:
     platform: str
 
 
-def probe_hardware() -> HardwareProbe:
-    """Cross-platform, best-effort hardware introspection."""
+# Phase 6 Scope B: default probe timeout for callers that don't pass one
+# through (unit tests, legacy call sites). Real users get the config
+# value via probe_hardware(probe_timeout_seconds=cfg.run.model_probe_timeout_seconds).
+_DEFAULT_PROBE_TIMEOUT_SECONDS = 5.0
+
+
+def probe_hardware(
+    *,
+    probe_timeout_seconds: float = _DEFAULT_PROBE_TIMEOUT_SECONDS,
+) -> HardwareProbe:
+    """Cross-platform, best-effort hardware introspection.
+
+    ``probe_timeout_seconds`` bounds each sysctl / nvidia-smi / rocm-smi
+    subprocess. Raised via ``cfg.run.model_probe_timeout_seconds`` (Phase
+    6 Scope B) when a caller has cfg in scope.
+    """
     # RAM
-    total_ram_mb = _probe_ram_mb()
+    total_ram_mb = _probe_ram_mb(probe_timeout_seconds)
     # Disk in $HOME
     home = Path.home()
     free_disk_mb = shutil.disk_usage(home).free // (1024 * 1024)
     # GPU
-    has_gpu, gpu_name = _probe_gpu()
+    has_gpu, gpu_name = _probe_gpu(probe_timeout_seconds)
     # CPU
     cpu_model = platform.processor() or platform.machine()
     cpu_cores = os.cpu_count() or 1
@@ -465,12 +483,15 @@ def probe_hardware() -> HardwareProbe:
     )
 
 
-def _probe_ram_mb() -> int:
+def _probe_ram_mb(
+    timeout_seconds: float = _DEFAULT_PROBE_TIMEOUT_SECONDS,
+) -> int:
     sysname = platform.system()
     if sysname == "Darwin":
         try:
             out = subprocess.check_output(
-                ["sysctl", "-n", "hw.memsize"], text=True, timeout=5
+                ["sysctl", "-n", "hw.memsize"], text=True,
+                timeout=timeout_seconds,
             )
             return int(out.strip()) // (1024 * 1024)
         except Exception as exc:
@@ -488,7 +509,9 @@ def _probe_ram_mb() -> int:
     return 8192
 
 
-def _probe_gpu() -> tuple[bool, str | None]:
+def _probe_gpu(
+    timeout_seconds: float = _DEFAULT_PROBE_TIMEOUT_SECONDS,
+) -> tuple[bool, str | None]:
     sysname = platform.system()
     if sysname == "Darwin":
         # Apple Silicon has unified memory; treat as GPU-equivalent for inference
@@ -496,7 +519,7 @@ def _probe_gpu() -> tuple[bool, str | None]:
             out = subprocess.check_output(
                 ["sysctl", "-n", "machdep.cpu.brand_string"],
                 text=True,
-                timeout=5,
+                timeout=timeout_seconds,
             )
             if "Apple" in out:
                 return True, out.strip()
@@ -509,7 +532,7 @@ def _probe_gpu() -> tuple[bool, str | None]:
             out = subprocess.check_output(
                 ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
                 text=True,
-                timeout=5,
+                timeout=timeout_seconds,
                 stderr=subprocess.DEVNULL,
             )
             name = out.strip().splitlines()[0] if out.strip() else None
@@ -522,7 +545,7 @@ def _probe_gpu() -> tuple[bool, str | None]:
             out = subprocess.check_output(
                 ["rocm-smi", "--showproductname"],
                 text=True,
-                timeout=5,
+                timeout=timeout_seconds,
                 stderr=subprocess.DEVNULL,
             )
             if "GPU" in out:

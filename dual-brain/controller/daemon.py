@@ -344,9 +344,11 @@ class Daemon:
         # V6B Stage 2: optional context from the Terminal (cwd, recent
         # commands, active_window). Sanitized in ShellContext.from_params;
         # rendered into the QB preamble at the call site in main.py.
+        # Phase 6 Scope B: max_recent slice is driven by config.
         from .session import ShellContext
         session.session_state.shell_context = ShellContext.from_params(
-            params.get("context")
+            params.get("context"),
+            max_recent=int(self._controller._cfg.session.max_recent_commands),
         )
 
         if not session._turn_lock.acquire(blocking=False):

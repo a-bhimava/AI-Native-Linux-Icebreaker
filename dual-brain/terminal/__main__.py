@@ -25,6 +25,7 @@ def main() -> None:
     daemon_client = None
     startup_warning = None
     sock_path = args.sock
+    cfg = None
 
     if not sock_path and args.config:
         from controller.config import load
@@ -39,8 +40,19 @@ def main() -> None:
         from .daemon_client import TextualDaemonClient
         deadline = time.monotonic() + max(args.connect_timeout, 0.0)
         last_err = None
+        # Phase 6 Scope B: forward user-configured timeouts to the client
+        # when we have a loaded cfg. Bare `--sock` uses DaemonClient
+        # defaults (600s / 1.0s / 30.0s) which match the pre-B behavior.
+        if cfg is not None:
+            _client_kwargs = {
+                "turn_timeout_seconds": float(cfg.run.turn_timeout_seconds),
+                "reader_recv_timeout_seconds": float(cfg.daemon.reader_recv_timeout_seconds),
+                "max_reconnect_delay_seconds": float(cfg.daemon.max_reconnect_delay_seconds),
+            }
+        else:
+            _client_kwargs = {}
         while True:
-            client = TextualDaemonClient(sock_path)
+            client = TextualDaemonClient(sock_path, **_client_kwargs)
             try:
                 client.connect()
                 daemon_client = client

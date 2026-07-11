@@ -1,0 +1,187 @@
+# Phase 6 Scope B allowlist for `no_new_knobs.py`.
+#
+# Every entry MUST carry a `reason = "..."` field. New entries added
+# without a justification are a review signal — "should this be a
+# user-tunable config field instead of a hardcoded constant?"
+#
+# When the review answer is YES (the constant governs user-observable
+# behavior), migrate it to controller_config.json and delete the entry
+# here rather than allowlisting.
+#
+# Baseline captured 2026-07-10 against the tree post-Scope A + Scope B
+# Step 1-3. Do NOT add new entries without a justification — the
+# no_new_knobs.py CI gate (G23) enforces this.
+
+# ── Safety-critical constants that must not be user-tunable ────────────
+
+[[knob]]
+file   = "controller/intent_schema.py"
+name   = "_RECEIVED_MAX_LEN"
+reason = "Intent JSON size cap. Widening this expands INV-1 blast radius on prompt injection; must not be user-tunable."
+
+[[knob]]
+file   = "controller/main.py"
+name   = "_MAX_MODIFY_CYCLES"
+reason = "Cap on HITL Modify loops before forcing DENY. Governance / safety limit — user override would enable runaway prompt loops."
+
+[[knob]]
+file   = "gui_agent/atspi.py"
+name   = "_MIN_ELEMENT_SIZE"
+reason = "Refuse AT-SPI clicks on elements below 10x10 px. Safety guard against invisible / decoy widgets."
+
+[[knob]]
+file   = "gui_agent/sandbox.py"
+name   = "_SYS_landlock_create_ruleset"
+reason = "Linux syscall number for landlock_create_ruleset (444). Kernel ABI constant — not a knob."
+
+[[knob]]
+file   = "gui_agent/sandbox.py"
+name   = "_SYS_landlock_add_rule"
+reason = "Linux syscall number for landlock_add_rule (445). Kernel ABI constant — not a knob."
+
+[[knob]]
+file   = "gui_agent/sandbox.py"
+name   = "_SYS_landlock_restrict_self"
+reason = "Linux syscall number for landlock_restrict_self (446). Kernel ABI constant — not a knob."
+
+[[knob]]
+file   = "gui_agent/sandbox.py"
+name   = "_LANDLOCK_RULE_PATH_BENEATH"
+reason = "Landlock rule type discriminant (1). Kernel ABI constant — not a knob."
+
+[[knob]]
+file   = "rpa_bridge/sandbox.py"
+name   = "_SYS_landlock_create_ruleset"
+reason = "Linux syscall number for landlock_create_ruleset (444). Kernel ABI constant — not a knob."
+
+[[knob]]
+file   = "rpa_bridge/sandbox.py"
+name   = "_SYS_landlock_add_rule"
+reason = "Linux syscall number for landlock_add_rule (445). Kernel ABI constant — not a knob."
+
+[[knob]]
+file   = "rpa_bridge/sandbox.py"
+name   = "_SYS_landlock_restrict_self"
+reason = "Linux syscall number for landlock_restrict_self (446). Kernel ABI constant — not a knob."
+
+[[knob]]
+file   = "rpa_bridge/sandbox.py"
+name   = "_LANDLOCK_RULE_PATH_BENEATH"
+reason = "Landlock rule type discriminant (1). Kernel ABI constant — not a knob."
+
+[[knob]]
+file   = "rpa_bridge/workflow_gen.py"
+name   = "MAX_KEYWORDS"
+reason = "Cap on Robot Framework keywords per generated workflow. Safety limit — user override enables runaway automation loops."
+
+[[knob]]
+file   = "rpa_bridge/workflow_gen.py"
+name   = "MAX_SLEEP_SECONDS"
+reason = "Cap on `Sleep` keyword arg. Safety limit — prevents pinned wait patterns from becoming DoS."
+
+# ── Scope B fallbacks / defaults for config-driven paths ───────────────
+
+[[knob]]
+file   = "controller/session.py"
+name   = "_MAX_CONTEXT_LEN"
+reason = "Default fallback for cfg.session.max_shell_context_chars. Preserves pre-Scope-B behavior when no cfg is passed (unit tests)."
+
+[[knob]]
+file   = "controller/session.py"
+name   = "_MAX_RECENT"
+reason = "Default fallback for cfg.session.max_recent_commands. Preserves pre-Scope-B behavior when no cfg is passed (unit tests)."
+
+[[knob]]
+file   = "controller/model_registry.py"
+name   = "_DEFAULT_PROBE_TIMEOUT_SECONDS"
+reason = "Default fallback for cfg.run.model_probe_timeout_seconds when probe_hardware() is called without cfg in scope."
+
+# ── Framing / internal transport sizes ─────────────────────────────────
+
+[[knob]]
+file   = "controller/mcpd_client.py"
+name   = "DEFAULT_TIMEOUT_SECONDS"
+reason = "mcpd JSON-RPC default per-call timeout. Layered under cfg.run.mcpd_timeout_seconds; module default preserves back-compat for callers without cfg."
+
+[[knob]]
+file   = "controller/mcpd_client.py"
+name   = "_READ_CHUNK"
+reason = "Framing read chunk size (bytes). Internal transport tuning — no user-observable effect."
+
+[[knob]]
+file   = "controller/mcpd_client.py"
+name   = "_GRACEFUL_SHUTDOWN_SECONDS"
+reason = "Grace period for mcpd subprocess to exit before SIGKILL. Safety timer — not user-tunable."
+
+[[knob]]
+file   = "gui_agent/agent.py"
+name   = "_PER_HANDLER_TIMEOUT"
+reason = "Bound on a single JSON-RPC handler dispatch inside the GUI agent. Internal watchdog — not user-tunable."
+
+[[knob]]
+file   = "rpa_bridge/bridge.py"
+name   = "_DEFAULT_TIMEOUT"
+reason = "Fallback per-keyword timeout when the caller doesn't pass one. Layered under RpaConfig.timeout_seconds."
+
+# ── Storage / retention caps (safety, not UX) ──────────────────────────
+
+[[knob]]
+file   = "controller/intent_store.py"
+name   = "TTL_SECONDS"
+reason = "Opaque intent-ID TTL. Governs INV-1 opaque-reference lifetime; user tuning could leak raw text longer than expected. Safety — not a knob."
+
+[[knob]]
+file   = "gui_agent/screenshots.py"
+name   = "_MAX_RETAINED"
+reason = "Screenshot retention cap. Raise = disk pressure; lower = losing debug artifacts. Deliberately fixed for now; move to config if operators request it."
+
+# ── UI polling / refresh intervals ─────────────────────────────────────
+
+[[knob]]
+file   = "gui/control/pages/errors_page.py"
+name   = "_MAX_ROWS"
+reason = "Number of exception rows the Errors page shows. UI density knob — deliberately fixed for consistent UX."
+
+[[knob]]
+file   = "gui/control/pages/status_page.py"
+name   = "_REFRESH_INTERVAL_SEC"
+reason = "Health-poll cadence for the Status page. 2 s is a UX default — tuning would cause visible latency changes; keep fixed."
+
+[[knob]]
+file   = "gui/settings/model_page.py"
+name   = "_CHUNK_SIZE"
+reason = "Model-download progress chunk size. Streaming buffer tuning — no user-observable effect on the outcome."
+
+[[knob]]
+file   = "gui/tray/indicator.py"
+name   = "_POLL_INTERVAL_SECONDS"
+reason = "System tray daemon-health poll cadence (10 s). UI default — keep fixed for consistent battery / CPU behavior."
+
+# ── Image matching / geometry constants ────────────────────────────────
+
+[[knob]]
+file   = "rpa_bridge/image_match.py"
+name   = "_DOWNSAMPLE_FACTOR"
+reason = "OpenCV downsample step for coarse image match. Algorithmic constant — not a user knob."
+
+[[knob]]
+file   = "rpa_bridge/image_match.py"
+name   = "_REFINEMENT_RADIUS"
+reason = "Refinement window radius for image match. Algorithmic constant — not a user knob."
+
+[[knob]]
+file   = "terminal/app.py"
+name   = "_MIN_COMPANION_WIDTH"
+reason = "Textual TUI companion panel minimum width. Layout guard — narrower produces broken CoT rendering."
+
+# ── Phase 6 Scope C — preset verifier + cache ──────────────────────────
+
+[[knob]]
+file   = "controller/preset_verifier.py"
+name   = "_DEFAULT_TIMEOUT_SECONDS"
+reason = "Per-call HTTP timeout for provider metadata endpoint. 8 s is tight enough to keep a 12-preset sweep under 100 s worst-case but loose enough to survive slow TLS on the guest. Not user-tunable — a badly-tuned value would confuse verification badges more than it helps."
+
+[[knob]]
+file   = "controller/preset_verification_cache.py"
+name   = "_DEFAULT_TTL_DAYS"
+reason = "Cache TTL for provider metadata results. 7 days matches the Scope C research recommendation (session-only too short, never-expire misses deprecations). Not user-tunable — freshness semantics must be predictable across the fleet."

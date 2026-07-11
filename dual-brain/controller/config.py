@@ -158,6 +158,15 @@ class RunConfig:
     # (list of absolute paths). Landlock allows these at the kernel level and
     # userspace fs.list/fs.read validate() accepts them as additional roots.
     mcpd_fs_read_roots: str = ""
+    # Phase 6 Scope B — user-controllable timeouts previously hardcoded.
+    # F-25 rationale for the 600 s turn timeout ceiling still applies:
+    # Rosetta 2 / cross-arch emulation needs ~10x native to complete a
+    # PB inference turn. Bounds enforced by JSON Schema (30-7200).
+    turn_timeout_seconds: float = 600.0
+    # Hardware probe subprocess timeouts (sysctl / nvidia-smi / rocm-smi).
+    # 5 s was a magic number; making it configurable lets slow VM disks
+    # (encrypted rootfs, network-attached storage) work.
+    model_probe_timeout_seconds: float = 5.0
 
 
 @dataclass(frozen=True)
@@ -172,6 +181,11 @@ class SessionConfig:
     color: str = "auto"                   # "auto" | "always" | "never"
     prompt_prefix: str = "icebreaker"     # shown as `(N) [backend] prefix > `
     max_tool_output_lines: int = 40       # QB summarisation truncation
+    # Phase 6 Scope B — shell context caps previously hardcoded module
+    # constants in session.py (_MAX_CONTEXT_LEN + _MAX_RECENT). Hot-reload
+    # eligible: change takes effect on next turn without daemon restart.
+    max_shell_context_chars: int = 512
+    max_recent_commands: int = 5
 
 
 @dataclass(frozen=True)
@@ -221,6 +235,12 @@ class DaemonConfig:
     pid_file: str = "~/.local/state/icebreaker/controller.pid"
     max_connections: int = 1
     socket_group: str = "icebreaker-users"
+    # Phase 6 Scope B — client-transport tuning. Reader poll interval
+    # trades responsiveness for CPU; reconnect cap trades failover
+    # latency for busy-wait pressure. Restart to apply (the reader
+    # thread reads these at construction).
+    reader_recv_timeout_seconds: float = 1.0
+    max_reconnect_delay_seconds: float = 30.0
 
 
 @dataclass(frozen=True)
@@ -539,6 +559,9 @@ def _build_run_config(raw: dict) -> RunConfig:
         mcpd_schemas_dir=section.get("mcpd_schemas_dir", ""),
         pb_transport=section.get("pb_transport", "http"),
         mcpd_fs_read_roots=fs_read_roots,
+        # Phase 6 Scope B new fields — defaults match the dataclass.
+        turn_timeout_seconds=section.get("turn_timeout_seconds", 600.0),
+        model_probe_timeout_seconds=section.get("model_probe_timeout_seconds", 5.0),
     )
 
 
@@ -555,6 +578,9 @@ def _build_session_config(raw: dict) -> SessionConfig:
         color=section.get("color", "auto"),
         prompt_prefix=section.get("prompt_prefix", "icebreaker"),
         max_tool_output_lines=section.get("max_tool_output_lines", 40),
+        # Phase 6 Scope B new fields.
+        max_shell_context_chars=section.get("max_shell_context_chars", 512),
+        max_recent_commands=section.get("max_recent_commands", 5),
     )
 
 
@@ -615,6 +641,10 @@ def _build_daemon_config(raw: dict) -> DaemonConfig:
         socket_path=section.get("socket_path", "~/.local/state/icebreaker/controller.sock"),
         pid_file=section.get("pid_file", "~/.local/state/icebreaker/controller.pid"),
         max_connections=section.get("max_connections", 1),
+        socket_group=section.get("socket_group", "icebreaker-users"),
+        # Phase 6 Scope B new fields — client transport tuning.
+        reader_recv_timeout_seconds=section.get("reader_recv_timeout_seconds", 1.0),
+        max_reconnect_delay_seconds=section.get("max_reconnect_delay_seconds", 30.0),
     )
 
 

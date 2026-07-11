@@ -17,8 +17,10 @@ class TextualDaemonClient(DaemonClient):
 
     __slots__ = ("_callbacks", "_app")
 
-    def __init__(self, sock_path: str) -> None:
-        super().__init__(sock_path)
+    def __init__(self, sock_path: str, **kwargs: Any) -> None:
+        # Phase 6 Scope B: pass through turn_timeout_seconds,
+        # reader_recv_timeout_seconds, max_reconnect_delay_seconds.
+        super().__init__(sock_path, **kwargs)
         self._callbacks: dict[str, list[Callable[..., None]]] = {}
         self._app: Any = None
 

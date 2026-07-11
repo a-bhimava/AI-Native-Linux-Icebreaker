@@ -56,6 +56,13 @@ pb_timeout_seconds = 600
 # F-30: mcpd's fs.rs canonicalize fallback under Rosetta emulation runs
 # slower than the 10 s default; give it 120 s of headroom.
 mcpd_timeout_seconds = 120.0
+# Phase 6 Scope B — was a hardcoded 600.0 s in client.py. Same F-25
+# rationale: Rosetta 2 needs headroom; native completes in seconds.
+# Change in Control Center → Models → Advanced timings, or here.
+turn_timeout_seconds = 600.0
+# Hardware probe subprocess timeout (sysctl / nvidia-smi / rocm-smi). Was
+# a magic 5 s. Raise if you're on slow VM disks / encrypted rootfs.
+model_probe_timeout_seconds = 5.0
 
 [paths]
 catalogue_path    = "/usr/share/icebreaker/catalogue.toml"
@@ -78,6 +85,10 @@ show_spinner      = true
 show_progress     = true
 stream_output     = true
 color             = "auto"
+# Phase 6 Scope B — shell-context caps (previously hardcoded module
+# constants in session.py). Change in Control Center → Limits, or here.
+max_shell_context_chars = 512
+max_recent_commands     = 5
 
 [hitl]
 lockout_seconds = 3
@@ -90,3 +101,9 @@ pid_file        = "/run/icebreaker/controller.pid"
 # ib-debug diagnostics + occasional GNOME chatbot to all connect
 # simultaneously. Bumping to 4 makes the daemon serve real workflows.
 max_connections = 4
+# Phase 6 Scope B — client-transport tuning (previously hardcoded in
+# client.py). reader_recv_timeout balances CPU vs. notification latency;
+# max_reconnect_delay caps the exponential-backoff wait after a socket
+# drop. Both take effect only on daemon (client) restart.
+reader_recv_timeout_seconds  = 1.0
+max_reconnect_delay_seconds  = 30.0
