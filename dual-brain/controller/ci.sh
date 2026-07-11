@@ -584,6 +584,53 @@ else
   fail 23 "hardcoded knobs added without allowlist entry — see stderr"
 fi
 
+# ── G24: Phase 6 Scope F — live corpus sweep on a running guest ─────────
+# Runs the full intent_corpus.json against a live Icebreaker daemon on the
+# guest named by ICEBREAKER_LIVE_HOST (`<user>@<host>` shape, ssh-agent auth).
+# The offline suite (test_intent_corpus.py) proves routing; G24 proves the
+# routes hold up end-to-end through QB → PB → mcpd → audit against a real
+# guest, which is the only place F-42 / F-43 / F-48 / F-52 / F-53 originally
+# surfaced. Skips cleanly without ICEBREAKER_LIVE_HOST — CI runs unmodified.
+echo "G24: Live corpus sweep (Phase 6 Scope F)..."
+if [ -z "${ICEBREAKER_LIVE_HOST:-}" ]; then
+  echo "  ICEBREAKER_LIVE_HOST unset — skipping (offline gate is G17-corpus)."
+  pass 24 "skipped (no live host)"
+else
+  CORPUS="${DUAL_BRAIN}/controller/tests/corpus/intent_corpus.json"
+  RUNNER="${DUAL_BRAIN}/scripts/ib_run_corpus.py"
+  if [ ! -f "${CORPUS}" ] || [ ! -f "${RUNNER}" ]; then
+    fail 24 "missing corpus (${CORPUS}) or runner (${RUNNER})"
+  else
+    # ship both to /tmp on the guest, then run under the guest's python.
+    if scp -q -o BatchMode=yes -o ConnectTimeout=10 \
+        "${CORPUS}" "${RUNNER}" \
+        "${ICEBREAKER_LIVE_HOST}:/tmp/" 2>/dev/null; then
+      # G24_TIMEOUT tunable per-run; default 900s covers ~60 rows at ~15s each.
+      G24_TIMEOUT="${G24_TIMEOUT:-900}"
+      G24_SOCK="${G24_SOCK:-/run/icebreaker/controller.sock}"
+      G24_OUTPUT=$(mktemp)
+      if ssh -o BatchMode=yes -o ConnectTimeout=10 \
+          "${ICEBREAKER_LIVE_HOST}" \
+          "timeout ${G24_TIMEOUT} python3 /tmp/ib_run_corpus.py --sock ${G24_SOCK} < /tmp/intent_corpus.json" \
+          > "${G24_OUTPUT}" 2>&1; then
+        G24_MISMATCHES=$(grep -c '"status": "outcome_mismatch"' "${G24_OUTPUT}" || true)
+        G24_ERRORS=$(grep -c '"status": "error"' "${G24_OUTPUT}" || true)
+        G24_OK=$(grep -c '"status": "ok"' "${G24_OUTPUT}" || true)
+        G24_SKIPPED=$(grep -c '"status": "skipped"' "${G24_OUTPUT}" || true)
+        if [ "${G24_MISMATCHES}" -eq 0 ] && [ "${G24_ERRORS}" -eq 0 ]; then
+          pass 24 "live corpus: ${G24_OK} ok, ${G24_SKIPPED} skipped (host=${ICEBREAKER_LIVE_HOST})"
+        else
+          fail 24 "live corpus: ${G24_MISMATCHES} mismatch, ${G24_ERRORS} error, ${G24_OK} ok — see ${G24_OUTPUT}"
+        fi
+      else
+        fail 24 "ssh corpus run failed — see ${G24_OUTPUT}"
+      fi
+    else
+      fail 24 "scp corpus/runner to ${ICEBREAKER_LIVE_HOST} failed (check ssh-agent auth)"
+    fi
+  fi
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════════════"
 

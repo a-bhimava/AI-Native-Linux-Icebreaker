@@ -222,6 +222,85 @@ def test_search_rows_route_to_unsupported_until_fs_find_ships(corpus: list[dict]
         assert row["expected_outcome"] == "unsupported"
 
 
+def test_broad_os_rows_route_to_shipped_actions(corpus: list[dict]) -> None:
+    """Scope F2 (2026-07-11): every broad-OS row's expected_action must be
+    in _SUPPORTED_ACTIONS. Otherwise a deferred-feature row (Playwright,
+    fs.find, process.exec) accidentally shipped and will silently rot into
+    UNSUPPORTED after v1.0-rc1.
+    """
+    broad_rows = [r for r in corpus if r.get("id", "").startswith("broad-os.")]
+    assert broad_rows, (
+        "corpus should have broad-OS rows (F Step 2) — none found"
+    )
+    for row in broad_rows:
+        assert row["expected_action"] in _SUPPORTED_ACTIONS, (
+            f"broad-OS row {row['id']} expects unsupported action "
+            f"{row['expected_action']!r} — deferred rows belong in "
+            "_meta.deferred, not in the assertion floor"
+        )
+        assert row["expected_outcome"] == "executed", (
+            f"broad-OS row {row['id']} expects outcome "
+            f"{row.get('expected_outcome')!r} — should be 'executed'"
+        )
+
+
+def test_content_bearing_broad_os_rows_have_regex_shape(corpus: list[dict]) -> None:
+    """Scope F2 (2026-07-11): broad-OS write-content rows carry
+    expected_content_matches_regex (not exact expected_content) because
+    the content is free-form prose. Enforces the shape choice — an exact
+    expected_content on a broad-OS write is a flaky-test trap.
+    """
+    broad_content_rows = [
+        r for r in corpus
+        if r.get("id", "").startswith("broad-os.")
+        and r.get("category") == "write-content"
+    ]
+    assert broad_content_rows, (
+        "corpus should have broad-OS write-content rows"
+    )
+    for row in broad_content_rows:
+        assert "expected_content_matches_regex" in row, (
+            f"broad-OS write-content row {row['id']} lacks "
+            "expected_content_matches_regex — free-form prose can't use "
+            "exact expected_content"
+        )
+        assert "expected_content" not in row, (
+            f"broad-OS write-content row {row['id']} has BOTH exact "
+            "content and regex — pick one (regex for free-form prose)"
+        )
+        assert row.get("expected_pb_hint_contains") == "params.content", (
+            f"broad-OS write-content row {row['id']} missing/wrong "
+            "expected_pb_hint_contains — must be 'params.content' "
+            "(F-41 coaching pathway)"
+        )
+
+
+def test_meta_deferred_block_documents_unshipped_workflows(corpus: list[dict]) -> None:
+    """Scope F2 (2026-07-11): the corpus _meta.deferred block must exist
+    and enumerate at least the five deferred workflows the plan calls
+    out. Prevents someone silently deleting the deferred block and
+    losing discoverability of the coverage gap.
+    """
+    with CORPUS_PATH.open() as f:
+        data = json.load(f)
+    deferred = data["_meta"].get("deferred", {})
+    assert deferred, (
+        "corpus _meta.deferred block missing — Scope F2 deferred rows "
+        "are undiscoverable"
+    )
+    # Every deferred entry must name a query + blocked_by.
+    for key, entry in deferred.items():
+        if key.startswith("_"):
+            continue
+        assert isinstance(entry, dict), (
+            f"_meta.deferred[{key!r}] must be an object with 'query' + "
+            "'blocked_by'"
+        )
+        assert "query" in entry and "blocked_by" in entry, (
+            f"_meta.deferred[{key!r}] missing query or blocked_by"
+        )
+
+
 def test_adversarial_rows_do_not_execute(corpus: list[dict]) -> None:
     """Adversarial queries (prompt injection, destructive fantasies) must
     resolve to a benign action (system.status or system.unsupported) and
