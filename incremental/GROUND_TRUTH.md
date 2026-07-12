@@ -267,3 +267,117 @@ Seeded from two months of prior failures. Every new failure gets a row.
 - **D-5 `toram` boot param for desktop profile** (same as proven v5 config); requires VM RAM ≥ squashfs size + working set → give UTM/QEMU 8 GB.
 - **D-7 No echo backend; V2 uses the unconfigured-gemini path.** An echo QB would require widening the `qb.backend` enum in `schemas/controller_config.json` (+ config-loader branches + registry import) — security-adjacent edits for a test-only pathway, and a fabricated-intent backend left configured in a later version could reach mcpd. Instead V2 ships `backend = "gemini"` with no key: the daemon starts via the already-tested `_UnconfiguredBackend` fallback (F-5), `turn.run` returns an actionable error, and V5 activates QB by just adding the key. mcpd ships in V2 (not V6) because `_run_daemon` spawns it unconditionally — a missing binary is a fatal crash-loop.
 - **D-6 We modify Ubuntu; we do not build an OS.** The base is assembled by `debootstrap` from **official signed packages at archive.ubuntu.com** plus Canonical's `ubuntu-desktop`/`ubuntu-standard` metapackages and the stock `linux-generic` kernel. Nothing is compiled from source; no custom kernel/libc/GNOME. The only hand-assembled piece is the live-boot wrapper (squashfs + isolinux/GRUB), copied verbatim from the v4/v5-proven `cx-distro/build.sh` chain. **Fallback (only if V0 fails its boot gate):** remaster Canonical's official desktop ISO — unpack `ubuntu-24.04-desktop-amd64.iso`, inject our overlay, repack. Not the default because 24.04's layered casper squashfs adds new unknowns while our current chain is already proven on UTM.
+
+---
+
+## 9. Phase 6 Exit Criteria
+
+**Rule.** Every box below is checked [x] BEFORE `v1.0-rc1` gets built (see Scope I).
+Cross-reference: `docs/IMPLEMENTATION_PLAN.md § Go/No-Go Gate Checklist (Phase 6 → Phase 7)`
+for the strategic approval gates that layer on top of this operational checklist.
+
+**Legend.**
+- `[x]` — done and merged to `main`
+- `[ ]` — pending
+- `[deferred → I]` — infrastructure ready; final verification requires a fresh `v1.0-rc1` ISO
+  (this is the "no ISO until the plan is done" rule — some live checks by definition run
+  against the artifact we're gating on)
+
+### Scope A — Kill every silent exception swallow (46 sites)
+- [x] A.P1 (13 sites): all F-53'd + `_log_exception` surfaced
+- [x] A.P2 (18 sites): TUI + GUI + shutdown surface
+- [x] A.P3 (15 sites): seccomp + probes + AT-SPI
+- [x] `test_no_silent_swallow.py` baseline + CI enforcement
+- [x] F-51 markers for every P1 site (`incremental/versions/v2.manifest`)
+- **Merged:** PR #27
+
+### Scope B — Every knob is a config field; every field surfaces in the GUI
+- [x] B1: 6 hardcoded knobs migrated to `controller/schemas/controller_config.json`
+- [x] B2: 3 declared-but-unsurfaced fields exposed in Control Center (verifier voting + Advanced PB)
+- [x] B3: custom-model / backend-swap race fix in `models_page.py`
+- [x] B4: no-new-knobs AST checker (`tools/lint/no_new_knobs.py`) + G23 CI gate
+- [x] Backward-compat: pre-Scope-B TOML loads with every default resolved (`test_config_backward_compat.py`)
+- **Merged:** PR #27
+
+### Scope C — Model presets verified against real APIs
+- [x] C1: every preset live-verified against provider SDK (Gemini / Anthropic / OpenAI)
+- [x] C2: preset registry moved to `catalogue.toml` schema v2
+- [x] C3: XDG state cache with 7-day TTL for verification (`preset_verification_cache.py`)
+- [x] C4: models page loads from catalogue + red-badge failing presets
+- **Merged:** PR #28
+
+### Scope D — Live verification of every Control Center page
+- [x] D1: `manual_verification.md` edge-case matrix (not happy path)
+- [x] D2: per-page smoke tests — all 8 pages, tmp_path save round-trip
+- [x] D4: `pkexec ib-setup-key --dry-run` polkit test
+- [x] D-instrumentation: debug mode module + GUI toggle (`controller/debug_log.py`)
+- [ ] D3 [deferred → I]: live click-through sweep against fresh `v1.0-rc1` guest
+- **Merged:** PR #29
+
+### Scope E — Live end-to-end fallback chain verification
+- [x] E1: fallback chain offline edge-case exhaustion (`test_backend_fallback_edge_cases.py`)
+- [x] E2: streaming + cancellation edge cases
+- [x] E3: `ICEBREAKER_LIVE` gate + `test_fallback_live.py` (uses operator-supplied bad keys)
+- [ ] E-live [deferred → I]: guest sweep against fresh `v1.0-rc1` daemon
+- **Merged:** PR #29
+
+### Scope F — Regression coverage for every fixed bug (F-41 → F-56)
+- [x] F1: 4 behavioral test modules (F-43/F-47b, F-48, F-52, F-53) — 56 assertions
+- [x] F2: 7 broad-OS corpus rows + `_meta.deferred` block for shipped-only actions
+- [x] F3: G24 live gate in `ci.sh` (uses `DaemonClient`, not `ib_debug`)
+- [x] F4: R14 rule added to § 2 + 10 `regression lock (R14):` annotations in § 7
+- [x] F5: 5 new F-51 markers (F43-stream, F47b-inner, F48-fix, F52-wire, F53-verifier)
+- [x] F6: G24 live-verified against `icebreaker@192.168.64.27` 2026-07-11 —
+      runner unwrap works, sweep completed 41 rows in ~10 min, caught 28× F-43/F-52
+      + 2× F-56 + 1× F-53 on the deployed v6.65 venv (proving G24's value)
+- [x] F-57 [logged 2026-07-11]: F-55 + F-56 added to `§ 7 Failure Log` from G24 findings
+- [ ] F-live-clean [deferred → I]: G24 sweep against fresh `v1.0-rc1` produces 0 F-4x/F-5x errors
+- **Merged:** PR #30
+
+### Scope G — mcpd-arm64 rebuild + F-51 marker extension
+- [ ] G1: `mcpd-arm64` cross-built (`aarch64-unknown-linux-gnu`, static)
+- [ ] G2: `mcp_allowlist` string present in the binary (grep verifies not source-only)
+- [ ] G3: F-51 markers audit + top-up (several already landed under Scopes B/F)
+- [ ] G4: arm64 seccomp allowlist extended with `faccessat` (48) + `faccessat2` (439) — fixes F-55
+- [ ] G5: `mcpd-harvest.sh` runs on NATIVE arm64 (not cross-arch TCG) — R8-arm64 rule
+- [ ] G6: `models/checksums.sha256` updated with new `mcpd-arm64` hash
+
+### Scope H — Docs, phase status, release notes (this scope)
+- [ ] H1: `§ 9 Phase 6 Exit Criteria` in GROUND_TRUTH.md (this section — self-referential, marks [x] on merge)
+- [ ] H2: `CLAUDE.md` Phase 6 row downgraded to "In progress"
+- [ ] H3: `AI_Native_OS_Whitepaper.md § 10.5` audit acknowledgment footnote
+- [ ] H4: `docs/RELEASE_NOTES_v1.0-rc1.md` template drafted (build-time blanks marked)
+
+### Scope I — Build ONE ISO labelled `v1.0-rc1` (both arches)
+- [ ] I1: every checkbox in Scopes A–H above is `[x]`
+- [ ] I2: `make -C incremental all ARCH=amd64 && make -C incremental all ARCH=arm64` — both build clean
+- [ ] I3: QEMU gate on both arches (boot < 90s, corpus 0 failures)
+- [ ] I4: UTM Virtualize sweep on arm64 (15-query broad-OS demo, 0 failures)
+- [ ] I5: amd64 verification in QEMU + VirtualBox EFI
+- [ ] I6: G24 clean against fresh `v1.0-rc1` daemon (0 F-4x/F-5x errors)
+- [ ] I7: F-55 fix verified — `service.logs` invokes journalctl without SIGSYS
+- [ ] I8: F-56 verified fixed on fresh venv OR reproduced with a `test_f56_*` module added
+- [ ] I9: Release-notes template blanks filled: ISO SHA-256 (both arches), component versions,
+      release date, GPG key ID
+
+### Scope J — Phase 6 formal exit
+- [ ] J1: this § 9 fully green (every `[x]` above and every deferred converted to `[x]`)
+- [ ] J2: `CLAUDE.md` Phase 6 restored to `**Complete**` with ISO hashes recorded
+- [ ] J3: `git tag -s v1.0-rc1` with amd64 + arm64 hashes in the annotation
+- [ ] J4: PR #27 merge acknowledgment (task #109) — signed off after J3 tag
+
+### Cross-references
+- `docs/IMPLEMENTATION_PLAN.md § Go/No-Go Gate Checklist (Phase 6 → Phase 7)` —
+  strategic gates that layer on this operational checklist
+- `AI_Native_OS_Whitepaper.md § 10.5 Audit acknowledgment (2026-07-10)` —
+  documentation-honesty note explaining what "Phase 6 complete" historically meant
+  vs what it means from `v1.0-rc1` onward
+- `CLAUDE.md § Phase Status` — the row that tracks the current state; see H2 for the
+  in-progress downgrade
+
+### How to declare a scope complete
+1. Every sub-checkbox in the scope is `[x]`.
+2. The PR that carried it is merged to `main`.
+3. Test suite is green on `main` at merge time (currently 2329 passed / 40 skipped / 2 pre-existing).
+4. Any deferred sub-item under the scope is either converted to `[x]` OR moved to
+   the appropriate follow-up scope (e.g. Scope D's D3 live-sweep sits under Scope I).

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Icebreaker OS: Enterprise Architecture Guide</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-body: #0a0f18;
+            --bg-sidebar: #111827;
+            --bg-card: #1f2937;
+            --bg-code: #030712;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --border-subtle: #374151;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            display: flex;
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        /* Sidebar Navigation */
+        aside {
+            width: 300px;
+            background-color: var(--bg-sidebar);
+            border-right: 1px solid var(--border-subtle);
+            padding: 2rem 1.5rem;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+        }
+
+        aside h1 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--text-main);
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.5px;
+        }
+
+        aside .version {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.8rem;
+            color: var(--accent-blue);
+            margin-bottom: 2rem;
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            background: rgba(59, 130, 246, 0.1);
+            border-radius: 4px;
+        }
+
+        nav ul { list-style: none; }
+        nav li { margin-bottom: 0.8rem; }
+        nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: color 0.2s;
+            display: block;
+        }
+        nav a:hover, nav a.active {
+            color: var(--accent-blue);
+        }
+
+        /* Main Content */
+        main {
+            flex-grow: 1;
+            margin-left: 300px;
+            padding: 4rem 6rem;
+            max-width: 1200px;
+        }
+
+        h2 { font-size: 2.2rem; font-weight: 800; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-subtle); padding-bottom: 1rem; margin-top: 4rem; }
+        h2:first-child { margin-top: 0; }
+        h3 { font-size: 1.4rem; font-weight: 700; margin: 2.5rem 0 1rem; color: #e5e7eb; }
+        h4 { font-size: 1.1rem; font-weight: 600; margin: 1.5rem 0 0.8rem; color: #d1d5db; }
+        
+        p { color: var(--text-muted); margin-bottom: 1.5rem; font-size: 1.05rem; }
+        
+        ul, ol { color: var(--text-muted); margin-bottom: 1.5rem; padding-left: 2rem; font-size: 1.05rem; }
+        li { margin-bottom: 0.5rem; }
+        li strong { color: var(--text-main); }
+
+        /* Components */
+        code {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85em;
+            background: var(--bg-card);
+            color: var(--accent-amber);
+            padding: 0.2em 0.4em;
+            border-radius: 4px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        pre {
+            background: var(--bg-code);
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--border-subtle);
+            margin-bottom: 1.5rem;
+        }
+        pre code {
+            background: transparent;
+            color: var(--text-main);
+            border: none;
+            padding: 0;
+            font-size: 0.9em;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 2rem;
+            background: var(--bg-card);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border-subtle);
+        }
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        th { background: rgba(0,0,0,0.2); font-weight: 600; color: var(--text-main); }
+        td { color: var(--text-muted); font-size: 0.95rem; }
+        tr:last-child td { border-bottom: none; }
+
+        .callout {
+            background: rgba(59, 130, 246, 0.05);
+            border-left: 4px solid var(--accent-blue);
+            padding: 1.5rem;
+            border-radius: 0 8px 8px 0;
+            margin: 2rem 0;
+        }
+        .callout.warning { border-color: var(--accent-amber); background: rgba(245, 158, 11, 0.05); }
+        .callout.danger { border-color: var(--accent-red); background: rgba(239, 68, 68, 0.05); }
+        
+        .callout strong { display: block; margin-bottom: 0.5rem; color: var(--text-main); }
+
+        .architecture-flow {
+            background: var(--bg-code);
+            padding: 2rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9rem;
+            color: var(--accent-green);
+            white-space: pre;
+            overflow-x: auto;
+            margin-bottom: 2rem;
+        }
+
+    </style>
+</head>
+<body>
+
+    <aside>
+        <h1>Icebreaker OS</h1>
+        <div class="version">Enterprise Architecture v4.0</div>
+        <nav>
+            <ul>
+                <li><a href="#exec-summary">1. Executive Summary</a></li>
+                <li><a href="#threat-model">2. Threat Model & Design Goals</a></li>
+                <li><a href="#dual-brain">3. The Multi-Brain Architecture</a></li>
+                <li><a href="#invariants">4. Security Invariants (INV 1-8)</a></li>
+                <li><a href="#mcpd">5. Kernel-Level Confinement (mcpd)</a></li>
+                <li><a href="#pipeline">6. The 14-Step Controller Pipeline</a></li>
+                <li><a href="#iso-build">7. ISO Build & CI/CD Pipeline</a></li>
+            </ul>
+        </nav>
+    </aside>
+
+    <main>
+        <section id="exec-summary">
+            <h2>1. Executive Summary</h2>
+            <p>Icebreaker is an AI-native Linux operating system designed to fundamentally shift server administration from rigid syntactic execution to intent-driven operation. By embedding Large Language Models (LLMs) natively into the OS orchestration layer, it allows administrators to declare state and execute system tasks via plain natural language.</p>
+            <p>However, granting an LLM root privileges while exposing it to untrusted external data creates the conditions for a catastrophic "Prompt Injection via Confused Deputy" attack. The defining innovation of Icebreaker is not simply that an AI controls the computer, but the zero-trust architectural isolation separating AI "perception" from AI "execution," bound rigidly by Linux kernel-enforced sandboxing.</p>
+        </section>
+
+        <section id="threat-model">
+            <h2>2. Threat Model & Design Goals</h2>
+            <p><strong>Primary Adversary:</strong> An attacker controlling untrusted content ingested by the system (e.g., a hidden payload within a read file, an email, or tool output) attempting to induce privileged actions—such as data exfiltration, destructive writes, or sandbox escape—via indirect prompt injection.</p>
+            <p><strong>Design Goal:</strong> Even if the adversary completely subverts the Perception Model via injected content, they must not gain the ability to cause arbitrary tool execution, exfiltrate raw data, or escape the kernel sandbox. The defense is an information-flow and capability architecture, utilizing the Linux kernel as the unyielding enforcement floor.</p>
+        </section>
+
+        <section id="dual-brain">
+            <h2>3. The Multi-Brain Architecture</h2>
+            <p>The architecture relies on four tiers with a strict, one-directional trust gradient. No single component simultaneously possesses (a) exposure to untrusted text and (b) the capability to execute tools.</p>
+            
+            <div class="architecture-flow">
+  Untrusted input (user text, file contents, tool output)
+        |
+        v
+  [ QUARANTINED BRAIN ]  Perception model — NO tool access
+        |  Structured Intent Object (candidate JSON)
+        v
+  [ CONTROLLER ]         Non-AI schema-validation -> risk-classification -> HITL gate
+        |                Stores intent, emits OPAQUE UUID + allowed tool
+        v
+  [ PRIVILEGED BRAIN ]   Execution model — NO raw text, only UUID-referenced intent
+        |  Concrete MCP tool call (parameters re-validated)
+        v
+  [ mcpd ]               Rust daemon — stdio JSON-RPC only, schema validation
+        |  Fork child; apply Landlock + seccomp-BPF BEFORE execve
+        v
+  [ LINUX KERNEL ]       Mandatory Access Control (Final enforcement)</div>
+
+            <h3>Role Separation</h3>
+            <table>
+                <tr>
+                    <th>Component</th>
+                    <th>Role</th>
+                    <th>Structural Limitations</th>
+                </tr>
+                <tr>
+                    <td><strong>Quarantined Brain</strong></td>
+                    <td>Perception</td>
+                    <td>Reads untrusted input. Emits a candidate JSON Intent. Structurally barred from execution capabilities.</td>
+                </tr>
+                <tr>
+                    <td><strong>Controller</strong></td>
+                    <td>Mediation</td>
+                    <td>Non-AI Python referee. Validates intent schemas, strips metacharacters, assigns risk tiers, blocks via HITL.</td>
+                </tr>
+                <tr>
+                    <td><strong>Privileged Brain</strong></td>
+                    <td>Execution Decision</td>
+                    <td>Formulates exact tool calls. Never sees raw input; only receives an opaque UUID reference.</td>
+                </tr>
+            </table>
+        </section>
+
+        <section id="invariants">
+            <h2>4. Security Invariants (INV 1-8)</h2>
+            <p>Eight hard invariants define the system's security contract. These are enforced rigidly in code and cannot be bypassed by prompt manipulation.</p>
+            <ul>
+                <li><strong>INV-1 Brain Isolation:</strong> The Quarantined Brain has zero tool connections. The Privileged Brain has zero access to raw user input. Only a structured Intent Object, reduced to an opaque UUID, crosses the boundary.</li>
+                <li><strong>INV-2 Schema Enforcement:</strong> The Controller strictly rejects Intent Objects falling outside the JSON schema or containing shell metacharacters (<code>; & | ` $ < ></code>).</li>
+                <li><strong>INV-3 Network Isolation:</strong> The <code>mcpd</code> execution daemon communicates exclusively over <code>stdio</code>. It opens zero TCP/UDP/UNIX listeners, removing network-based attack vectors.</li>
+                <li><strong>INV-4 Parameter Validation:</strong> Every tool-call parameter is validated against a compiled-in JSON Schema prior to execution.</li>
+                <li><strong>INV-5 Kernel Sandboxing:</strong> Landlock LSM and seccomp-BPF filters are applied to the child process <em>before</em> <code>execve</code>. The system fails closed (refuses to execute) if kernel support is missing.</li>
+                <li><strong>INV-6 Copy-on-Write (COW):</strong> Destructive operations outside the user's home directory trigger a COW dry-run. The user must approve the exact diff via a Human-in-the-Loop (HITL) prompt featuring a forced 3-second lockout.</li>
+                <li><strong>INV-7 Model Integrity:</strong> Cryptographic SHA-256 verification of model weights at startup against a signed manifest. Mismatches abort boot.</li>
+                <li><strong>INV-8 Audit Integrity:</strong> An append-only (<code>O_APPEND</code>) audit log records every intent (including rejected ones). Models lack write access to this log.</li>
+            </ul>
+        </section>
+
+        <section id="mcpd">
+            <h2>5. Kernel-Level Confinement (mcpd)</h2>
+            <p>The Model Context Protocol Daemon (<code>mcpd</code>) is a hardened Rust application responsible for executing privileged operations. It implements defense-in-depth across multiple layers:</p>
+
+            <h3>Two-Layer Filesystem Defense (TOCTOU-Safe)</h3>
+            <p>File operations are defended by two independent boundaries:</p>
+            <ol>
+                <li><strong>Userspace Validation:</strong> Rejects NUL bytes, backslashes, non-absolute paths, and paths outside the whitelist (<code>/proc</code>, <code>/sys</code>, <code>/tmp</code>, <code>/var/log</code>, <code>/etc</code>, <code>$HOME</code>). Sensitive directories (<code>.ssh</code>, <code>.aws</code>) force the COW path.</li>
+                <li><strong>Kernel Resolution:</strong> Actual file access utilizes <code>openat2</code> with <code>RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS</code>. The kernel enforces that the path cannot escape the intended root or traverse symbolic links, closing Time-of-Check to Time-of-Use (TOCTOU) vulnerabilities.</li>
+            </ol>
+
+            <h3>Landlock & Seccomp-BPF</h3>
+            <pre><code>// Applied to the child process before execve
+sandbox::apply() -> Result<(), SandboxError>
+// If Landlock reports NotEnforced (kernel < 5.13), the daemon hard-exits.</code></pre>
+            <p>The seccomp filter installs a strict denylist (mount, reboot, ptrace, bpf, setuid, listen, accept) combined with <code>PR_SET_NO_NEW_PRIVS</code>. Attempting a restricted syscall results in immediate process termination via <code>SIGSYS</code>.</p>
+        </section>
+
+        <section id="pipeline">
+            <h2>6. The 14-Step Controller Pipeline</h2>
+            <p>The <code>run_turn()</code> pipeline dictates the end-to-end request lifecycle:</p>
+            <ol>
+                <li>Receive user text and any untrusted context.</li>
+                <li>Quarantined Brain emits a candidate Intent Object using Grammar-Constrained Decoding.</li>
+                <li>Controller schema-validates the Intent Object (rejects metacharacters/extra fields).</li>
+                <li>Risk-classify into Tier 0-3 (symlinks resolved via <code>realpath</code>).</li>
+                <li>If Tier 3 (destructive): Route to HITL gate (3s lockout, 30s timeout).</li>
+                <li>Store validated intent; issue opaque UUID (TTL = 300s).</li>
+                <li>Assemble Privileged Brain context: <code>{intent_id, allowed_tool, tool_schema}</code>.</li>
+                <li>Privileged Brain emits concrete MCP tool call via Chain of Thought.</li>
+                <li>Outbound auditor scans payload to prevent context leakage (fail-closed).</li>
+                <li><code>mcpd</code> re-validates parameters against compiled-in JSON Schema.</li>
+                <li><code>mcpd</code> forks child, applies Landlock + seccomp-BPF, mounts COW if required.</li>
+                <li>Execute under kernel confinement; capture result.</li>
+                <li>Optional Verification-Brain round-trip.</li>
+                <li>Append atomic JSONL audit record; return summary to Quarantined Brain only.</li>
+            </ol>
+        </section>
+
+        <section id="iso-build">
+            <h2>7. ISO Build & CI/CD Pipeline (cx-distro)</h2>
+            <p>Icebreaker avoids brittle wrappers like <code>live-build</code> in favor of an explicit, highly automated direct-assembly pipeline orchestrated by <code>build_v2.sh</code>.</p>
+            
+            <h3>Build Stages</h3>
+            <ul>
+                <li><strong>Stages 0-3 (Compilation):</strong> Verifies model checksums, compiles <code>mcpd</code> (Rust), and <code>llama-server</code> (CMake) directly from source. Installs the Python Controller into an isolated virtual environment.</li>
+                <li><strong>Stage 4 (Chroot Assembly):</strong> Stages the <code>includes.chroot</code> directory, configures GNOME/XFCE UI defaults, hardens <code>systemd</code> services (e.g. <code>UMask=0117</code> for IPC sockets), and overlays the GGUF model weights.</li>
+                <li><strong>Stage 5 (ISO Assembly):</strong> 
+                    <ul>
+                        <li><code>debootstrap</code> provisions the Ubuntu base system.</li>
+                        <li><code>mksquashfs</code> packages the highly optimized read-only root image. (Compression can be disabled natively for debugging).</li>
+                        <li><code>xorriso -iso-level 3</code> packages the kernel, bootloaders (GRUB/ISOLINUX), and the squashfs container into the final, bootable hybrid <code>.iso</code>.</li>
+                    </ul>
+                </li>
+            </ul>
+
+            <div class="callout warning">
+                <strong>Iterative Build Requirement</strong>
+                To optimize resources in live environments, the Quarantined Brain service (<code>icebreaker-qbd.service</code>) is deliberately excluded from the <code>multi-user.target</code> by default. Only the Privileged Brain loads during startup.
+            </div>
+        </section>
+
+    </main>
+
+</body>
+</html>

@@ -1,0 +1,389 @@
+Multi-Brain Operating System — Technical Architecture Disclosure
+Invention Disclosure for Patent Drafting (Companion to the Plain-Language Document)
+Prepared for: outside patent counsel and the firm's technical review team
+Inventor: Aditya (abhimava@andrew.cmu.edu)   |   Date: June 9, 2026
+Status: CONFIDENTIAL — attorney work-product intended; not for public disclosure
+Source basis: actual implementation (Rust mcpd daemon + Python Controller), not only the project whitepaper
+
+Scope and ground truth
+This document describes the as-built system from direct review of the source tree, and is the authoritative technical reference for claim drafting. Where the implementation goes beyond the project whitepaper, the implementation governs. Sections 14–16 give claim seeds, an element-by-element prior-art comparison, and an honest enablement/limitations statement counsel needs for a defensible filing.
+Notation: file paths refer to the project repository. "INV-n" refers to the architectural invariants enumerated in §3.
+
+Contents
+
+
+
+1. System Architecture Overview
+The system is an AI-native Linux derivative in which one or more locally-hosted LLMs translate natural-language user intent into auditable, sandboxed system operations. The architecture comprises four tiers with a strict, one-directional trust gradient from untrusted input toward privileged execution.
+  Untrusted input (user text, file contents, tool output)
+        |
+        v
+  [ QUARANTINED BRAIN ]  perception model — NO tool access
+        |  structured Intent Object (candidate)
+        v
+  [ CONTROLLER ]  (non-AI) schema-validate -> risk-classify -> HITL gate
+        |          -> store intent, emit OPAQUE UUID + allowed tool + schema
+        v
+  [ PRIVILEGED BRAIN ]  execution model — NO raw text, only UUID-referenced intent
+        |  concrete MCP tool call (validated again)
+        v
+  [ mcpd ]  Rust daemon — stdio JSON-RPC only, per-call schema validation
+        |  fork child; apply Landlock + seccomp-BPF BEFORE execve; COW dry-run
+        v
+  [ LINUX KERNEL ]  mandatory access control = final enforcement
+ 
+  Append-only audit log records every intent (incl. rejected), out-of-band of the models.
+The defining property is that no single component simultaneously possesses (a) exposure to untrusted text and (b) the capability to execute. The Quarantined Brain has (a) without (b); the Privileged Brain has (b) without (a). The Controller, which has neither AI nondeterminism nor untrusted-text-to-execution authority, mediates the crossing through a validated, opaque channel.
+1.1 Component / source map
+Tier
+Component
+Language
+Representative source
+Perception
+Quarantined Brain backend
+Python
+dual-brain/controller/backends/
+Mediation
+Controller (validation, store, risk, HITL, session, audit)
+Python
+dual-brain/controller/*.py
+Execution-decision
+Privileged Brain backend
+Python
+dual-brain/controller/backends/
+Tool execution
+mcpd daemon (22-tool catalogue)
+Rust
+src/mcpd/src/
+Kernel enforcement
+Landlock / seccomp / COW / openat2
+Rust + kernel
+src/mcpd/src/sandbox/, tools/fs.rs
+2. Threat Model and Design Goal
+Primary adversary: an attacker who controls some untrusted content the system will read (a document, web page, file name, or prior tool output) and attempts an indirect prompt-injection (confused-deputy) attack to induce privileged actions — data exfiltration, destructive writes, credential theft, or sandbox escape.
+Design goal: even granting the adversary the power to fully control the Quarantined Brain's behavior (worst case: the perception model is completely subverted by the injected content), the adversary must not gain the ability to (i) cause arbitrary tool execution, (ii) exfiltrate raw data through the model channel, or (iii) escape the kernel sandbox. The defense is therefore an information-flow and capability architecture, with the kernel as the non-AI enforcement floor.
+3. Architectural Invariants (the Security Contract)
+Eight invariants define the security contract. They are enforced in code and asserted in CI. They are the backbone of the inventive concepts in §14.
+ID
+Invariant
+Enforcement locus
+INV-1
+Brain isolation: Quarantined Brain has zero tool connections and zero execution; Privileged Brain has zero access to raw user input or external document content. Only a structured Intent Object crosses, reduced to an opaque UUID.
+backends/base.py guard sentinel; session.py; intent_store.py
+INV-2
+Controller schema enforcement: reject any Intent Object outside the schema or containing shell metacharacters; never pass raw text between brains; pass only opaque reference IDs.
+intent_schema.py, schemas/intent.json, intent_store.py
+INV-3
+mcpd network isolation: communicate exclusively over stdio; open no TCP/UDP/UNIX listener; CI asserts zero open ports.
+server.rs; seccomp denies listen/accept
+INV-4
+Parameter validation before execution: validate every tool-call parameter against the tool's JSON Schema before execution; no unescaped shell metacharacters.
+schema.rs, server.rs dispatch
+INV-5
+No execution without sandboxing: Landlock and seccomp-BPF applied to the child before execve; if Landlock unavailable (kernel < 5.13), mcpd exits with an error rather than running unconfined.
+sandbox/landlock.rs, sandbox/seccomp.rs
+INV-6
+COW before destructive operations: any fs.delete/fs.write outside home goes through a copy-on-write dry-run shown to the user before commit; Approve is disabled for >= 3 seconds.
+sandbox/cow.rs, tools/fs.rs, hitl.py
+INV-7
+Model-weight integrity: verify SHA-256 of each model file against a manifest at startup; refuse to start on mismatch.
+daemon startup; models/checksums.sha256
+INV-8
+Audit-log integrity: append-only (O_APPEND); record every intent including rejected ones with timestamp, ID, risk level, user, outcome; not writable by the models.
+audit.rs
+4. Quarantined Brain (Perception Tier)
+A local LLM (reference embodiment: a small instruction model such as Phi-4-mini) that ingests untrusted material and emits a candidate Intent Object. It is constructed through a backend wrapper (backends/base.py) that makes execution capability structurally unreachable:
+	•	Guard sentinel in the constructor. A private sentinel object gates construction; any attempt to inject an mcpd client / tool handle into a brain backend raises at construction time. This realizes INV-1 "zero tool connections" as a constructor-level invariant, not a convention.
+	•	tools_disabled is non-overridable. The request envelope sets a tools-disabled flag that subclasses cannot flip; the base class forbids subclasses from overriding the completion method (via __init_subclass__) and requires __slots__ to prevent ad-hoc attribute injection.
+	•	Grammar-constrained output. Output is constrained at sampling time to schema-valid Intent Objects by a GBNF grammar (controller/grammars/qb_intent.gbnf), so the perception model cannot emit free-form text that bypasses the schema.
+	•	Strict JSON extraction. The backend extracts exactly one JSON object via a single brace-slice (no lenient multi-object parsing), reducing parser-confusion attack surface.
+Inventive hook
+The perception model's inability to act is not merely "we didn't give it tools" — it is enforced by a constructor sentinel, a non-overridable flag, a subclass-override prohibition, and __slots__. This mechanical non-bypassability is a candidate inventive concept (see §11 and CI-2 in §14).
+5. Privileged Brain (Execution-Decision Tier)
+A local LLM (reference embodiment: a small coder model such as Qwen2.5-Coder-1.5B, optionally fine-tuned via the Phase-4 pipeline) that receives only a minimal, opaque execution context and emits a concrete MCP tool call. Per session.py, the user-turn assembled for the Privileged Brain contains strictly: the opaque intent_id, the single allowed_tool, and that tool's tool_schema. It never receives raw user text or document content.
+	•	Outbound payload auditor (fail-closed). Before any request leaves a brain backend, an OutboundPayloadAuditor (backends/auditor.py) recursively scans the payload and raises BrainSecurityError if it contains forbidden keys (tools, functions, grounding, etc.). The base backend probes the auditor's call count and raises if the auditor was skipped — so omitting the audit is itself a failure.
+	•	Secret sanitization. sanitize.py strips secrets from exceptions/logs (KeyRedactionFilter on the root logger; SecretRef carries only an env-var name; SECRET_PATTERNS match sk-ant-, AIza, ya29., JWT/Bearer forms), preventing key leakage through error channels.
+	•	Tool-result summaries flow only to the Quarantined Brain. Per session.py add_tool_result_summary(), mcpd output is fed back to perception for the next turn, never to the Privileged Brain — extending INV-1/INV-2 across multi-turn loops.
+6. Controller (Non-AI Mediation Tier)
+The Controller is deterministic software implementing the crossing between brains. Its run_turn() pipeline (controller/main.py) is a fixed ~14-step sequence; §12 lists it. Its sub-modules:
+6.1 Intent schema validation (INV-2, INV-4)
+intent_schema.py validates the candidate Intent Object with a Draft-7 validator plus a UUID format checker. schemas/intent.json enforces: required fields, additionalProperties:false, an action pattern of dotted lowercase tokens (^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$), and target/params patterns that forbid shell metacharacters (; & | ` $ < >) and control bytes (\x00–\x1f). reason and risk_level are enum-constrained. A non-conforming intent is rejected before it can be stored or referenced.
+6.2 Opaque intent store (INV-1, INV-2)
+intent_store.py is a thread-safe store mapping a freshly-generated UUID to a validated intent. put() returns the UUID; the Privileged Brain only ever receives this reference. Key properties:
+	•	TTL bound (TTL_SECONDS = 300): references expire, limiting replay and stale-intent windows.
+	•	revise() under a single lock: a get→merge→validate→store revision runs atomically under one lock, closing a documented race (P2-F13) where concurrent revision could admit an unvalidated intent.
+	•	No new top-level keys on revision: a revision cannot introduce keys outside the schema, preventing privilege-escalation by field injection (INV-2).
+6.3 Risk classifier — graduated determinism (INV-6)
+risk_classifier.py maps each intent to a tier via an IntEnum (0–3). It resolves symlinks with os.path.realpath before matching (defeating symlink-TOCTOU at classification time) and matches a _CRITICAL_PATHS regex (e.g., /boot, /etc/sudoers, /etc/shadow, /root). Tool sets are derived from an auto-generated catalogue (_mcpd_tools) so classifier and daemon stay in sync.
+Tier
+Class
+Handling
+0
+Read-only / inspection
+Automatic execution, no prompt.
+1
+Low-risk write (within home)
+Automatic or lightweight, audited.
+2
+Notify / elevated
+Execute with user notification; may require acknowledgement.
+3
+Critical / destructive or out-of-home
+Blocking human-in-the-loop approval with timed lockout (INV-6).
+6.4 Human-in-the-loop gate (INV-6)
+hitl.py presents a COW dry-run summary (ANSI-stripped) and enforces LOCKOUT_SECONDS = 3 (Approve disabled for the first 3 seconds) and TIMEOUT_SECONDS = 30 (auto-deny on no response). The Decision enum records approve/deny/timeout. The forced lockout is an anti-"click-through" measure ensuring the human actually reads a destructive dry-run.
+6.5 Non-bypassable backend base class (INV-1)
+backends/base.py (BrainBackend ABC) centralizes the isolation guarantees described in §4–§5: the _GUARD_SENTINEL construction gate, __init_subclass__ forbidding complete() override and requiring __slots__, the non-overridable tools_disabled envelope flag, strict single-object JSON extraction, the auditor call-count probe, and a bounded sampling-decay retry. This class is the single chokepoint that makes brain isolation a property of the type system rather than of discipline.
+7. mcpd — Hardened Tool-Execution Daemon (Rust)
+mcpd executes the privileged operations. It is a Rust daemon exposing a catalogue of ~22 tools over MCP (JSON-RPC 2.0) on stdio only.
+7.1 Transport isolation (INV-3)
+server.rs implements a JSON-RPC 2.0 stdio dispatcher. is_known_method() gates the request; methods outside the catalogue are rejected. mcpd opens no network or UNIX-socket listener; CI asserts ss -tlnp shows no mcpd process with open ports. seccomp (below) additionally denies listen/accept at the syscall level, so even a code regression cannot open a listener — a defense-in-depth realization of INV-3.
+7.2 Compile-time schema validation (INV-4)
+schema.rs embeds each tool's JSON Schema at compile time (include_str!), compiles it, and validate() rejects non-conforming parameters with JSON-RPC error -32602 before dispatch. SCHEMA_VERSION is pinned (1.0.0). Because schemas are compiled into the binary, a deployed daemon cannot drift from its declared contract.
+7.3 Two-layer filesystem defense (INV-4, INV-6) — the most security-critical module
+tools/fs.rs implements defense in two independent layers:
+	•	Layer 1 — pure validation. validate()/validate_against() reject NUL bytes, '%', backslashes, non-absolute paths, and any path outside a whitelist of roots (/proc, /sys, /tmp, /var/log, /etc, $HOME). A set of SENSITIVE_HOME_SUBDIRS (.ssh, .aws, .gnupg, …) forces the COW path even within home.
+	•	Layer 2 — kernel-enforced resolution. The actual open uses openat2 with OpenHow{flags,mode,resolve} and RESOLVE_STRICT = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS, so the kernel rejects any path that escapes the intended root or traverses a symlink. This closes the TOCTOU gap between userspace validate() and use: even if validation is somehow satisfied for a path that later changes, the kernel refuses the escape.
+is_tier_1_safe() classifies safe in-home writes; cow_gate_response() returns {"status":"requires_cow_approval","intent_id":<uuid>} to route destructive operations through the Controller's HITL gate. The two-layer (userspace denylist + kernel openat2) combination is a candidate inventive detail.
+7.4 Landlock confinement (INV-5)
+sandbox/landlock.rs builds a Landlock ABI::V1 ruleset: read-only access to the catalogue roots, read-write only to /tmp and /var/log/mcpd. If the ruleset reports NotEnforced (kernel < 5.13 or Landlock disabled), the daemon hard-exits rather than continuing unconfined — the fail-closed property of INV-5. The ruleset is applied to the execution child before execve.
+7.5 seccomp-BPF dual filter (INV-5)
+sandbox/seccomp.rs installs a dual filter combined with PR_SET_NO_NEW_PRIVS: a denylist (mount, reboot, ptrace, bpf, setuid, listen, accept, …) and a positive allowlist (allowed_syscalls()), with the default action being process kill. bind() is permitted (needed for netlink) while listen()/accept() are denied — reinforcing INV-3 at the kernel boundary. A harvest mode (env MCPD_SECCOMP_LOG_ONLY) supports building the allowlist during development without weakening the production default.
+7.6 Copy-on-write dry-run (INV-6)
+sandbox/cow.rs provides an overlay/COW dry-run for destructive operations outside home: the operation is staged so the user sees an exact diff/report before an atomic commit. Commit atomicity is required (a non-atomic commit risks corruption). The COW report is what the HITL gate (§6.4) displays under the 3-second lockout.
+7.7 Audit log (INV-8)
+audit.rs writes append-only JSONL (O_APPEND, mode 0640). Each AuditLine carries timestamp, intent ID, risk level, user, and a ResultClass outcome. redact() collapses non-$HOME paths to a path family and redacts content bytes; records are truncated to <= 4KB to remain within PIPE_BUF for atomic appends. The log is not writable by the model inference processes (INV-8), so a compromised model cannot erase its tracks.
+7.8 Model-weight integrity gate (INV-7)
+At startup mcpd verifies the SHA-256 of each GGUF model file against models/checksums.sha256 and refuses to start on any mismatch; the ISO build step verifies the same manifest before packaging. This binds the running system to known-good weights — a supply-chain integrity control integrated into the boot/execution path.
+7.9 Test-only knobs are excluded from production
+Hardening tests use cargo features that default off (e.g., fs-test-roots, which appends extra paths to fs default_roots only to prove the kernel — not userspace — rejects an out-of-root read). CI asserts the feature's env var string is absent from any shipped binary, and the design rule forbids gating a security check behind a feature (features may only add test surfaces, never remove production checks). This is relevant to enablement: the production security path is not weakened by test scaffolding.
+8. The Opaque-Reference Inter-Brain Channel (Detailed)
+This is the information-flow core. Data flow across the perception→execution boundary is reduced as follows:
+Quarantined Brain  -- candidate Intent Object (JSON) -->  Controller
+Controller:
+   1. schema_validate(intent)          # reject metacharacters / extra fields
+   2. risk = classify(intent)          # tier 0..3 (realpath-resolved)
+   3. if tier == 3: HITL approve/deny  # 3s lockout, 30s timeout
+   4. uuid = intent_store.put(intent)  # TTL=300s, thread-safe
+   5. emit -> Privileged Brain: { intent_id: uuid,
+                                  allowed_tool: <one tool>,
+                                  tool_schema: <that tool's schema> }
+Privileged Brain  -- concrete tool call -->  Controller -> mcpd
+   (mcpd re-validates params, sandboxes, executes)
+Tool result summary -> Quarantined Brain ONLY (never Privileged Brain)
+The Privileged Brain's entire view of the world is the triple {intent_id, allowed_tool, tool_schema}. Raw user text and document content never appear in its context window. The channel is therefore (a) opaque (a UUID, not content), (b) schema-bounded (only validated intents are storable), (c) capability-narrowed (exactly one allowed tool per crossing), and (d) time-bounded (TTL). The combination of all four constraints on a single inter-model channel is a candidate inventive concept.
+9. Generalized N-Brain Framework
+The dual-brain configuration is the minimal embodiment of a general framework: a population of role-specialized, mutually-isolated AI models whose only inter-model communication is the Controller-mediated opaque channel of §8. The framework admits additional roles, several already present in code:
+Role
+Input it is allowed
+Output
+Code basis
+Perception
+Untrusted text/content
+Candidate Intent Object
+Quarantined Brain backend + qb_intent.gbnf
+Execution
+{intent_id, allowed_tool, tool_schema}
+Concrete tool call
+Privileged Brain backend + session.py
+Verification
+Structured intent (not raw text)
+{verified: bool, reason}
+prompts/qb_verifier.txt
+Classification
+Validated intent fields
+Risk tier 0–3
+risk_classifier.py
+Voting / ensemble
+Multiple isolated perception passes
+Quorum decision
+(architecture; instantiable from base backend)
+The independent claim should be drafted at this N-brain level (a method/system for natural-language OS control using a plurality of role-isolated models with a non-AI-mediated opaque-reference channel and kernel-bound execution), with the dual-brain perception/execution pair as a dependent embodiment.
+10. Graduated Determinism and Latency Budget
+Actions are handled with determinism proportional to risk: Tier 0/1 run deterministically and fast; Tier 2 notifies; Tier 3 blocks for human approval. The system targets a strict latency budget so that the security machinery is viable for interactive use:
+Layer
+Budget
+Landlock ruleset application
+< 1 ms
+seccomp-BPF filter installation
+< 1 ms
+COW overlay mount
+< 5 ms
+MCP JSON-RPC round-trip
+< 5 ms
+Total security overhead
+< 10 ms
+Full pipeline (Tier 0/1) p95
+< 100 ms
+The fact that the full multi-layer defense is engineered to a sub-100ms interactive budget is itself a technical-effect argument supporting §101 eligibility (an improvement to the functioning of the computer, not an abstract scheme).
+11. Mechanically Non-Bypassable Enforcement (Summary)
+Distinct from the prompt-level guardrails used by typical assistants, the isolation here is enforced by code-structure mechanisms designed to resist accidental or casual removal:
+Mechanism
+What it prevents
+Locus
+Constructor guard sentinel
+Injecting a tool/mcpd client into a brain wrapper
+backends/base.py
+__init_subclass__ override ban + __slots__
+A subclass silently overriding the safety completion method or adding hidden capability attributes
+backends/base.py
+Non-overridable tools_disabled envelope
+Re-enabling tools on the perception path
+backends/base.py
+Auditor call-count probe (fail-closed)
+Skipping the outbound payload scan
+backends/base.py + auditor.py
+Compiled-in JSON schemas
+A deployed daemon drifting from its declared parameter contract
+schema.rs
+openat2 RESOLVE_STRICT
+Path escape / symlink TOCTOU after userspace validation
+tools/fs.rs
+Landlock fail-closed exit
+Running unconfined on an unsupported kernel
+sandbox/landlock.rs
+seccomp default-kill + listen/accept deny
+Unexpected syscalls and any network listener
+sandbox/seccomp.rs
+3s approval lockout
+Click-through approval of destructive dry-runs
+hitl.py
+SHA-256 boot gate
+Running tampered/unknown model weights
+startup + checksums.sha256
+12. End-to-End Request Lifecycle
+Controller.run_turn() (controller/main.py) sequences a turn approximately as follows:
+	•	Receive user text + any untrusted context.
+	•	Quarantined Brain produces a candidate Intent Object (grammar-constrained).
+	•	Schema-validate the Intent Object (reject metacharacters/extra fields).
+	•	Risk-classify (realpath-resolved) into tier 0–3.
+	•	If tier 3 (or critical path / out-of-home destructive): HITL gate with 3s lockout, 30s timeout.
+	•	Store the validated intent; obtain an opaque UUID.
+	•	Assemble the Privileged Brain turn = {intent_id, allowed_tool, tool_schema} only.
+	•	Privileged Brain emits a concrete MCP tool call.
+	•	Outbound auditor scans the payload (fail-closed).
+	•	mcpd re-validates parameters against the compiled schema (INV-4).
+	•	mcpd forks child; applies Landlock + seccomp before execve; COW dry-run if destructive-outside-home.
+	•	Execute under kernel confinement; capture result.
+	•	Optional verification-brain round-trip ({verified, reason}).
+	•	Append audit record (including any rejection) to the O_APPEND log; summarize result back to the Quarantined Brain only.
+13. Implementation Status (for Enablement Honesty)
+Phase / module
+Status (as documented in-repo)
+mcpd Rust daemon (transport, schema, fs two-layer, Landlock, seccomp, COW, audit, integrity)
+Complete; exit gates reported green on Linux.
+Controller (schema, intent store, risk classifier, HITL, session, base backend, auditor, sanitize)
+Implemented as described; integration is the active build front.
+Fine-tuning pipeline (Privileged Brain NL2SH via SFT+DPO/LoRA)
+In progress (Phase 4).
+UX / graduated determinism surface, ISO distribution, hardening/release
+Not started (Phases 5–7).
+Two honesty items counsel must have
+1. A documented evaluation regression. An in-repo evaluation reports the fine-tuned Privileged Brain at ~3.1% on the Functional Equivalence Heuristic vs ~100% for the baseline — i.e., the current fine-tune underperforms badly. This does NOT affect the patentability of the architecture (the security architecture is independent of model accuracy), but it is a material fact about reduction-to-practice of the fine-tuning embodiment, and an examiner or opponent could probe it. Do not present the fine-tuned model as a working best mode without this caveat.
+2. A cross-document status inconsistency. One architecture doc lists Phase 1 as 'Not started' while CLAUDE.md, the phase table, and the git history indicate the mcpd daemon is complete. This is almost certainly stale text, but clean it up before anything is handed to an examiner so the disclosure is internally consistent.
+14. Candidate Inventive Concepts and Claim Seeds
+Each concept below is stated as a drafting seed (CI-n), with its code basis. These are starting points for counsel, not finished claims.
+Seed
+Statement (drafting seed)
+Code basis
+CI-1 (independent, system)
+A computing system for natural-language control of an operating system comprising a plurality of locally-executed machine-learning models partitioned into isolated roles including at least a perception role having no execution capability and an execution role having no access to untrusted input, and a non-model controller that mediates all inter-model communication solely via a schema-validated intent referenced by an opaque identifier, wherein execution is performed by a tool process confined by kernel-enforced mandatory access control applied before the process executes.
+§1, §3, §8, §9, sandbox/*
+CI-2 (dependent, non-bypass)
+The system of CI-1 wherein the perception role's lack of execution capability is enforced by a construction-time guard, a prohibition on overriding the model-completion method by subclasses, and an outbound-payload auditor that aborts the request if it is not invoked.
+backends/base.py, auditor.py
+CI-3 (dependent, opaque channel)
+The system of CI-1 wherein the opaque identifier references a stored intent that is (a) schema-validated against a denylist of shell metacharacters, (b) bounded by a time-to-live, (c) associated with exactly one permitted tool, and (d) revisable only atomically under a single lock without introduction of new schema fields.
+intent_schema.py, intent_store.py, schemas/intent.json
+CI-4 (dependent, kernel confinement)
+The system of CI-1 wherein the kernel-enforced confinement comprises a Landlock ruleset and a seccomp-BPF filter applied to a child process before execve together with no-new-privs, and wherein the system refuses to execute if the confinement cannot be enforced by the kernel.
+sandbox/landlock.rs, sandbox/seccomp.rs
+CI-5 (dependent, TOCTOU-safe FS)
+The system of CI-1 wherein file operations are admitted by a userspace path-validation layer and independently resolved by the kernel using constrained path resolution that forbids escaping a designated root and forbids symbolic-link traversal.
+tools/fs.rs (validate + openat2 RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS)
+CI-6 (dependent, graduated determinism)
+The system of CI-1 wherein each intent is assigned one of a plurality of risk tiers determining automatic execution, user notification, or blocking human approval, the human-approval interface enforcing a minimum delay before approval can be accepted.
+risk_classifier.py, hitl.py
+CI-7 (dependent, destructive dry-run)
+The system of CI-6 wherein a destructive operation outside a user home directory is staged via a copy-on-write dry-run whose report is presented for approval prior to an atomic commit.
+sandbox/cow.rs, tools/fs.rs
+CI-8 (dependent, integrity gate)
+The system of CI-1 wherein each model's weights are verified against a checksum manifest at startup and operation is refused on mismatch.
+INV-7, models/checksums.sha256
+CI-9 (dependent, transport isolation)
+The system of CI-1 wherein the tool process communicates exclusively over a standard-I/O message channel and is prevented, by both program structure and a syscall filter denying socket-listen operations, from opening a network listener.
+server.rs, sandbox/seccomp.rs
+CI-10 (dependent, N-brain roles)
+The system of CI-1 further comprising a verification model that approves or rejects a structured intent, and/or a classification model that assigns the risk tier, and/or an ensemble of isolated perception passes whose quorum is required before execution.
+qb_verifier.txt, risk_classifier.py, §9
+CI-11 (independent, method)
+A method comprising the corresponding steps of the lifecycle in §12, claimed as a process for converting natural-language intent into kernel-confined system actions without exposing the executing model to untrusted input.
+controller/main.py run_turn()
+15. Element-by-Element Prior-Art Comparison
+Verified references and how the as-built system differs. Counsel should treat Willison 2023 and CaMeL 2025 as the principal hurdles.
+Reference
+Discloses
+Does NOT disclose (our delta)
+Willison, Dual LLM pattern (Apr 25, 2023)
+Privileged + quarantined LLM split; quarantined content never exposed to privileged LLM; passing by reference ($variable).
+OS-level embodiment; kernel-enforced confinement before fork; schema-validated metacharacter-denylisted intent; opaque TTL-bounded UUID store with revise-under-lock; mechanically non-bypassable enforcement; graduated determinism with timed lockout; model-weight integrity gate; N-brain roles. Application-pattern only, no system/kernel integration.
+DeepMind CaMeL, arXiv 2503.18813 (2025)
+Extracting control/data flow from a trusted query; capability-based policy enforcement at tool-call time; provable-ish security on AgentDojo.
+OS/kernel-level enforcement (Landlock/seccomp/COW); a separate, capability-narrowed opaque-reference inter-model channel; constructor/subclass non-bypass mechanisms; integrity-gated local model boot; graduated human-in-the-loop with COW dry-run. CaMeL is an application-layer policy interpreter, not an OS.
+MCP (Anthropic, Nov 2024)
+JSON-RPC-2.0 tool protocol over stdio/SSE; client-server tool integration.
+Used as transport only. The invention is the surrounding isolation/enforcement architecture, not the protocol.
+Landlock (5.13), seccomp-BPF, openat2 RESOLVE_BENEATH/NO_SYMLINKS
+Individual kernel sandboxing/path-resolution primitives.
+Their specific ordered combination (validate-before-fork, fail-closed, two-layer FS, default-kill dual filter) integrated under an AI-mediated intent pipeline.
+Project whitepaper's admitted prior art (CX Linux distro; existing mcpd project)
+Prior AI-native Linux and MCP-daemon efforts referenced by the inventor's own whitepaper.
+MUST be obtained and read by counsel. The defensible delta is the specific multi-brain isolation + non-bypass + kernel-confinement combination; verify these references do not anticipate the claimed combination.
+16. Enablement, Best Mode, and Known Limitations
+	•	Implemented and exercised: the mcpd daemon and its security layers (transport, schema, two-layer FS, Landlock, seccomp, COW, audit, integrity) and the Controller modules described above. These support a robust enablement story for the security architecture.
+	•	Partial / in-progress: the fine-tuned Privileged Brain (Phase 4) currently underperforms (FEH ~3.1% vs ~100% baseline). Best-mode disclosure for the execution-model embodiment should describe the architecture and the fine-tuning method without overclaiming the current fine-tune's accuracy. A general off-the-shelf coder model is a viable execution-model embodiment independent of the fine-tune.
+	•	Not yet built: UX surface, ISO distribution, and final hardening (Phases 5–7). Claims should not depend on un-built embodiments for enablement.
+	•	Internal-consistency cleanup: resolve the Phase-1 status discrepancy (§13) across docs before any disclosure is filed.
+Bottom line for counsel
+The architecture is real and substantially implemented; the security claims rest on working code. The patentability question is non-obviousness of the specific combination over Willison (2023) + CaMeL (2025) + standard Linux hardening. The strongest filings will (1) claim the N-brain isolated-role + opaque-channel + kernel-confinement combination, not the abstract dual-LLM idea; (2) lean on the concrete kernel mechanisms for §101; (3) include the dependent non-bypass, graduated-determinism, TOCTOU-safe-FS, and integrity-gate concepts as fallback positions; and (4) front-load the inventorship (AI-authored code; human conception) and CMU ownership questions. Treat the case as promising-but-uncertain, and let the firm's prior-art search make the call before committing to full international prosecution.
+Appendix A — Concept-to-Source Index
+Concept
+Primary source file(s)
+Brain isolation / base backend
+dual-brain/controller/backends/base.py
+Outbound payload auditor
+dual-brain/controller/backends/auditor.py
+Secret sanitization
+dual-brain/controller/backends/sanitize.py
+Intent schema + validation
+dual-brain/controller/intent_schema.py; controller/schemas/intent.json
+Opaque intent store (UUID, TTL, revise-under-lock)
+dual-brain/controller/intent_store.py
+Risk classifier / tiers
+dual-brain/controller/risk_classifier.py
+Human-in-the-loop gate / lockout
+dual-brain/controller/hitl.py
+Session turn assembly (opaque PB context)
+dual-brain/controller/session.py
+Grammar-constrained perception output
+dual-brain/controller/grammars/qb_intent.gbnf
+Verification-brain prompt
+dual-brain/controller/prompts/qb_verifier.txt
+Controller pipeline
+dual-brain/controller/main.py
+JSON-RPC stdio server / method gating
+src/mcpd/src/server.rs
+Compile-time schema validation
+src/mcpd/src/schema.rs
+Two-layer filesystem defense / openat2
+src/mcpd/src/tools/fs.rs
+Landlock ruleset
+src/mcpd/src/sandbox/landlock.rs
+seccomp-BPF dual filter
+src/mcpd/src/sandbox/seccomp.rs
+Copy-on-write dry-run
+src/mcpd/src/sandbox/cow.rs
+Audit log
+src/mcpd/src/audit.rs
+Model-weight integrity manifest
+models/checksums.sha256

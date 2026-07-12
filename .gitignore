@@ -48,3 +48,8 @@ src/mcpd/target/
 # Local session-recovery transcripts (Claude Code artifacts; not project state)
 session_*_RESUME.md
 session_*_transcript_*.md
+
+# Large files and generated ISOs
+*.tar.gz
+*.iso
+ISO/

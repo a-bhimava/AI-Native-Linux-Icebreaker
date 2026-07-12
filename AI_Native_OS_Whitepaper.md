@@ -755,6 +755,25 @@ This section defines the **exact sequence** in which the project must be built. 
 
 **Phase 8 exit criteria:** Icebreaker executes a 3-4 step plan without human intervention within HITL boundaries; sub-agent role system in production; LangGraph adapter published + one worked example in `docs/examples/langgraph-icebreaker.md`.
 
+### 10.5 Audit acknowledgment (2026-07-10)
+
+A late Phase 6 re-audit surfaced a category error in what "Phase 6 complete" had come to mean historically versus what it means from `v1.0-rc1` onward. **The architecture description in this whitepaper is unchanged and correct**: the dual-brain isolation (INV-1), the mcpd sandbox stack (Landlock + Seccomp-BPF + COW, INV-5), the graduated determinism model (Tier 0-3), and the audit hash-chain (INV-8) are all present in code and enforced.
+
+What was NOT present at the 2026-07-10 audit was the surrounding error surface: 46 silent exception swallows across the daemon / TUI / GUI / sandbox path (any of which could hide a real security failure), 6 hardcoded numeric constants that shape user-visible behavior (turn timeout, reader recv/backoff, shell context caps), 3 config fields declared but not surfaced in the Control Center, and 16 runtime bugs (F-41 → F-56) surfaced during UTM sweeps between v6.6 and v6.65 that had been fixed in individual patch versions but lacked named regression locks. On the next boot, any of those fixes could silently rot away and no test would catch it.
+
+The July 2026 completion sprint (PRs #27–#30, feature branches `fix/scope-A` through `fix/scope-F`) closes those gaps:
+
+- **Scope A**: 63 → 0 silent swallows with `_log_exception` + `test_no_silent_swallow.py` CI enforcement.
+- **Scope B**: 6 knobs → schema-driven config + no-new-knobs G23 gate + backward-compat test.
+- **Scope C**: cloud QB preset registry live-verified against real APIs + red-badge failing-preset UI + XDG cache.
+- **Scope D**: per-page Control Center smoke tests + edge-case matrix + polkit dry-run.
+- **Scope E**: fallback chain edge-case exhaustion + `ICEBREAKER_LIVE`-gated integration tests.
+- **Scope F**: 4 dedicated behavioral test modules covering F-43/F-47b/F-48/F-52/F-53 + broad-OS corpus rows + G24 live gate + new rule **R14 — Every F-xx fix carries a named regression lock** in `incremental/GROUND_TRUTH.md § 2`.
+
+The final artifact — ISO `v1.0-rc1` — is gated on **`incremental/GROUND_TRUTH.md § 9 Phase 6 Exit Criteria`**. Historical `Complete` claims for Phase 6 in `CLAUDE.md` refer to packaging plumbing (build.sh + systemd + Python packaging). Post-`v1.0-rc1`, `Complete` will additionally guarantee the hardened error surface, the named regression floor for every logged failure, and a G24 live sweep against the shipped ISO.
+
+Nothing about the dual-brain design, the sandbox invariants, the model isolation, or the KPIs (§ 13) changes. This footnote exists so a future reader tracing back through commits understands the audit-driven work between 2026-07-10 and `v1.0-rc1` was documentation and enforcement discipline, not architecture pivot.
+
 ---
 
 ## 11. Concepts to Master
