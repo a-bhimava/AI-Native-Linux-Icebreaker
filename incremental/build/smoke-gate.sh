@@ -212,6 +212,21 @@ if [ "$LEVEL" -ge 6 ]; then
     [ -x "${CHROOT}/usr/local/bin/mcpd-harvest-guest.sh" ] \
         && pass "mcpd-harvest-guest.sh installed (G5 in-guest harvest runner)" \
         || fail "mcpd-harvest-guest.sh missing — qemu-gate L6 in-guest harvest cannot run"
+    # F-57 / G.5 (Scope G.5, 2026-07-12): the terminal + chatbot autostart
+    # .desktop files were deleted because they auto-launched at every login
+    # BEFORE the user could configure API keys. This assertion fires if
+    # either file is reintroduced under /etc/xdg/autostart/.
+    if ls "${CHROOT}"/etc/xdg/autostart/icebreaker-terminal*.desktop 2>/dev/null || \
+       ls "${CHROOT}"/etc/xdg/autostart/icebreaker-chatbot*.desktop 2>/dev/null; then
+        fail "F-57 regression: terminal or chatbot autostart .desktop reintroduced under /etc/xdg/autostart/"
+    else
+        pass "no terminal/chatbot autostart .desktop under /etc/xdg/autostart/ (F-57)"
+    fi
+    # ib-bundle diagnostic collector must be installed as an executable
+    # so the user can produce a self-service diagnostic tarball.
+    [ -x "${CHROOT}/usr/local/bin/ib-bundle" ] \
+        && pass "ib-bundle installed (G.5 diagnostic bundle collector)" \
+        || fail "ib-bundle missing — user cannot produce a self-service diag bundle"
     # F-36 / R10 (revised): AVX2 is the minimum CPU. Enforce that llama-server
     # doesn't accidentally start requiring AVX-512 (which Rosetta 2 doesn't
     # support — F-24). ymm/AVX2 references are expected and fine.

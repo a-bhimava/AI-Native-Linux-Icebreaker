@@ -360,6 +360,13 @@ if [ "$SKIP_TO" -le 4 ]; then
         "${CHROOT}/usr/bin/ib_debug.py"
     # convenience symlink: 'ib-debug snapshot' instead of 'python3 /usr/bin/ib_debug.py snapshot'
     ln -sf /usr/bin/ib_debug.py "${CHROOT}/usr/bin/ib-debug" 2>/dev/null || true
+    # ib_bundle.py — diagnostic bundle collector (Scope G.5, 2026-07-12).
+    # Collects logs, journals, harvest output, boot-report, models, markers,
+    # config (redacted) into ~/icebreaker-bundle-<ts>-<arch>.tar.zst.
+    # Called by first-boot on red; user runs manually when something is
+    # broken and they want to attach a diag to a GitHub issue.
+    install -Dm755 "${REPO_ROOT}/dual-brain/scripts/ib_bundle.py" \
+        "${CHROOT}/usr/local/bin/ib-bundle"
 
     # ── /usr/libexec/icebreaker/ ────────────────────────────────────────
     install -Dm755 "${BUILD_DIR}/mcpd" \
@@ -448,17 +455,17 @@ if [ "$SKIP_TO" -le 4 ]; then
         fi
     done
 
-    # ── Chatbot autostart ──────────────────────────────────────────────
-    if [ -f "${SCRIPT_DIR}/distro/icebreaker-chatbot-autostart.desktop" ]; then
-        install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-chatbot-autostart.desktop" \
-            "${CHROOT}/etc/xdg/autostart/icebreaker-chatbot.desktop"
-    fi
-
-    # ── Terminal autostart ─────────────────────────────────────────────
-    if [ -f "${SCRIPT_DIR}/distro/icebreaker-terminal-autostart.desktop" ]; then
-        install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-terminal-autostart.desktop" \
-            "${CHROOT}/etc/xdg/autostart/icebreaker-terminal.desktop"
-    fi
+    # Autostart of Icebreaker Terminal + Chatbot removed 2026-07-12 —
+    # the user experience was: user boots the ISO for the first time,
+    # BEFORE they've entered API keys or configured anything, and the
+    # terminal auto-launched full-screen, obscuring the desktop and the
+    # Control Center they need to open first. The correct entry points
+    # are `icebreaker-control.desktop` (Control Center, launched from
+    # app menu after user reads the welcome notification) and
+    # `icebreaker-terminal.desktop` (launched on demand from the app
+    # menu once the user has configured keys and is ready to use it).
+    # First-boot self-test notification (Option B) tells the user
+    # what to open first.
 
     # ── Build manifest ──────────────────────────────────────────────────
     install -Dm644 "${BUILD_DIR}/manifest.json" \
