@@ -147,6 +147,21 @@ version_overlay() {
         # F-53 verifier reason surfaces type(exc).__name__ (verifier.py has
         # this at two sites — SingleVerifier + MajorityVoter._single_vote):
         "F53-verifier:verifier.py:type(exc).__name__"
+        # Phase 6 Scope G (2026-07-11) — F-56 fix-shape marker.
+        # F-56: _emit_unsupported yields ResultEvent, but ResultEvent lives
+        # in turn_events which mutually imports from .main — so ResultEvent
+        # can only be a LOCAL import inside the method (same pattern as
+        # _cot in F-42). If someone removes the local import in a refactor,
+        # every unsupported turn hits NameError at runtime.
+        #
+        # F-55 (arm64 seccomp faccessat) is enforced by smoke-gate.sh L6's
+        # `strings /usr/libexec/icebreaker/mcpd | grep -qE 'faccessat'`
+        # check — the mcpd binary is not in the venv, so a v2.manifest
+        # marker cannot cover it.
+        #
+        # G5 (mcpd-harvest-guest.sh) is enforced by smoke-gate.sh L6's
+        # `[ -x ${CHROOT}/usr/local/bin/mcpd-harvest-guest.sh ]` check.
+        "F56-emit-import:main.py:from .turn_events import ResultEvent"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do
@@ -249,4 +264,11 @@ version_overlay() {
     # Refresh ib-debug with the daemon.status ping fix.
     install -Dm755 "${repo}/dual-brain/scripts/ib_debug.py" \
         "${chroot}/usr/local/bin/ib-debug"
+
+    # G5 (Scope G, 2026-07-11): in-guest seccomp harvest runner. Called by
+    # qemu-gate.sh L6 via _ssh to run a 5-tool LOG_ONLY exercise inside
+    # the booted VM. Catches arch-specific syscall gaps (F-55 pattern) on
+    # the REAL guest kernel + REAL seccomp filter, before an ISO ships.
+    install -Dm755 "${repo}/incremental/scripts/mcpd-harvest-guest.sh" \
+        "${chroot}/usr/local/bin/mcpd-harvest-guest.sh"
 }

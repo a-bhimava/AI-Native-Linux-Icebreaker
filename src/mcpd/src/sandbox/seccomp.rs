@@ -218,6 +218,20 @@ pub(crate) fn allowed_syscalls() -> Vec<i64> {
         // ── Stat / link / dir creation ────────────────────────────────────
         libc::SYS_fstat,
         libc::SYS_newfstatat,
+        // F-55 (2026-07-11): faccessat / faccessat2 are the canonical arm64
+        // path-permission-check syscalls. arm64 kernels do NOT implement
+        // access(2) — arm64 glibc routes every access() call through
+        // faccessat. On amd64 access(2) exists but modern glibc still prefers
+        // faccessat/faccessat2. Since glibc 2.33 (Feb 2021, Ubuntu 22.04+),
+        // faccessat() first tries syscall #439 faccessat2 (Linux 5.8+), then
+        // falls back to faccessat on ENOSYS. If seccomp SIGSYS-kills either
+        // syscall the process dies before the fallback can run — that was
+        // F-55's SIGSYS on `journalctl -u icebreaker-controller` on arm64.
+        // Both syscalls unconditional (no arch cfg) — the libc SYS_* constant
+        // is arch-portable at source level. Adding both matches container-
+        // runtime consensus (containerd PR #4481, runc PR #2750).
+        libc::SYS_faccessat,
+        libc::SYS_faccessat2,
         libc::SYS_statfs,
         libc::SYS_fstatfs,
         libc::SYS_statx,

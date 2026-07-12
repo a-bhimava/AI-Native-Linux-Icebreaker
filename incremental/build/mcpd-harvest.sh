@@ -74,9 +74,27 @@ build_requests() {
 {"jsonrpc":"2.0","method":"fs.delete","params":{"path":"${target_file}"},"id":7}
 {"jsonrpc":"2.0","method":"process.list","params":{},"id":8}
 {"jsonrpc":"2.0","method":"package.query","params":{"name":"bash"},"id":9}
-{"jsonrpc":"2.0","method":"system.unsupported","params":{"requested_intent":"harvest gate exercise","suggestion":"echo — this is F-35's landing pad","alternative_actions":["fs.list"]},"id":10}
+{"jsonrpc":"2.0","method":"process.inspect","params":{"pid":1},"id":10}
+{"jsonrpc":"2.0","method":"service.logs","params":{"unit":"systemd-logind","lines":5},"id":11}
+{"jsonrpc":"2.0","method":"network.status","params":{},"id":12}
+{"jsonrpc":"2.0","method":"system.cpu","params":{},"id":13}
+{"jsonrpc":"2.0","method":"system.memory","params":{},"id":14}
+{"jsonrpc":"2.0","method":"system.unsupported","params":{"requested_intent":"harvest gate exercise","suggestion":"echo — this is F-35's landing pad","alternative_actions":["fs.list"]},"id":15}
 REQ
 }
+# G4 / R15 (Scope G, 2026-07-11): the 5 new tools above (process.inspect,
+# service.logs, network.status, system.cpu, system.memory) exercise syscall
+# paths the previous 9-tool harvest missed:
+#   process.inspect — opendir /proc/N + read /proc/N/exe → openat + readlinkat
+#   service.logs    — spawns journalctl -u → execve + faccessat/faccessat2
+#                     (THIS is the F-55 primary trigger; had this been in
+#                     the harvest pre-v6.6 the arm64 seccomp gap would have
+#                     been caught on the build VM instead of surfacing on
+#                     a user's UTM VM two months later)
+#   network.status  — dbus NetworkManager query → socket AF_UNIX + sendmsg/recvmsg
+#   system.cpu/mem  — reads /proc/stat + /proc/meminfo → openat + read + close
+# Every tool the daemon dispatches to mcpd MUST have a harvest exercise
+# (R15). Skipping a tool here is a review-blocker.
 
 # Run mcpd with a request sequence on stdin, capture stdout + stderr, return exit code.
 run_mcpd_session() {
@@ -99,13 +117,15 @@ run_mcpd_session "$A_OUT" "$A_ERR" "$A_PID" || warn "Phase A mcpd exited nonzero
 unset MCPD_SECCOMP_LOG_ONLY
 
 RESP_COUNT_A=$(grep -c '"jsonrpc"' "$A_OUT" || true)
-info "Phase A: mcpd emitted ${RESP_COUNT_A} JSON-RPC responses (expected 10 — 9 real tools + F-35 system.unsupported)"
+# G4 (2026-07-11): expected count bumped 10 → 15 (14 real tools + F-35 landing at id=15)
+info "Phase A: mcpd emitted ${RESP_COUNT_A} JSON-RPC responses (expected 15 — 14 real tools + F-35 system.unsupported)"
 
 # F-35: verify system.unsupported specifically responded correctly under LOG_ONLY.
 # It's a passthrough tool so the only failure mode is "response missing" (which
 # would indicate schema rejection or dispatch bug) — not a seccomp gap.
-if ! grep -q '"id":10' "$A_OUT"; then
-    fail "Phase A: system.unsupported (id=10) did not respond — F-35 landing pad broken"
+# G4: id renumbered 10 → 15 after harvest tool-list expansion.
+if ! grep -q '"id":15' "$A_OUT"; then
+    fail "Phase A: system.unsupported (id=15) did not respond — F-35 landing pad broken"
     fail "stderr tail:"
     tail -20 "$A_ERR" >&2
     rm -f "$A_OUT" "$A_ERR" "$A_PID"
@@ -167,10 +187,11 @@ pass "Phase B: mcpd survived full tool exercise under real seccomp (${RESP_COUNT
 
 # F-35 Phase C: verify the landing pad also survived real seccomp (already
 # checked via RESP_COUNT_B against RESP_COUNT_A above, but call it out).
-if grep -q '"id":10' "$B_OUT"; then
+# G4: id renumbered 10 → 15 after harvest tool-list expansion.
+if grep -q '"id":15' "$B_OUT"; then
     pass "Phase C (F-35): system.unsupported landing pad routed cleanly under real seccomp"
 else
-    fail "Phase C (F-35): system.unsupported (id=10) missing from real-seccomp responses"
+    fail "Phase C (F-35): system.unsupported (id=15) missing from real-seccomp responses"
     tail -20 "$B_ERR" >&2
     rm -f "$B_OUT" "$B_ERR" "$B_PID"
     exit 1
@@ -179,7 +200,7 @@ fi
 # ── Report + exit ────────────────────────────────────────────────────────────
 info "═══ Harvest gate GREEN — ISO build may proceed ═══"
 info "  Phase A: 0 missing syscalls after full harvest"
-info "  Phase B: ${RESP_COUNT_B}/10 tool calls returned responses; no SIGSYS"
+info "  Phase B: ${RESP_COUNT_B}/15 tool calls returned responses; no SIGSYS"
 info "  Phase C (F-35): system.unsupported landing pad routes cleanly"
 
 rm -f "$A_OUT" "$A_ERR" "$A_PID" "$B_OUT" "$B_ERR" "$B_PID"

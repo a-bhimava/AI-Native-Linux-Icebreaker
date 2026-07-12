@@ -199,6 +199,19 @@ if [ "$LEVEL" -ge 6 ]; then
     in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -qE '(^|[^a-z])fsync([^a-z]|$)'" \
         && pass "mcpd links fsync (F-33 write path present)" \
         || fail "mcpd binary lacks fsync symbol — safe_write dropped, or wrong binary shipped (F-33)"
+    # G1 / F-55 (Scope G, 2026-07-11): mcpd's seccomp allowlist must include
+    # the faccessat / faccessat2 syscalls — arm64 kernels don't implement
+    # access(2), so glibc routes access() through faccessat. Without either,
+    # `service.logs` invocations SIGSYS-kill journalctl.
+    in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -qE 'faccessat'" \
+        && pass "mcpd links faccessat (G1 / F-55 arm64 seccomp fix present)" \
+        || fail "mcpd binary lacks faccessat symbol — F-55 will fire on arm64 service.logs"
+    # G5 / F-55 (Scope G, 2026-07-11): the in-guest harvest runner must be
+    # present at /usr/local/bin/mcpd-harvest-guest.sh so qemu-gate L6 can
+    # exercise real-kernel seccomp inside the booted VM.
+    [ -x "${CHROOT}/usr/local/bin/mcpd-harvest-guest.sh" ] \
+        && pass "mcpd-harvest-guest.sh installed (G5 in-guest harvest runner)" \
+        || fail "mcpd-harvest-guest.sh missing — qemu-gate L6 in-guest harvest cannot run"
     # F-36 / R10 (revised): AVX2 is the minimum CPU. Enforce that llama-server
     # doesn't accidentally start requiring AVX-512 (which Rosetta 2 doesn't
     # support — F-24). ymm/AVX2 references are expected and fine.

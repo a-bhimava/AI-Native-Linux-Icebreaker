@@ -341,6 +341,42 @@ if [ "$LEVEL" -ge 6 ]; then
         && fail "INV-3 VIOLATION: mcpd has a TCP listener" || pass "mcpd has no TCP listeners (INV-3)"
     _ssh "id _icebreaker_pb" >/dev/null \
         && pass "_icebreaker_pb user created (sysusers)" || fail "_icebreaker_pb user missing"
+
+    # G5 (Scope G, 2026-07-11): in-guest seccomp harvest.
+    # Runs mcpd-harvest-guest.sh INSIDE the booted VM. F-55 shipped
+    # because the build-VM harvest never spawned journalctl; the
+    # arm64 `faccessat` gap only surfaced when the user typed
+    # `# show me errors in journalctl` on a live guest.
+    #
+    # qemu-system-aarch64 under TCG runs a real arm64 kernel with real
+    # seccomp — SIGSYS fires faithfully. Under KVM (same-arch) it's
+    # native. Either way, ANY missing syscall in the exercised path
+    # will surface here BEFORE ISO ship.
+    #
+    # F-13 rule: TCG scaling — harvest itself runs ~5 s natively; give
+    # it 180 s under TCG to account for the mcpd startup + emulation.
+    HARVEST_TIMEOUT=60
+    [ "${QEMU_ACCEL[0]}" = "-cpu" ] && HARVEST_TIMEOUT=180
+    echo "[L6.harvest] in-guest seccomp harvest (timeout=${HARVEST_TIMEOUT}s)..."
+    HARVEST_OUT="$(_ssh "sudo /usr/local/bin/mcpd-harvest-guest.sh --timeout ${HARVEST_TIMEOUT}" 2>&1 || true)"
+    HARVEST_STATUS="$(printf '%s' "$HARVEST_OUT" | grep -oE '"status":"[a-z]+"' | head -1 | cut -d'"' -f4)"
+    case "$HARVEST_STATUS" in
+        ok)
+            HARVEST_ARCH="$(printf '%s' "$HARVEST_OUT" | grep -oE '"arch":"[^"]+"' | head -1 | cut -d'"' -f4)"
+            pass "in-guest seccomp harvest CLEAN (arch=${HARVEST_ARCH}) — no missing syscalls"
+            ;;
+        gap)
+            HARVEST_MISSING="$(printf '%s' "$HARVEST_OUT" | grep -oE '"missing_syscalls":\[[^]]*\]' | head -1)"
+            fail "in-guest seccomp harvest GAP: ${HARVEST_MISSING} — add to allowed_syscalls() in src/mcpd/src/sandbox/seccomp.rs and rebuild mcpd"
+            ;;
+        error)
+            HARVEST_REASON="$(printf '%s' "$HARVEST_OUT" | grep -oE '"reason":"[^"]+"' | head -1)"
+            fail "in-guest harvest runner error: ${HARVEST_REASON}"
+            ;;
+        *)
+            fail "in-guest harvest returned unparseable output: ${HARVEST_OUT:0:200}"
+            ;;
+    esac
 fi
 
 # ── Verdict ─────────────────────────────────────────────────────────────

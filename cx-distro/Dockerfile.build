@@ -15,9 +15,15 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     | sh -s -- -y --default-toolchain stable --profile minimal
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Linux target for mcpd cross-compilation (already native in the container,
-# but explicit for clarity in the build script).
-RUN rustup target add x86_64-unknown-linux-gnu
+# Linux targets for mcpd (both arches). Scope G (2026-07-11): the amd64
+# target is native to the container; the aarch64 target lets Stage 1 produce
+# `mcpd-arm64` for arm64 ISOs. mcpd's Cargo.toml deps (tokio, seccompiler,
+# landlock, zbus, libc, jsonschema, nix, uuid, chrono) are all pure Rust
+# with no `cc`-crate C compilation, so `rustup target add` alone suffices
+# — no `apt install gcc-aarch64-linux-gnu` needed. If Stage 1 ever fails
+# at link time on a new dep that pulls in cc, add the cross linker here
+# and export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc.
+RUN rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
 
 WORKDIR /build
 ENTRYPOINT ["/build/cx-distro/build.sh"]
