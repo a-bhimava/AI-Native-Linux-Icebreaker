@@ -3,8 +3,14 @@
 #
 # Runs via icebreaker-first-boot.service (Type=oneshot) on every live
 # session and once on an installed system. Verifies model checksums
-# (INV-7 defense-in-depth), waits for PB/QB health, adds the first
+# (INV-7 defense-in-depth), waits for PB/QB health, pings mcpd
+# tools/list, runs the in-guest seccomp harvest, writes a structured
+# boot-report JSON, shows a 5-min desktop notification, adds the first
 # human user to icebreaker-users, and drops a sentinel.
+#
+# Scope G.5 (2026-07-12) added: structured boot-report.json, mcpd
+# tools/list ping, harvest hookup, notify-send, auto-bundle-on-red.
+
 set -euo pipefail
 
 TAG="icebreaker-first-boot"
@@ -22,13 +28,36 @@ fi
 
 : "${ICEBREAKER_MODELS_DIR:=/var/lib/icebreaker/models}"
 : "${ICEBREAKER_SOCKET_DIR:=/run/icebreaker}"
+: "${ICEBREAKER_LOG_DIR:=/var/log/icebreaker}"
 : "${ICEBREAKER_FIRST_BOOT_TIMEOUT:=120}"
 
 CHECKSUMS="${ICEBREAKER_MODELS_DIR}/checksums.sha256"
 SENTINEL="/var/lib/icebreaker/.first-boot-complete"
 
+mkdir -p "${ICEBREAKER_LOG_DIR}"
+
+# ── Boot-report accumulator ────────────────────────────────────────────
+# Every phase appends one JSON object here. Assembled at the end.
+BOOT_REPORT_TMP="$(mktemp)"
+BOOT_START_EPOCH="$(date +%s)"
+BOOT_REPORT_TS="$(date -u +%Y%m%dT%H%M%SZ)"
+RED_STAGES=()
+
+phase_result() {
+    # phase_result <stage_name> <status: ok|warn|red|skipped> <elapsed_ms> [details_json]
+    local stage="$1" status="$2" elapsed_ms="$3" details="${4:-{\}}"
+    printf '{"stage":"%s","status":"%s","elapsed_ms":%d,"details":%s}\n' \
+        "$stage" "$status" "$elapsed_ms" "$details" \
+        >> "${BOOT_REPORT_TMP}"
+    if [ "$status" = "red" ]; then
+        RED_STAGES+=("$stage")
+    fi
+}
+
 # ── Step 1: Model checksum verification (INV-7 defense-in-depth) ───────
+STEP1_START="$(date +%s%3N)"
 CHECKSUM_FAILURES=0
+CHECKSUMS_CHECKED=0
 if [ -f "${CHECKSUMS}" ]; then
     log "Verifying model checksums..."
     while IFS= read -r line; do
@@ -47,6 +76,7 @@ if [ -f "${CHECKSUMS}" ]; then
         fi
 
         actual_hash=$(sha256sum "$model_file" | awk '{print $1}')
+        CHECKSUMS_CHECKED=$((CHECKSUMS_CHECKED + 1))
         if [ "$expected_hash" != "$actual_hash" ]; then
             err "checksum MISMATCH: ${filename}"
             err "  expected: ${expected_hash}"
@@ -65,6 +95,15 @@ if [ -f "${CHECKSUMS}" ]; then
     fi
 else
     warn "checksums file not found: ${CHECKSUMS}"
+    CHECKSUM_FAILURES=1  # missing checksums = red
+fi
+STEP1_MS=$(( $(date +%s%3N) - STEP1_START ))
+if [ "$CHECKSUM_FAILURES" -gt 0 ]; then
+    phase_result "checksums" "red" "$STEP1_MS" \
+        "{\"checked\":$CHECKSUMS_CHECKED,\"failures\":$CHECKSUM_FAILURES}"
+else
+    phase_result "checksums" "ok" "$STEP1_MS" \
+        "{\"checked\":$CHECKSUMS_CHECKED,\"failures\":0}"
 fi
 
 # ── Step 2: Health polling ──────────────────────────────────────────────
@@ -84,30 +123,239 @@ poll_health() {
     return 1
 }
 
+STEP2_START="$(date +%s%3N)"
 if systemctl is-enabled icebreaker-pbd.service >/dev/null 2>&1; then
-    poll_health "PB" "${ICEBREAKER_SOCKET_DIR}/pbd.sock" || true
+    if poll_health "PB" "${ICEBREAKER_SOCKET_DIR}/pbd.sock"; then
+        phase_result "pbd_health" "ok" $(( $(date +%s%3N) - STEP2_START ))
+    else
+        phase_result "pbd_health" "red" $(( $(date +%s%3N) - STEP2_START ))
+    fi
+else
+    phase_result "pbd_health" "skipped" 0 \
+        '{"reason":"icebreaker-pbd.service not enabled"}'
 fi
 
+STEP2B_START="$(date +%s%3N)"
 if systemctl is-enabled icebreaker-qbd.service >/dev/null 2>&1; then
-    poll_health "QB" "${ICEBREAKER_SOCKET_DIR}/qbd.sock" || true
+    if poll_health "QB" "${ICEBREAKER_SOCKET_DIR}/qbd.sock"; then
+        phase_result "qbd_health" "ok" $(( $(date +%s%3N) - STEP2B_START ))
+    else
+        phase_result "qbd_health" "red" $(( $(date +%s%3N) - STEP2B_START ))
+    fi
+else
+    phase_result "qbd_health" "skipped" 0 \
+        '{"reason":"icebreaker-qbd.service not enabled — cloud QB in use"}'
+fi
+
+# ── Step 2b (G.5.1): mcpd tools/list ping ──────────────────────────────
+# Confirms mcpd is spawnable AND the seccomp allowlist doesn't SIGSYS-kill
+# it on tools/list dispatch. This is a MUCH cheaper check than the full
+# harvest (single tool call, no full-syscall discovery) — quick "is mcpd
+# alive?" health.
+STEP2C_START="$(date +%s%3N)"
+MCPD_BIN="/usr/libexec/icebreaker/mcpd"
+if [ -x "$MCPD_BIN" ]; then
+    MCPD_OUT="$(mktemp)"
+    # Fire tools/list, expect a JSON-RPC response with a `tools` array.
+    if timeout 15 bash -c "
+        printf '%s\n' '{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"params\":{},\"id\":1}' \
+            | \"$MCPD_BIN\"
+        " 2>/dev/null > "$MCPD_OUT"; then
+        TOOL_COUNT=$(grep -oE '"name":"[a-z_.]+"' "$MCPD_OUT" | wc -l | tr -d ' ')
+        if [ "${TOOL_COUNT:-0}" -gt 0 ]; then
+            log "mcpd tools/list: ${TOOL_COUNT} tools registered"
+            phase_result "mcpd_tools" "ok" \
+                $(( $(date +%s%3N) - STEP2C_START )) \
+                "{\"tool_count\":${TOOL_COUNT}}"
+        else
+            warn "mcpd tools/list returned no tools"
+            phase_result "mcpd_tools" "red" \
+                $(( $(date +%s%3N) - STEP2C_START )) \
+                '{"tool_count":0,"reason":"empty tools/list response"}'
+        fi
+    else
+        warn "mcpd tools/list invocation failed"
+        phase_result "mcpd_tools" "red" \
+            $(( $(date +%s%3N) - STEP2C_START )) \
+            '{"reason":"mcpd invocation failed or timed out"}'
+    fi
+    rm -f "$MCPD_OUT"
+else
+    phase_result "mcpd_tools" "skipped" 0 \
+        "{\"reason\":\"${MCPD_BIN} not executable\"}"
+fi
+
+# ── Step 2c (G.5.1): in-guest seccomp harvest ──────────────────────────
+# Runs the same script qemu-gate.sh L6 uses. Any missing syscall on the
+# real guest kernel + real seccomp filter surfaces here BEFORE the user
+# hits it via a runtime tool call (F-55 was exactly this pattern).
+STEP2D_START="$(date +%s%3N)"
+HARVEST_SCRIPT="/usr/local/bin/mcpd-harvest-guest.sh"
+if [ -x "$HARVEST_SCRIPT" ]; then
+    HARVEST_OUT="$("$HARVEST_SCRIPT" --timeout 30 2>&1 || true)"
+    HARVEST_STATUS="$(printf '%s' "$HARVEST_OUT" | grep -oE '"status":"[a-z]+"' | head -1 | cut -d'"' -f4)"
+    HARVEST_MISSING="$(printf '%s' "$HARVEST_OUT" | grep -oE '"missing_syscalls":\[[^]]*\]' | head -1)"
+    case "$HARVEST_STATUS" in
+        ok)
+            phase_result "harvest" "ok" \
+                $(( $(date +%s%3N) - STEP2D_START )) \
+                "${HARVEST_MISSING:-{}}"
+            ;;
+        gap)
+            err "harvest gap: ${HARVEST_MISSING}"
+            phase_result "harvest" "red" \
+                $(( $(date +%s%3N) - STEP2D_START )) \
+                "${HARVEST_MISSING:-{}}"
+            ;;
+        *)
+            warn "harvest returned unexpected output: ${HARVEST_OUT:0:200}"
+            phase_result "harvest" "red" \
+                $(( $(date +%s%3N) - STEP2D_START )) \
+                '{"reason":"harvest runner returned unparseable output"}'
+            ;;
+    esac
+else
+    phase_result "harvest" "skipped" 0 \
+        "{\"reason\":\"${HARVEST_SCRIPT} not installed\"}"
 fi
 
 # ── Step 3: Add first human user to icebreaker-users ────────────────────
+STEP3_START="$(date +%s%3N)"
 FIRST_USER=$(getent passwd 1000 2>/dev/null | cut -d: -f1 || true)
 if [ -n "${FIRST_USER}" ]; then
     if id -nG "${FIRST_USER}" 2>/dev/null | grep -qw icebreaker-users; then
         log "User ${FIRST_USER} already in icebreaker-users."
+        phase_result "user_group" "ok" \
+            $(( $(date +%s%3N) - STEP3_START )) \
+            "{\"user\":\"${FIRST_USER}\",\"already_in\":true}"
     else
         if usermod -aG icebreaker-users "${FIRST_USER}" 2>/dev/null; then
             log "Added ${FIRST_USER} to icebreaker-users."
+            phase_result "user_group" "ok" \
+                $(( $(date +%s%3N) - STEP3_START )) \
+                "{\"user\":\"${FIRST_USER}\",\"added\":true}"
         else
             warn "Failed to add ${FIRST_USER} to icebreaker-users."
+            phase_result "user_group" "warn" \
+                $(( $(date +%s%3N) - STEP3_START )) \
+                "{\"user\":\"${FIRST_USER}\",\"reason\":\"usermod failed\"}"
         fi
     fi
 else
     warn "No user with UID 1000 found; skipping group membership."
+    phase_result "user_group" "skipped" 0 \
+        '{"reason":"no UID 1000"}'
 fi
 
-# ── Step 4: Drop sentinel ──────────────────────────────────────────────
+# ── Step 5 (G.5.1): assemble boot-report.json ─────────────────────────
+# Aggregate every phase's line into one JSON document + write to
+# /var/log/icebreaker/boot-report-<ts>-<sha8>.json. sha8 is a short hash
+# of the overall status + red-stages so multiple boots don't overwrite
+# each other and a failing state has a stable name.
+OVERALL_STATUS="ok"
+if [ "${#RED_STAGES[@]}" -gt 0 ]; then
+    OVERALL_STATUS="red"
+fi
+
+# Build phases array by concatenating each line with commas.
+PHASES_JSON=""
+while IFS= read -r phase_line; do
+    if [ -z "$PHASES_JSON" ]; then
+        PHASES_JSON="$phase_line"
+    else
+        PHASES_JSON="$PHASES_JSON,$phase_line"
+    fi
+done < "${BOOT_REPORT_TMP}"
+
+RED_STAGES_JSON="["
+for i in "${!RED_STAGES[@]}"; do
+    RED_STAGES_JSON+="\"${RED_STAGES[$i]}\""
+    [ "$i" -lt $(( ${#RED_STAGES[@]} - 1 )) ] && RED_STAGES_JSON+=","
+done
+RED_STAGES_JSON+="]"
+
+ARCH="$(uname -m)"
+KERNEL="$(uname -r)"
+ELAPSED_TOTAL_S=$(( $(date +%s) - BOOT_START_EPOCH ))
+STATUS_SHA8="$(printf '%s%s' "$OVERALL_STATUS" "${RED_STAGES[*]:-}" | sha256sum | cut -c1-8)"
+BOOT_REPORT="${ICEBREAKER_LOG_DIR}/boot-report-${BOOT_REPORT_TS}-${STATUS_SHA8}.json"
+
+cat > "${BOOT_REPORT}" <<EOF
+{
+  "boot_report_version": 1,
+  "generated_at_utc": "${BOOT_REPORT_TS}",
+  "arch": "${ARCH}",
+  "kernel": "${KERNEL}",
+  "elapsed_total_s": ${ELAPSED_TOTAL_S},
+  "phases": [${PHASES_JSON}],
+  "overall_status": "${OVERALL_STATUS}",
+  "red_stages": ${RED_STAGES_JSON}
+}
+EOF
+chmod 0644 "${BOOT_REPORT}"
+log "Wrote boot report: ${BOOT_REPORT} (status=${OVERALL_STATUS})"
+
+rm -f "${BOOT_REPORT_TMP}"
+
+# ── Step 6 (G.5.1): desktop notification (5 min expire) ────────────────
+# first-boot runs as root, but the notification must reach the
+# logged-in user's D-Bus session. The reliable path is to drop a
+# once-fired autostart .desktop under $USER_HOME/.config/autostart/,
+# which the user's XFCE/GNOME session launches on next login. That
+# script fires notify-send and removes itself.
+if [ -n "${FIRST_USER:-}" ]; then
+    USER_HOME=$(getent passwd "$FIRST_USER" | cut -d: -f6)
+    if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
+        AUTOSTART_DIR="${USER_HOME}/.config/autostart"
+        mkdir -p "${AUTOSTART_DIR}"
+        NOTIFY_DESKTOP="${AUTOSTART_DIR}/icebreaker-first-boot-notify.desktop"
+        if [ "$OVERALL_STATUS" = "ok" ]; then
+            ICON="dialog-information"
+            SUMMARY="Icebreaker: first-boot OK"
+            BODY="All ${CHECKSUMS_CHECKED} model checksums verified. Open the Icebreaker Control Center to add API keys."
+        else
+            ICON="dialog-error"
+            SUMMARY="Icebreaker: first-boot has issues"
+            BODY="Red stages: ${RED_STAGES[*]:-}. Diagnostic bundle at ~/icebreaker-bundle-${BOOT_REPORT_TS}-${ARCH}.tar.zst — attach it to a GitHub issue."
+        fi
+        cat > "${NOTIFY_DESKTOP}" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Icebreaker first-boot notification
+Comment=One-shot notification that removes itself after firing.
+Exec=/bin/bash -c 'notify-send --urgency=normal --icon=${ICON} --expire-time=300000 "${SUMMARY}" "${BODY}"; rm -f "${NOTIFY_DESKTOP}"'
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+DESKTOP
+        chown "${FIRST_USER}:${FIRST_USER}" "${NOTIFY_DESKTOP}" 2>/dev/null || true
+        chmod 0644 "${NOTIFY_DESKTOP}"
+        log "Queued desktop notification via ${NOTIFY_DESKTOP}"
+    fi
+fi
+
+# ── Step 7 (G.5.1): auto-run ib-bundle on red ──────────────────────────
+if [ "$OVERALL_STATUS" = "red" ] && [ -x /usr/local/bin/ib-bundle ]; then
+    log "Overall red — auto-generating diagnostic bundle..."
+    if [ -n "${FIRST_USER:-}" ] && [ -n "${USER_HOME:-}" ]; then
+        # Run bundle as the first user so the tarball lands in their $HOME.
+        # Best-effort: if sudo/su fails, log it but don't block first-boot.
+        if sudo -u "${FIRST_USER}" HOME="${USER_HOME}" \
+               /usr/local/bin/ib-bundle --reason first-boot-red 2>&1 \
+               | while IFS= read -r bl; do log "  ib-bundle: ${bl}"; done; then
+            log "Bundle written to ${USER_HOME}/"
+        else
+            warn "ib-bundle auto-run failed; user can rerun manually: ib-bundle --notify"
+        fi
+    else
+        # No first user — bundle to /tmp
+        HOME=/tmp /usr/local/bin/ib-bundle \
+            --out "/tmp/icebreaker-bundle-${BOOT_REPORT_TS}.tar.zst" \
+            --reason first-boot-red 2>&1 \
+            | while IFS= read -r bl; do log "  ib-bundle: ${bl}"; done \
+            || warn "ib-bundle auto-run failed"
+    fi
+fi
+
+# ── Step 8: Drop sentinel ──────────────────────────────────────────────
 touch "${SENTINEL}"
-log "First-boot complete. Sentinel: ${SENTINEL}"
+log "First-boot complete. Sentinel: ${SENTINEL}. Overall status: ${OVERALL_STATUS}."

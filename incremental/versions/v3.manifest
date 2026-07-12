@@ -21,8 +21,15 @@ version_overlay() {
         "${chroot}/usr/share/applications/icebreaker-terminal.desktop"
     install -Dm755 "${repo}/cx-distro/distro/ib-wait-sock" \
         "${chroot}/usr/libexec/icebreaker/ib-wait-sock"
-    install -Dm644 "${repo}/cx-distro/distro/icebreaker-terminal-autostart.desktop" \
-        "${chroot}/etc/xdg/autostart/icebreaker-terminal-autostart.desktop"
+    # Terminal autostart removed 2026-07-12: user complained the terminal
+    # auto-launched full-screen before they'd configured API keys or read
+    # the welcome notification. Terminal is now app-menu-only. See
+    # cx-distro/build.sh (autostart section removed) for the full rationale.
+    # Belt-and-braces: if a prior ISO placed autostart files, evict them.
+    rm -f "${chroot}/etc/xdg/autostart/icebreaker-terminal.desktop" \
+          "${chroot}/etc/xdg/autostart/icebreaker-terminal-autostart.desktop" \
+          "${chroot}/etc/xdg/autostart/icebreaker-chatbot.desktop" \
+          "${chroot}/etc/xdg/autostart/icebreaker-chatbot-autostart.desktop"
 
     echo "[v3] Refreshing terminal package in venv (PKG-1)..."
     local sp

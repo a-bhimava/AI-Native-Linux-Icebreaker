@@ -31,6 +31,11 @@ locales
 man-db
 dbus-x11
 dbus-broker
+# libnotify-bin ships `notify-send` — Scope G.5 (2026-07-12) uses it in
+# first-boot self-test to show green/red boot-report notifications on
+# the desktop for 5 minutes without a persistent GUI process; also
+# used by ib_bundle.py to nudge the user when a bundle is written.
+libnotify-bin
 bash-completion
 
 # ── X server + guest agents ──

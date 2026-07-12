@@ -265,6 +265,12 @@ version_overlay() {
     install -Dm755 "${repo}/dual-brain/scripts/ib_debug.py" \
         "${chroot}/usr/local/bin/ib-debug"
 
+    # G.5 (Scope G.5, 2026-07-12): ib-bundle diagnostic collector.
+    # Runs on first-boot red OR user demand; emits
+    # ~/icebreaker-bundle-<ts>-<arch>.tar.zst for GitHub issues.
+    install -Dm755 "${repo}/dual-brain/scripts/ib_bundle.py" \
+        "${chroot}/usr/local/bin/ib-bundle"
+
     # G5 (Scope G, 2026-07-11): in-guest seccomp harvest runner. Called by
     # qemu-gate.sh L6 via _ssh to run a 5-tool LOG_ONLY exercise inside
     # the booted VM. Catches arch-specific syscall gaps (F-55 pattern) on
