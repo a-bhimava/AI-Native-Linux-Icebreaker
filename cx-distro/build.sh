@@ -252,7 +252,7 @@ fi
 # ── Stage 2: Build llama-server ─────────────────────────────────────────
 
 if [ "$SKIP_TO" -le 2 ]; then
-    stage_banner 2 "Build llama-server"
+    stage_banner 2 "Build llama-server (per-arch)"
 
     LLAMA_COMMIT=$(cat "${SCRIPT_DIR}/LLAMA_CPP_COMMIT" | tr -d '[:space:]')
     LLAMA_SRC="${BUILD_DIR}/llama.cpp"
@@ -271,22 +271,70 @@ if [ "$SKIP_TO" -le 2 ]; then
     info "Checking out commit ${LLAMA_COMMIT}..."
     git checkout "${LLAMA_COMMIT}" || die "failed to checkout llama.cpp commit ${LLAMA_COMMIT}"
 
-    info "Building llama-server (CPU-only)..."
-    cmake -B build \
-        -DGGML_CUDA=OFF \
-        -DGGML_METAL=OFF \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DLLAMA_BUILD_TESTS=OFF \
-        -DLLAMA_BUILD_EXAMPLES=OFF \
-        -DLLAMA_BUILD_SERVER=ON \
-        2>&1 | tail -3
-    cmake --build build --target llama-server -j"$(nproc)" 2>&1 | tail -5
+    # Scope I (2026-07-12): per-arch build. v6.manifest:37 hard-codes the
+    # expected path as .build/llama.cpp/${LLAMA_BUILD_DIR}/bin/llama-server
+    # where LLAMA_BUILD_DIR = build-portable (amd64) or build-arm64 (arm64).
+    # config/archs/{arch}.conf is the single source of truth for both the
+    # cmake flags and the build-dir name (BP-1).
+    for target_arch in amd64 arm64; do
+        # Source per-arch config for LLAMA_CMAKE_FLAGS + LLAMA_BUILD_DIR.
+        arch_conf="${REPO_ROOT}/config/archs/${target_arch}.conf"
+        [ -f "$arch_conf" ] || die "config/archs/${target_arch}.conf missing"
+        # shellcheck source=/dev/null
+        (
+            source "$arch_conf"
+            info "Building llama-server for ${target_arch} (${LLAMA_BUILD_DIR})..."
+            # Common CPU-only flags + arch-specific from ${LLAMA_CMAKE_FLAGS}.
+            LLAMA_CMAKE_FLAGS_COMMON=(
+                -DCMAKE_BUILD_TYPE=Release
+                -DLLAMA_BUILD_TESTS=OFF
+                -DLLAMA_BUILD_EXAMPLES=OFF
+                -DLLAMA_BUILD_SERVER=ON
+            )
+            # Arch-specific cross-compile: for arm64 point cmake at the
+            # aarch64-linux-gnu cross toolchain that Dockerfile.build installs.
+            if [ "$target_arch" = "arm64" ]; then
+                LLAMA_CMAKE_FLAGS_ARCH=(
+                    -DCMAKE_SYSTEM_NAME=Linux
+                    -DCMAKE_SYSTEM_PROCESSOR=aarch64
+                    -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc
+                    -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+                )
+            else
+                LLAMA_CMAKE_FLAGS_ARCH=()
+            fi
+            # Split ${LLAMA_CMAKE_FLAGS} (from arch conf) into an array.
+            read -r -a llama_flags_from_conf <<<"$LLAMA_CMAKE_FLAGS"
 
-    LLAMA_BIN="build/bin/llama-server"
-    [ -f "$LLAMA_BIN" ] || die "llama-server binary not found after build"
-    info "llama-server OK ($(du -h "$LLAMA_BIN" | awk '{print $1}'))"
+            rm -rf "${LLAMA_BUILD_DIR}"
+            cmake -B "${LLAMA_BUILD_DIR}" \
+                "${LLAMA_CMAKE_FLAGS_COMMON[@]}" \
+                "${LLAMA_CMAKE_FLAGS_ARCH[@]}" \
+                "${llama_flags_from_conf[@]}" \
+                2>&1 | tail -3
+            cmake --build "${LLAMA_BUILD_DIR}" --target llama-server -j"$(nproc)" 2>&1 | tail -5
 
-    cp "$LLAMA_BIN" "${BUILD_DIR}/llama-server"
+            LLAMA_BIN="${LLAMA_BUILD_DIR}/bin/llama-server"
+            [ -f "$LLAMA_BIN" ] || die "llama-server binary not found for ${target_arch} at ${LLAMA_BIN}"
+
+            # Arch cross-check (same guard as mcpd Stage 1).
+            if command -v file >/dev/null 2>&1; then
+                file_desc="$(file "$LLAMA_BIN" 2>/dev/null || true)"
+                case "${target_arch}:${file_desc}" in
+                    amd64:*"x86-64"*|amd64:*"x86_64"*) : ;;
+                    arm64:*"ARM aarch64"*) : ;;
+                    *) die "arch mismatch after llama-server build (target=${target_arch}, file: ${file_desc})" ;;
+                esac
+            fi
+
+            info "llama-server ${target_arch} OK ($(du -h "$LLAMA_BIN" | awk '{print $1}'), arch verified)"
+        ) || die "llama-server build failed for ${target_arch}"
+    done
+
+    # Backward compat: preserve the pre-Scope-I unsuffixed `llama-server`
+    # copy that build.sh Stage 4 (line ~374) uses. Points at amd64.
+    cp "build-portable/bin/llama-server" "${BUILD_DIR}/llama-server"
+
     cd "${SCRIPT_DIR}"
 fi
 
