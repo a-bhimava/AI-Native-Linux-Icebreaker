@@ -152,7 +152,11 @@ OUT_DIR="${BUILD_DIR}/out"
 # 2026-07-09): no `icebreaker-` prefix (the file lives in the Icebreaker
 # repo; the prefix was tautological). Historic ISOs like `v6.51.iso` and
 # `v0.iso` predate the multi-arch refactor and stay unsuffixed.
-if [[ "$LABEL" =~ ^v6\.6 ]] || [[ "$LABEL" =~ ^v[7-9] ]] || [ "$ARCH" != "amd64" ]; then
+# Scope I (2026-07-12): v6.7+ ALWAYS uses arch suffix. Prior regex
+# `^v[7-9]` was v7+ only — v6.7 fell through to unsuffixed amd64,
+# breaking the multi-arch naming convention. `v6.7` matches
+# `^v6\.[6-9]|^v[7-9]` which covers v6.6, v6.7...v6.9 AND v7+.
+if [[ "$LABEL" =~ ^v6\.[6-9] ]] || [[ "$LABEL" =~ ^v[7-9] ]] || [ "$ARCH" != "amd64" ]; then
     ISO_FILE="${OUT_DIR}/${LABEL}-${ARCH}.iso"
 else
     ISO_FILE="${OUT_DIR}/${LABEL}.iso"

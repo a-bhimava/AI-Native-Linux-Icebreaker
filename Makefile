@@ -49,7 +49,7 @@ iso-amd64 iso-arm64: iso-%: base-%
 qemu-amd64 qemu-arm64: qemu-%:
 	@echo "── qemu-gate.sh --arch $* ──"
 	env ARCH=$* bash incremental/tests/qemu-gate.sh \
-	  incremental/.build/out/icebreaker-$(LABEL)-$*.iso $(VN) $(LABEL)
+	  incremental/.build/out/$(LABEL)-$*.iso $(VN) $(LABEL)
 
 # Remove built ISOs but keep the base tar caches (avoid re-running the
 # 90-minute debootstrap).
