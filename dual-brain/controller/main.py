@@ -2468,6 +2468,17 @@ class Controller:
         qb_cost: float, qb_tokens_in: int, qb_tokens_out: int, t0: float,
     ):
         """Streaming F-35 short-circuit — yields a friendly CoT card + ResultEvent."""
+        # F-56 (2026-07-11): ResultEvent is imported at module top of
+        # turn_events, which imports TurnResult from .main — a circular
+        # dependency the codebase works around by deferring `.turn_events`
+        # imports into each caller's local scope (see run_turn_streaming
+        # line ~441). This method is invoked FROM run_turn_streaming's
+        # scope but Python method scope does NOT inherit ResultEvent from
+        # the caller's locals — every method needs its own local import.
+        # G24 sweep on 2026-07-11 hit this on 2 broad-OS rows Gemini
+        # routed to system.unsupported. Same shape as F-42 (`_cot`
+        # closure vs method scope); same fix pattern.
+        from .turn_events import ResultEvent
         requested, suggestion, alt = self._unsupported_payload(intent, user_input)
         # New CoT step: neither error nor success — informative UNSUPPORTED card.
         # 'done' state so TUI treats it as concluded; the outcome=UNSUPPORTED
