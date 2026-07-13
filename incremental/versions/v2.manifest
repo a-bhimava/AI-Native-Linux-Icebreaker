@@ -171,6 +171,19 @@ version_overlay() {
         # G5 (mcpd-harvest-guest.sh) is enforced by smoke-gate.sh L6's
         # `[ -x ${CHROOT}/usr/local/bin/mcpd-harvest-guest.sh ]` check.
         "F56-emit-import:main.py:from .turn_events import ResultEvent"
+        # v6.8 M7.1 (2026-07-13) — verifier tier-floor. If either the
+        # helper or the config field disappears from the installed venv,
+        # Tier 0/1 intents silently regress to paying ~2 s verifier
+        # latency AND the non-streaming call site loses its tier gate
+        # entirely (a coverage hole M7.1 closed).
+        "M7.1-floor:verifier.py:should_skip_verifier"
+        "M7.1-cfg:config.py:tier_floor: int = 2"
+        # v6.8 M7.2 (2026-07-13) — Tier-0 fast path. If either the tool
+        # mapping table or the try_fast_path callsite disappears from
+        # the installed venv, every Tier-0 read-only intent silently
+        # regresses to paying the PB HTTP round-trip.
+        "M7.2-mod:tier0_fast_path.py:TIER0_FAST_PATH_TOOLS"
+        "M7.2-branch:main.py:_try_tier0_fast_path"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do
