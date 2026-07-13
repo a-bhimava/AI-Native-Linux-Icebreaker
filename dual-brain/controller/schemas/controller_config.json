@@ -238,6 +238,11 @@
           "type": "string",
           "enum": ["off", "on_call_failed_only", "on_any_rejection", "skip_tier_01"],
           "description": "F-49: how aggressively to retry when the verifier rejects an intent. off = never; on_call_failed_only = retry only if reason contains 'verifier call failed' (F-44 default); on_any_rejection = retry once on any verified=false; skip_tier_01 = bypass verifier entirely for Tier 0/1 intents (fastest, drops defense-in-depth for auto-execute tiers)."
+        },
+        "tier_floor": {
+          "type": "integer", "minimum": 0, "maximum": 4,
+          "x-reload": "restart",
+          "description": "v6.8 M7.1: skip verification when the classified tier is below this floor. Default 2 = skip Tier 0/1 (they cannot mutate state; sandbox-contained). Set to 0 to always verify. Set to 4 to never verify (not recommended)."
         }
       }
     },

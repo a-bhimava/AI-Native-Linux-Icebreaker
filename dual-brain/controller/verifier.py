@@ -36,6 +36,25 @@ class VerifierConfig:
     #   on_any_rejection    — retry once on any verified=false
     #   skip_tier_01        — bypass verifier entirely for Tier 0/1
     retry_mode: str = "on_call_failed_only"
+    # v6.8 M7.1 (2026-07-13): tier_floor is the FIRST-class gate. Skip
+    # verification when the classified tier is below the floor. Default 2
+    # means Tier 0/1 auto-execute intents skip verification (they are
+    # already sandbox-contained and cannot mutate state). retry_mode's
+    # skip_tier_01 value is kept for backward compat but tier_floor is the
+    # preferred knob going forward — it decouples "skip the FIRST call"
+    # from "how to retry after rejection".
+    tier_floor: int = 2
+
+
+def should_skip_verifier(cfg: VerifierConfig, tier: int) -> bool:
+    """v6.8 M7.1: single source of truth for whether to skip verification
+    given the risk tier. Both the tier_floor knob and the legacy
+    retry_mode=skip_tier_01 mode are honored so a v6.7 config keeps working."""
+    if tier < cfg.tier_floor:
+        return True
+    if cfg.retry_mode == "skip_tier_01" and tier <= 1:
+        return True
+    return False
 
 
 @dataclass(frozen=True)

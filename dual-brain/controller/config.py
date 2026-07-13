@@ -227,6 +227,9 @@ class VerifierConfig:
     # F-49: retry strategy on rejection. See verifier.py::VerifierConfig for
     # the full description of each mode.
     retry_mode: str = "on_call_failed_only"
+    # v6.8 M7.1 (2026-07-13): skip verification when tier < tier_floor.
+    # Default 2 means Tier 0/1 auto-execute intents skip the ~2s vote.
+    tier_floor: int = 2
 
 
 @dataclass(frozen=True)

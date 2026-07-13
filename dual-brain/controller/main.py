@@ -27,7 +27,7 @@ from .tier2_review import Tier2Reviewer, get_reviewer
 from .trust_store import TrustStore
 from .logger import SystemLogger
 from .backends.base import BrainSchemaError
-from .verifier import VerifierConfig, VerifierStrategy, make_verifier
+from .verifier import VerifierConfig, VerifierStrategy, make_verifier, should_skip_verifier
 
 _SUMMARISE_SCHEMA = {
     "type": "object",
@@ -841,25 +841,26 @@ class Controller:
             # Step 8: QB verifier
             yield _progress("qb_verify")
             verifier_system = self._prompts.get("qb_verifier")
-            # F-49 (2026-07-10): dispatch by config.verifier.retry_mode.
-            # Defaults to F-44 behaviour (retry on "verifier call failed").
-            # 'skip_tier_01' short-circuits the verifier entirely for
-            # low-tier auto-execute intents — trade defense-in-depth for
-            # ~2 s per turn latency.
-            # Defensive: some test fixtures use a bare namespace object with
-            # no `verifier` attribute at all — guard both levels of the walk.
+            # v6.8 M7.1 (2026-07-13): tier_floor is the first-class skip gate.
+            # F-49 skip_tier_01 retry_mode is honored for backward compat via
+            # verifier.should_skip_verifier(). Both call sites (this streaming
+            # branch and the non-streaming branch at ~L1745) go through the
+            # same helper so the semantics can't drift.
             _vcfg = getattr(self._cfg, "verifier", None)
             retry_mode = getattr(_vcfg, "retry_mode", "on_call_failed_only")
-            if retry_mode == "skip_tier_01" and int(cls_result.tier) <= 1:
+            _skip_verifier = _vcfg is not None and should_skip_verifier(_vcfg, int(cls_result.tier))
+            if _skip_verifier:
+                _tier_floor = getattr(_vcfg, "tier_floor", 2)
                 yield _cot("qb_verify", "done",
-                            body="Skipped (retry_mode=skip_tier_01, tier≤1)",
+                            body=f"Skipped (tier={int(cls_result.tier)} < tier_floor={_tier_floor})",
                             skipped=True, retry_mode=retry_mode,
+                            tier_floor=_tier_floor,
                             skip_reason="tier_gate")
                 # Fake a passing vresult so downstream flow continues.
                 from .verifier import VerifierResult
                 vresult = VerifierResult(
                     verified=True,
-                    reason="skipped (skip_tier_01)",
+                    reason=f"skipped (tier < tier_floor)",
                     votes_cast=0,
                     verified_count=0,
                 )
@@ -1742,7 +1743,21 @@ class Controller:
 
         # ── Step 8: QB verifier round-trip ────────────────────────────────────
         verifier_system = self._prompts.get("qb_verifier")
-        vresult = self._verifier.verify(intent, tool_call, self._qb, verifier_system)
+        # v6.8 M7.1 (2026-07-13): honour tier_floor + skip_tier_01 here too
+        # (this branch was missing the gate that the streaming branch had —
+        # a real coverage hole, non-streaming clients were paying the vote
+        # latency on Tier 0/1 intents).
+        _vcfg_ns = getattr(self._cfg, "verifier", None)
+        if _vcfg_ns is not None and should_skip_verifier(_vcfg_ns, int(cls_result.tier)):
+            from .verifier import VerifierResult
+            vresult = VerifierResult(
+                verified=True,
+                reason="skipped (tier < tier_floor)",
+                votes_cast=0,
+                verified_count=0,
+            )
+        else:
+            vresult = self._verifier.verify(intent, tool_call, self._qb, verifier_system)
         if not vresult.verified:
             duration = (time.monotonic() - t0) * 1000
             extra = {}
