@@ -228,9 +228,18 @@ if [ "$(hostname 2>/dev/null)" = "$VM_NAME" ]; then
         fail "VM has only ${free_gb:-?}G free" \
              "clean up: sudo rm -rf /home/aditya/*.bak-* /home/aditya/icebreaker"
     fi
-    # Docker + tmux
-    command -v docker >/dev/null && pass "Docker installed" || fail "Docker missing" "apt install docker.io"
-    command -v tmux   >/dev/null && pass "tmux installed"   || fail "tmux missing"   "apt install tmux"
+    # Docker + tmux — also probe /usr/bin directly so a stripped PATH
+    # (e.g. under tmux non-login shell) doesn't produce a false negative.
+    if command -v docker >/dev/null 2>&1 || [ -x /usr/bin/docker ]; then
+        pass "Docker installed"
+    else
+        fail "Docker missing" "apt install docker.io"
+    fi
+    if command -v tmux >/dev/null 2>&1 || [ -x /usr/bin/tmux ]; then
+        pass "tmux installed"
+    else
+        fail "tmux missing" "apt install tmux"
+    fi
     # Model
     if [ -f /home/aditya/models/run7_cot_q4km.gguf ]; then
         pass "model at /home/aditya/models/run7_cot_q4km.gguf"
