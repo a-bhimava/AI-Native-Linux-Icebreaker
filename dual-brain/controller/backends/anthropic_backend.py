@@ -1,18 +1,17 @@
-"""``AnthropicBackend`` — Quarantined Brain backend using Anthropic Messages API.
+"""``AnthropicBackend`` — Quarantined Brain backend for Anthropic Messages.
 
-Uses Anthropic's native structured-output mode (``output_config.format``)
-with ``type = "json_schema"`` so the provider constrains JSON output
-server-side via grammar-driven decoding. No ``tools``, no ``tool_choice``,
-no message prefill — so the ``OutboundPayloadAuditor`` (D17 stage 2)
-passes by default and never sees a forbidden key.
+v6.8 N.2.a (2026-07-13): transport now goes through LiteLLM
+(controller/backends/_litellm_shared.py). Provider-specific quirks
+(cost rates, model_id prefix) preserved in the subclass.
 
-The local ``jsonschema.Draft7Validator`` in ``BrainBackend.complete()``
-remains the safety floor per INV-2-pluggable. It receives the ORIGINAL
-intent schema (with ``maxLength``, full ``format``, etc.); Anthropic
-receives a transformed subset stripped of constraints it doesn't honor.
+Model ID: ``"anthropic/<model>"`` — LiteLLM routes on this prefix.
 
-Reference: Anthropic structured output docs (output_config.format,
-type=json_schema). Requires Claude Haiku 4.5 / Sonnet 4.5+ / Opus 4.5+.
+Anthropic doesn't natively support ``response_format={"type": "json_object"}``
+the same way as OpenAI, but LiteLLM emulates it via prompt shaping. The
+schema-validation floor in ``BrainBackend.complete()`` remains the safety
+net (INV-2-pluggable). Requires Claude Haiku 4.5 / Sonnet 4.5+ / Opus 4.5+.
+
+INV-1 preserved via _litellm_shared's tools-exclusion + auditor probe.
 """
 
 from __future__ import annotations
@@ -20,90 +19,25 @@ from __future__ import annotations
 from typing import Any, Generator
 
 from .base import BrainProviderError, RequestEnvelope
-from ._api_common import _ApiBackend, transform_schema_for_provider
+from ._api_common import _ApiBackend
+from ._litellm_shared import call_via_litellm, stream_via_litellm
 from .registry import register_backend
 
 
 @register_backend("anthropic")
 class AnthropicBackend(_ApiBackend):
-    """Anthropic Messages API backend with native JSON-schema structured output."""
+    """Anthropic Messages API QB backend, routed through LiteLLM."""
 
     __slots__ = ()
 
     backend_name = "anthropic"
 
-    # Placeholder pricing — verify against current Anthropic published
-    # rates at deployment time. The audit row's cost field is an
-    # estimate, not a billing record.
+    # Cost rates (verify at deployment).
     INPUT_COST_PER_1M_USD = 1.00
     OUTPUT_COST_PER_1M_USD = 5.00
 
-    def __init__(self, config: Any) -> None:
-        super().__init__(config)
-        import anthropic  # lazy — D7
-
-        self._client = anthropic.Anthropic(
-            api_key=self._api_key_ref.reveal(),
-            timeout=float(config.timeout_seconds),
-        )
-
-    def _stream_provider(
-        self, envelope: RequestEnvelope
-    ) -> Generator[tuple[str, int, int], None, None]:
-        """Stream via Anthropic ``messages.stream()`` context manager."""
-        if envelope.schema is None:
-            raise BrainProviderError(
-                "anthropic backend requires a schema in the envelope"
-            )
-
-        wire_schema = transform_schema_for_provider(
-            envelope.schema,
-            convert_oneof_to_anyof=True,
-            strip_format=False,
-        )
-
-        # Phase 6 Scope E fix (2026-07-11): Claude Haiku 4.5 rejects
-        # requests specifying BOTH `temperature` and `top_p` with a
-        # 400 "cannot both be specified for this model". Anthropic's
-        # API docs recommend picking ONE — send `temperature` since
-        # it's the more widely-supported knob, and the sampling
-        # ladder's semantic (attempt 1 = high creativity, attempt 3 =
-        # deterministic) is already captured by temperature alone.
-        # Discovered by the live fallback sweep.
-        kwargs: dict[str, Any] = {
-            "model": self._config.model,
-            "max_tokens": self._config.max_tokens,
-            "system": envelope.system,
-            "messages": [{"role": "user", "content": envelope.user}],
-            # Defensive: envelope.sampling should always carry
-            # `temperature` (base ladder guarantees it), but a hand-built
-            # RequestEnvelope in a test or future caller might not.
-            # Default to a moderate-creativity value so the API call
-            # doesn't blow up on a KeyError.
-            "temperature": envelope.sampling.get("temperature", 0.2),
-            "output_config": {
-                "format": {
-                    "type": "json_schema",
-                    "schema": wire_schema,
-                }
-            },
-        }
-
-        self._auditor.intercept(kwargs)
-
-        try:
-            with self._client.messages.stream(**kwargs) as stream:
-                for text in stream.text_stream:
-                    yield (text, 0, 0)
-                final = stream.get_final_message()
-                yield (
-                    "",
-                    final.usage.input_tokens,
-                    final.usage.output_tokens,
-                )
-        except Exception as exc:
-            from .sanitize import sanitize_exception
-            raise BrainProviderError(sanitize_exception(exc)) from None
+    def _model_id(self) -> str:
+        return f"anthropic/{self._config.model}"
 
     def _call_provider(
         self, envelope: RequestEnvelope
@@ -112,61 +46,29 @@ class AnthropicBackend(_ApiBackend):
             raise BrainProviderError(
                 "anthropic backend requires a schema in the envelope"
             )
-
-        wire_schema = transform_schema_for_provider(
-            envelope.schema,
-            convert_oneof_to_anyof=True,
-            strip_format=False,  # Anthropic supports uuid, date-time, etc.
+        return call_via_litellm(
+            model=self._model_id(),
+            envelope=envelope,
+            max_tokens=self._config.max_tokens,
+            timeout_seconds=self._config.timeout_seconds,
+            api_key=self._api_key_ref.reveal(),
+            response_format={"type": "json_object"},
+            auditor=self._auditor,
         )
 
-        # Phase 6 Scope E fix (2026-07-11): Claude Haiku 4.5 rejects
-        # requests specifying BOTH `temperature` and `top_p` with a
-        # 400 "cannot both be specified for this model". Anthropic's
-        # API docs recommend picking ONE — send `temperature` since
-        # it's the more widely-supported knob, and the sampling
-        # ladder's semantic (attempt 1 = high creativity, attempt 3 =
-        # deterministic) is already captured by temperature alone.
-        # Discovered by the live fallback sweep.
-        kwargs: dict[str, Any] = {
-            "model": self._config.model,
-            "max_tokens": self._config.max_tokens,
-            "system": envelope.system,
-            "messages": [{"role": "user", "content": envelope.user}],
-            # Defensive: envelope.sampling should always carry
-            # `temperature` (base ladder guarantees it), but a hand-built
-            # RequestEnvelope in a test or future caller might not.
-            # Default to a moderate-creativity value so the API call
-            # doesn't blow up on a KeyError.
-            "temperature": envelope.sampling.get("temperature", 0.2),
-            "output_config": {
-                "format": {
-                    "type": "json_schema",
-                    "schema": wire_schema,
-                }
-            },
-        }
-
-        # D17 stage 2 — no `tools`, no `tool_choice`, no `tool_use` keys;
-        # auditor passes by default.
-        self._auditor.intercept(kwargs)
-
-        response = self._wrap_sdk_call(
-            self._client.messages.create, **kwargs
-        )
-
-        if not response.content:
+    def _stream_provider(
+        self, envelope: RequestEnvelope
+    ) -> Generator[tuple[str, int, int], None, None]:
+        if envelope.schema is None:
             raise BrainProviderError(
-                "anthropic response has no content blocks"
+                "anthropic backend requires a schema in the envelope"
             )
-        first = response.content[0]
-        first_type = getattr(first, "type", None)
-        if first_type != "text":
-            raise BrainProviderError(
-                f"anthropic response[0] is {first_type!r}, expected 'text'"
-            )
-
-        return (
-            first.text,
-            response.usage.input_tokens,
-            response.usage.output_tokens,
+        yield from stream_via_litellm(
+            model=self._model_id(),
+            envelope=envelope,
+            max_tokens=self._config.max_tokens,
+            timeout_seconds=self._config.timeout_seconds,
+            api_key=self._api_key_ref.reveal(),
+            response_format={"type": "json_object"},
+            auditor=self._auditor,
         )

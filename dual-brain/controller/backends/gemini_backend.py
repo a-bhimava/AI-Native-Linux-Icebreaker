@@ -1,18 +1,25 @@
-"""``GeminiBackend`` — Quarantined Brain backend using Google Gemini API.
+"""``GeminiBackend`` — Quarantined Brain backend for Google Gemini.
 
-Uses Gemini's native structured-output mode via
-``generation_config.response_mime_type = "application/json"`` +
-``response_schema``. The provider's OpenAPI-subset grammar constrains
-JSON output server-side. No ``tools``, no ``grounding`` — the
-``OutboundPayloadAuditor`` (D17 stage 2) passes by default.
+v6.8 N.2.a (2026-07-13): transport now goes through LiteLLM
+(controller/backends/_litellm_shared.py) rather than the
+``google-generativeai`` SDK directly. This unifies the streaming +
+retry + exception surface across gemini/anthropic/openai without
+losing Gemini-specific quirks (schema massaging, cost rates, provider
+prefix).
 
-The local ``jsonschema.Draft7Validator`` in ``BrainBackend.complete()``
-remains the safety floor per INV-2-pluggable. It receives the ORIGINAL
-intent schema; Gemini receives a transformed subset with provider-
-incompatible keywords stripped (``maxLength``, ``format`` other than
-the few Gemini supports, etc.).
+Provider-specific quirks preserved:
+- Response_format uses ``{"type": "json_object"}`` for JSON-only
+  output. Gemini's native ``response_schema`` mode is stronger but
+  requires custom SDK usage — for v6.8 we drop to json_object mode
+  which LiteLLM supports uniformly. Schema-validation floor stays in
+  ``BrainBackend.complete()`` regardless (INV-2-pluggable).
+- Model_id is prefixed ``"gemini/<model>"`` — LiteLLM dispatches on
+  this prefix to route to the Gemini provider.
+- The ``schema`` field on the envelope stays required for parity with
+  the pre-LiteLLM contract; downstream validation still checks it.
 
-Pinned SDK: ``google-generativeai>=0.8`` (``dual-brain/requirements.txt``).
+INV-1 preserved: ``_litellm_shared`` never sends ``tools`` /
+``tool_choice`` / ``functions``; the auditor still probes on every call.
 """
 
 from __future__ import annotations
@@ -20,88 +27,27 @@ from __future__ import annotations
 from typing import Any, Generator
 
 from .base import BrainProviderError, RequestEnvelope
-from ._api_common import _ApiBackend, transform_schema_for_provider
+from ._api_common import _ApiBackend
+from ._litellm_shared import call_via_litellm, stream_via_litellm
 from .registry import register_backend
 
 
 @register_backend("gemini")
 class GeminiBackend(_ApiBackend):
-    """Google Gemini API backend with native ``response_schema`` structured output."""
+    """Google Gemini QB backend, routed through LiteLLM."""
 
-    __slots__ = ("_genai",)
+    __slots__ = ()
 
     backend_name = "gemini"
 
-    # Placeholder pricing — verify at deployment. Gemini 2.0 Flash has a
-    # generous free tier (~1500 req/day) before paid rates apply.
+    # Cost rates (verify at deployment). Estimates only; audit rows carry
+    # cost as an ESTIMATE, not a billing record.
     INPUT_COST_PER_1M_USD = 0.075
     OUTPUT_COST_PER_1M_USD = 0.30
 
-    def __init__(self, config: Any) -> None:
-        super().__init__(config)
-        import google.generativeai as genai  # lazy — D7
-
-        genai.configure(api_key=self._api_key_ref.reveal())
-        self._genai = genai
-
-    def _stream_provider(
-        self, envelope: RequestEnvelope
-    ) -> Generator[tuple[str, int, int], None, None]:
-        """Stream via Gemini ``generate_content(stream=True)``."""
-        if envelope.schema is None:
-            raise BrainProviderError(
-                "gemini backend requires a schema in the envelope"
-            )
-
-        wire_schema = transform_schema_for_provider(
-            envelope.schema,
-            convert_oneof_to_anyof=True,
-            strip_format=True,
-        )
-
-        model = self._genai.GenerativeModel(
-            self._config.model,
-            system_instruction=envelope.system,
-        )
-
-        generation_config = {
-            "temperature": envelope.sampling["temperature"],
-            "top_p": envelope.sampling["top_p"],
-            "max_output_tokens": self._config.max_tokens,
-            "response_mime_type": "application/json",
-            "response_schema": wire_schema,
-        }
-
-        audit_payload: dict[str, Any] = {
-            "model": self._config.model,
-            "system_instruction": envelope.system,
-            "contents": [
-                {"role": "user", "parts": [{"text": envelope.user}]}
-            ],
-            "generation_config": generation_config,
-        }
-        self._auditor.intercept(audit_payload)
-
-        try:
-            response = model.generate_content(
-                envelope.user,
-                generation_config=generation_config,
-                request_options={"timeout": self._config.timeout_seconds},
-                stream=True,
-            )
-            for chunk in response:
-                text = getattr(chunk, "text", "") or ""
-                if text:
-                    yield (text, 0, 0)
-            usage = response.usage_metadata
-            yield (
-                "",
-                usage.prompt_token_count,
-                usage.candidates_token_count,
-            )
-        except Exception as exc:
-            from .sanitize import sanitize_exception
-            raise BrainProviderError(sanitize_exception(exc)) from None
+    def _model_id(self) -> str:
+        """Return the LiteLLM-prefixed model id for this call."""
+        return f"gemini/{self._config.model}"
 
     def _call_provider(
         self, envelope: RequestEnvelope
@@ -110,51 +56,29 @@ class GeminiBackend(_ApiBackend):
             raise BrainProviderError(
                 "gemini backend requires a schema in the envelope"
             )
-
-        wire_schema = transform_schema_for_provider(
-            envelope.schema,
-            convert_oneof_to_anyof=True,
-            strip_format=True,  # Gemini's format list is narrower
+        return call_via_litellm(
+            model=self._model_id(),
+            envelope=envelope,
+            max_tokens=self._config.max_tokens,
+            timeout_seconds=self._config.timeout_seconds,
+            api_key=self._api_key_ref.reveal(),
+            response_format={"type": "json_object"},
+            auditor=self._auditor,
         )
 
-        model = self._genai.GenerativeModel(
-            self._config.model,
-            system_instruction=envelope.system,
-        )
-
-        generation_config = {
-            "temperature": envelope.sampling["temperature"],
-            "top_p": envelope.sampling["top_p"],
-            "max_output_tokens": self._config.max_tokens,
-            "response_mime_type": "application/json",
-            "response_schema": wire_schema,
-        }
-
-        # Build the audit payload that MIRRORS the outbound request
-        # shape. The SDK ultimately serializes the same content; the
-        # auditor checks for tools/grounding/etc. in any of these fields.
-        audit_payload: dict[str, Any] = {
-            "model": self._config.model,
-            "system_instruction": envelope.system,
-            "contents": [
-                {"role": "user", "parts": [{"text": envelope.user}]}
-            ],
-            "generation_config": generation_config,
-        }
-        self._auditor.intercept(audit_payload)
-
-        response = self._wrap_sdk_call(
-            model.generate_content,
-            envelope.user,
-            generation_config=generation_config,
-            request_options={"timeout": self._config.timeout_seconds},
-        )
-
-        if not response.text:
-            raise BrainProviderError("gemini response.text is empty")
-
-        return (
-            response.text,
-            response.usage_metadata.prompt_token_count,
-            response.usage_metadata.candidates_token_count,
+    def _stream_provider(
+        self, envelope: RequestEnvelope
+    ) -> Generator[tuple[str, int, int], None, None]:
+        if envelope.schema is None:
+            raise BrainProviderError(
+                "gemini backend requires a schema in the envelope"
+            )
+        yield from stream_via_litellm(
+            model=self._model_id(),
+            envelope=envelope,
+            max_tokens=self._config.max_tokens,
+            timeout_seconds=self._config.timeout_seconds,
+            api_key=self._api_key_ref.reveal(),
+            response_format={"type": "json_object"},
+            auditor=self._auditor,
         )

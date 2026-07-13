@@ -47,61 +47,47 @@ class _Cfg:
 
 def test_anthropic_and_gemini_emit_same_brainresponse_shape(monkeypatch):
     """Same valid intent JSON → both backends return BrainResponse with
-    identical content_json and ``attempts == 1``."""
+    identical content_json and ``attempts == 1``.
+
+    v6.8 N.2.a: both backends now route through LiteLLM. The parity
+    check is now: does the LiteLLM adapter's shape survive intact for
+    each provider? Mock at the _litellm_shared level (one boundary,
+    one mock, one guaranteed shape)."""
     intent = _valid_intent()
     schema = _intent_schema()
 
-    # ---- Anthropic side ----------------------------------------------------
+    fake_return = (json.dumps(intent), 5, 15)
+
     monkeypatch.setenv("ICEBREAKER_X_ANTH", "sk-ant-dummy-x")  # pragma: allowlist secret
-
-    class _FakeAnthMessages:
-        def create(self, **kwargs):
-            block = SimpleNamespace(type="text", text=json.dumps(intent))
-            return SimpleNamespace(
-                content=[block],
-                usage=SimpleNamespace(input_tokens=5, output_tokens=15),
-                stop_reason="end_turn",
-            )
-
-    class _FakeAnthClient:
-        def __init__(self, **kw):
-            self.messages = _FakeAnthMessages()
-
-    monkeypatch.setattr("anthropic.Anthropic", _FakeAnthClient)
-
-    from controller.backends.anthropic_backend import AnthropicBackend
-    a_cfg = _Cfg(env="ICEBREAKER_X_ANTH", model="claude-haiku-4-5")
-    a_backend = AnthropicBackend(a_cfg)
-    a_resp = a_backend.complete("sys", "check disk", schema)
-
-    # ---- Gemini side -------------------------------------------------------
     monkeypatch.setenv("ICEBREAKER_X_GEM", "AIzaDUMMY-cross-backend-XXXX1234567")
 
-    class _FakeModel:
-        def __init__(self, name, *, system_instruction=""):
-            pass
-
-        def generate_content(self, prompt, *, generation_config=None,
-                             request_options=None):
-            return SimpleNamespace(
-                text=json.dumps(intent),
-                usage_metadata=SimpleNamespace(
-                    prompt_token_count=5, candidates_token_count=15
-                ),
-            )
-
-    fake_genai = types.ModuleType("google.generativeai")
-    fake_genai.configure = lambda *, api_key: None  # type: ignore[attr-defined]
-    fake_genai.GenerativeModel = _FakeModel  # type: ignore[attr-defined]
-    google_ns = types.ModuleType("google")
-    google_ns.generativeai = fake_genai  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "google", google_ns)
-    monkeypatch.setitem(sys.modules, "google.generativeai", fake_genai)
-
+    from unittest.mock import patch
+    from controller.backends.anthropic_backend import AnthropicBackend
     from controller.backends.gemini_backend import GeminiBackend
+
+    def _fake_call(**kwargs):
+        # Real _litellm_shared.call_via_litellm fires the auditor. Mock
+        # must do the same or the base's G3 stage-2 probe raises.
+        kwargs["auditor"].intercept({"model": kwargs.get("model", "")})
+        return fake_return
+
+    # ---- Anthropic side ----------------------------------------------------
+    a_cfg = _Cfg(env="ICEBREAKER_X_ANTH", model="claude-haiku-4-5")
+    a_backend = AnthropicBackend(a_cfg)
+    with patch(
+        "controller.backends.anthropic_backend.call_via_litellm",
+        side_effect=_fake_call,
+    ):
+        a_resp = a_backend.complete("sys", "check disk", schema)
+
+    # ---- Gemini side -------------------------------------------------------
     g_cfg = _Cfg(env="ICEBREAKER_X_GEM", model="gemini-2.0-flash")
     g_backend = GeminiBackend(g_cfg)
-    g_resp = g_backend.complete("sys", "check disk", schema)
+    with patch(
+        "controller.backends.gemini_backend.call_via_litellm",
+        side_effect=_fake_call,
+    ):
+        g_resp = g_backend.complete("sys", "check disk", schema)
 
     # ---- Assert structural parity ------------------------------------------
     assert isinstance(a_resp, BrainResponse)
