@@ -232,6 +232,16 @@ pub(crate) fn allowed_syscalls() -> Vec<i64> {
         // runtime consensus (containerd PR #4481, runc PR #2750).
         libc::SYS_faccessat,
         libc::SYS_faccessat2,
+        // F-58 (2026-07-13): legacy access(2) — amd64 syscall #21. Scope I
+        // v6.7 build attempt 4 (harvest under 15-tool exercise) surfaced a
+        // SIGSYS on syscall 21 when process.list or package.query dispatched.
+        // Some glibc paths (dpkg, older library code) still call the legacy
+        // access(2) rather than faccessat. arm64 doesn't implement it at
+        // all so this is amd64-only in practice, but the libc constant
+        // resolves harmlessly on arm64 too (returns -1/ENOSYS which glibc
+        // handles).
+        #[cfg(target_arch = "x86_64")]
+        libc::SYS_access,
         libc::SYS_statfs,
         libc::SYS_fstatfs,
         libc::SYS_statx,
