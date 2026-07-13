@@ -23,6 +23,7 @@ from .intent_schema import IntentValidationError, validate
 from .intent_store import IntentStore
 from .mcpd_client import JsonRpcError, McpdClient, McpdProcessError, McpdTimeoutError, ToolResult
 from .risk_classifier import ClassificationResult, Tier, classify
+from .tier0_fast_path import try_fast_path as _try_tier0_fast_path
 from .tier2_review import Tier2Reviewer, get_reviewer
 from .trust_store import TrustStore
 from .logger import SystemLogger
@@ -748,66 +749,92 @@ class Controller:
             yield _cot("intent_store", "done", body="Stored",
                         intent_id=intent_id)
 
-            # Step 6: PB → tool call
-            yield _progress("pb_tool_call")
-            yield _cot("pb_tool_call", "active",
-                        body="Privileged Brain generating MCP tool call")
-            tool_schema = self._get_tool_schema(intent["action"])
-            # F-27: pass the validated intent target so PB doesn't hallucinate
-            # F-41: forward QB's `content` + `pb_hint` when present so PB has
-            # the verbatim bytes + format coaching it needs (fixes the "column
-            # of ones" CSV bug and similar content-fabrication regressions).
-            pb_user = session.build_pb_user_turn(
-                intent_id, intent["action"], tool_schema,
-                target=intent.get("target", ""),
-                content=intent.get("content", ""),
-                pb_hint=intent.get("pb_hint", ""),
-            )
-            pb_system = self._prompts.get("pb")
-            try:
-                pb_response = self._pb.complete(
-                    system=pb_system, user=pb_user, schema=None, max_retries=1,
+            # v6.8 M7.2 (2026-07-13): Tier-0 fast path. For read-only intents
+            # whose intent → tool_call mapping is deterministic (fs.list,
+            # system.status, etc.) skip the PB round-trip. INV-2 (schema
+            # validation) still fires at Step 7 on the constructed tool_call.
+            # Guarded by run.tier0_fast_path config (default True). Defensive
+            # attribute walks match the pattern the other Scope B gates use.
+            _rcfg = getattr(self._cfg, "run", None)
+            _fast_path_enabled = getattr(_rcfg, "tier0_fast_path", True)
+            _fast_path_tool_call = None
+            if _fast_path_enabled:
+                _fast_path_tool_call = _try_tier0_fast_path(
+                    intent, int(cls_result.tier),
                 )
-                tool_call = pb_response.content_json
-            except BrainSchemaError as exc:
-                raw = exc.last_payload_excerpt.strip()
-                if raw.upper().startswith("REFUSE:"):
-                    reason = raw[len("REFUSE:"):].strip()
-                    yield _cot("pb_tool_call", "failed",
-                                body=f"PB refused: {reason}")
-                    duration = (time.monotonic() - t0) * 1000
-                    self._audit.write_fields(AuditFields(
-                        session_id=session.session_id,
-                        turn_index=session.turn_index,
-                        intent_id=intent_id, action=intent["action"],
-                        target=intent["target"], tier=int(cls_result.tier),
-                        reason=intent["reason"],
-                        risk_level=intent["risk_level"],
-                        outcome=Outcome.PB_SCHEMA_ERROR, duration_ms=duration,
-                        backend=session.backend, model=self._cfg.qb.model,
-                        tokens_in=total_tokens_in, tokens_out=0,
-                        cost_estimate_usd=qb_cost,
-                        extra={"pb_refused": True,
-                               "refusal_reason": reason},
-                    ))
-                    yield ResultEvent(result=TurnResult(
-                        success=False,
-                        output=f"Privileged Brain refused: {reason}",
-                        outcome=Outcome.PB_SCHEMA_ERROR,
-                        tier=int(cls_result.tier),
-                        backend=session.backend, duration_ms=duration,
-                        cost_usd=qb_cost if qb_cost > 0 else None,
-                        tokens_in=total_tokens_in, tokens_out=0,
-                    ))
-                    return
-                raise
-            pb_cost = pb_response.cost_usd or 0.0
-            total_cost = qb_cost + pb_cost
-            total_tokens_in = qb_tokens_in + pb_response.tokens_in
-            total_tokens_out = qb_tokens_out + pb_response.tokens_out
-            yield _cot("pb_tool_call", "done",
-                        body=f"Tool call: {tool_call.get('tool', '?')}",
-                        tool=tool_call.get("tool", ""))
+
+            if _fast_path_tool_call is not None:
+                yield _progress("pb_tool_call")
+                yield _cot("pb_tool_call", "done",
+                            body="Tier-0 fast path — skipped PB grammar-decode",
+                            skipped=True, skip_reason="tier0_fast_path",
+                            tool=_fast_path_tool_call.get("tool", ""))
+                tool_call = _fast_path_tool_call
+                pb_cost = 0.0
+                total_cost = qb_cost
+                total_tokens_in = qb_tokens_in
+                total_tokens_out = qb_tokens_out
+            else:
+                # Step 6: PB → tool call (slow path)
+                yield _progress("pb_tool_call")
+                yield _cot("pb_tool_call", "active",
+                            body="Privileged Brain generating MCP tool call")
+                tool_schema = self._get_tool_schema(intent["action"])
+                # F-27: pass the validated intent target so PB doesn't hallucinate
+                # F-41: forward QB's `content` + `pb_hint` when present so PB has
+                # the verbatim bytes + format coaching it needs (fixes the "column
+                # of ones" CSV bug and similar content-fabrication regressions).
+                pb_user = session.build_pb_user_turn(
+                    intent_id, intent["action"], tool_schema,
+                    target=intent.get("target", ""),
+                    content=intent.get("content", ""),
+                    pb_hint=intent.get("pb_hint", ""),
+                )
+                pb_system = self._prompts.get("pb")
+                try:
+                    pb_response = self._pb.complete(
+                        system=pb_system, user=pb_user, schema=None, max_retries=1,
+                    )
+                    tool_call = pb_response.content_json
+                except BrainSchemaError as exc:
+                    raw = exc.last_payload_excerpt.strip()
+                    if raw.upper().startswith("REFUSE:"):
+                        reason = raw[len("REFUSE:"):].strip()
+                        yield _cot("pb_tool_call", "failed",
+                                    body=f"PB refused: {reason}")
+                        duration = (time.monotonic() - t0) * 1000
+                        self._audit.write_fields(AuditFields(
+                            session_id=session.session_id,
+                            turn_index=session.turn_index,
+                            intent_id=intent_id, action=intent["action"],
+                            target=intent["target"], tier=int(cls_result.tier),
+                            reason=intent["reason"],
+                            risk_level=intent["risk_level"],
+                            outcome=Outcome.PB_SCHEMA_ERROR, duration_ms=duration,
+                            backend=session.backend, model=self._cfg.qb.model,
+                            tokens_in=total_tokens_in, tokens_out=0,
+                            cost_estimate_usd=qb_cost,
+                            extra={"pb_refused": True,
+                                   "refusal_reason": reason},
+                        ))
+                        yield ResultEvent(result=TurnResult(
+                            success=False,
+                            output=f"Privileged Brain refused: {reason}",
+                            outcome=Outcome.PB_SCHEMA_ERROR,
+                            tier=int(cls_result.tier),
+                            backend=session.backend, duration_ms=duration,
+                            cost_usd=qb_cost if qb_cost > 0 else None,
+                            tokens_in=total_tokens_in, tokens_out=0,
+                        ))
+                        return
+                    raise
+                pb_cost = pb_response.cost_usd or 0.0
+                total_cost = qb_cost + pb_cost
+                total_tokens_in = qb_tokens_in + pb_response.tokens_in
+                total_tokens_out = qb_tokens_out + pb_response.tokens_out
+                yield _cot("pb_tool_call", "done",
+                            body=f"Tool call: {tool_call.get('tool', '?')}",
+                            tool=tool_call.get("tool", ""))
 
             # Step 7: Validate tool call
             yield _progress("tool_validation")

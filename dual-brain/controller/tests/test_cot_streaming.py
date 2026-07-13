@@ -53,6 +53,7 @@ def _cfg(stream_output: bool = False) -> SimpleNamespace:
         run=SimpleNamespace(
             qb_max_retries=1, mcpd_timeout_seconds=5.0,
             mcpd_schemas_dir="", mcpd_binary="",
+            tier0_fast_path=False,  # v6.8 M7.2: keep PB mocks in the loop
         ),
         session=SimpleNamespace(
             max_tool_output_lines=40, stream_output=stream_output,

@@ -167,6 +167,11 @@ class RunConfig:
     # 5 s was a magic number; making it configurable lets slow VM disks
     # (encrypted rootfs, network-attached storage) work.
     model_probe_timeout_seconds: float = 5.0
+    # v6.8 M7.2 (2026-07-13): skip PB grammar-decode for Tier 0 intents
+    # whose intent → tool_call mapping is deterministic. INV-2 schema
+    # validation still runs on the constructed tool_call before dispatch.
+    # See tier0_fast_path.py for the tool allowlist.
+    tier0_fast_path: bool = True
 
 
 @dataclass(frozen=True)
@@ -577,6 +582,8 @@ def _build_run_config(raw: dict) -> RunConfig:
         # Phase 6 Scope B new fields — defaults match the dataclass.
         turn_timeout_seconds=section.get("turn_timeout_seconds", 600.0),
         model_probe_timeout_seconds=section.get("model_probe_timeout_seconds", 5.0),
+        # v6.8 M7.2 (2026-07-13).
+        tier0_fast_path=section.get("tier0_fast_path", True),
     )
 
 

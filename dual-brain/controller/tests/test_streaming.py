@@ -69,6 +69,9 @@ def _cfg(stream_output: bool = True, show_progress: bool = True) -> SimpleNamesp
             mcpd_timeout_seconds=5.0,
             mcpd_schemas_dir="",
             mcpd_binary="",
+            # v6.8 M7.2: force slow path in these tests so PB mocks still
+            # fire. The fast-path unit tests live in test_tier0_fast_path.py.
+            tier0_fast_path=False,
         ),
         session=SimpleNamespace(
             max_tool_output_lines=40,
@@ -370,6 +373,36 @@ def test_pb_schema_error():
     result_events = [e for e in events if isinstance(e, ResultEvent)]
     assert len(result_events) == 1
     assert result_events[0].result.outcome == Outcome.PB_SCHEMA_ERROR
+
+
+def test_tier0_fast_path_skips_pb_call():
+    """v6.8 M7.2 integration lock: with tier0_fast_path=True on a Tier-0
+    intent (system.status), pb.complete MUST NOT be called and the turn
+    still yields a successful EXECUTED result."""
+    ctrl, qb, pb, mcpd, audit, session = _build()
+    # Override the default (False for slow-path tests) to True.
+    ctrl._cfg.run.tier0_fast_path = True
+
+    events = _collect_events(ctrl, "show system status", session)
+
+    result_events = [e for e in events if isinstance(e, ResultEvent)]
+    assert len(result_events) == 1
+    assert result_events[0].result.success is True
+    assert result_events[0].result.outcome == Outcome.EXECUTED
+    # The critical assertion: PB is bypassed.
+    pb.complete.assert_not_called()
+
+
+def test_tier0_fast_path_flag_off_still_calls_pb():
+    """Baseline: with tier0_fast_path=False (default in tests), pb.complete
+    fires — confirms the flag actually controls the branch."""
+    ctrl, qb, pb, mcpd, audit, session = _build()
+    # _cfg() sets tier0_fast_path=False; be explicit for clarity.
+    ctrl._cfg.run.tier0_fast_path = False
+
+    _collect_events(ctrl, "show system status", session)
+
+    pb.complete.assert_called_once()
 
 
 def test_progress_event_step_label_non_empty():

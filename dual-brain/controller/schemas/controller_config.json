@@ -107,6 +107,11 @@
           "type": "number", "minimum": 1, "maximum": 120,
           "description": "Timeout (seconds) for hardware probe subprocess calls (sysctl / nvidia-smi / rocm-smi). Raise on slow VM disks or encrypted rootfs.",
           "x-reload": "hot"
+        },
+        "tier0_fast_path": {
+          "type": "boolean",
+          "description": "v6.8 M7.2: skip PB grammar-decode for Tier 0 read-only intents whose intent -> tool_call mapping is deterministic (fs.list/read/stat, system.status/cpu/memory/disk/uptime, process.list/inspect, service.logs, network.status/dns.read, package.query). Removes a ~1-2s round-trip per read-only turn. INV-2 schema validation still runs on the constructed tool_call before mcpd dispatch. Set false to force every intent through PB.",
+          "x-reload": "restart"
         }
       }
     },
