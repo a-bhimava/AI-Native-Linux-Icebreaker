@@ -76,6 +76,9 @@ class Daemon:
         "_cfg", "_controller", "_controller_cfg", "_audit",
         "_server_sock", "_sessions", "_session_lock",
         "_shutdown_event", "_accept_thread",
+        # v6.8 Task #145: SessionStore keyed by session_id — enables
+        # by-ID lookup for LangGraph nodes (Task #146+).
+        "_session_store",
     )
 
     def __init__(
@@ -94,6 +97,11 @@ class Daemon:
         self._session_lock = threading.Lock()
         self._shutdown_event = threading.Event()
         self._accept_thread: threading.Thread | None = None
+        # v6.8 Task #145: session_id-keyed registry. The connection list
+        # (_sessions) stays for transport lifecycle; SessionStore mirrors
+        # the SessionState instances by session_id for LangGraph nodes.
+        from .session_store import SessionStore
+        self._session_store = SessionStore()
 
     # ── Socket lifecycle ────────────────────────────────────────────────
 
@@ -225,7 +233,10 @@ class Daemon:
                 transport.close()
                 continue
 
-            session_state = SessionState.new(
+            # v6.8 Task #145: register via SessionStore so LangGraph
+            # nodes can look up by session_id. The DaemonSession still
+            # owns transport lifecycle.
+            session_state = self._session_store.create(
                 self._controller_cfg.qb.name,
                 self._controller_cfg.session,
             )
@@ -320,6 +331,10 @@ class Daemon:
                     self._sessions.remove(session)
                 except ValueError:
                     pass
+            # v6.8 Task #145: also drop from SessionStore. The store
+            # can be a leak vector otherwise — new connections keep
+            # calling create() which registers fresh entries.
+            self._session_store.remove(session.session_state.session_id)
 
     # ── JSON-RPC dispatch table ─────────────────────────────────────────
 
@@ -473,7 +488,11 @@ class Daemon:
         msg_id = msg.get("id", "0")
         params = msg.get("params", {})
         backend = params.get("backend", self._controller_cfg.qb.name)
-        new_state = SessionState.new(backend, self._controller_cfg.session)
+        # v6.8 Task #145: SessionStore registration for by-id lookup.
+        # Old session (if any) stays in the store until the connection
+        # closes and _connection_loop removes it — LangGraph nodes may
+        # still be checkpoint-resuming against it.
+        new_state = self._session_store.create(backend, self._controller_cfg.session)
         session.session_state = new_state
         resp = JsonRpcResponse(id=msg_id, result={
             "session_id": new_state.session_id,

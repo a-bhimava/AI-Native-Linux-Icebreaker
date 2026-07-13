@@ -131,6 +131,30 @@ class ShellContext:
         )
 
 
+@dataclass(frozen=True)
+class TurnMemory:
+    """v6.8 M7.5 placeholder — per-turn record for follow-up context (F-62).
+
+    Stored REFERENCES, not raw content (§13.3): the audit log holds the
+    full text; TurnMemory holds hashes + a redacted summary so the graph
+    state can carry it forward without swelling checkpoints or leaking
+    PB output through the QB context on replanner turns.
+
+    Fields defined here so the shape is locked in Task #145; population
+    happens in Task #149 (M7.5) when the Replanner node lands.
+    """
+
+    turn_id: str
+    session_id: str
+    query_hash: str
+    intent_action: str
+    result_hash: str
+    result_summary: str          # ≤ 200 chars, BP-8 redacted
+    outcome: str                 # "executed" | "denied" | "unsupported" | "error"
+    tier: int
+    timestamp_utc: str           # ISO 8601
+
+
 @dataclass
 class SessionState:
     session_id: str
@@ -146,6 +170,10 @@ class SessionState:
     # Set by daemon._handle_turn_run before entering run_turn_streaming;
     # consumed at the QB call site in main.py to build the <context> preamble.
     shell_context: ShellContext = field(init=False, default_factory=lambda: ShellContext(), repr=False)
+    # v6.8 M7.5 placeholder — populated by the Replanner node once the
+    # LangGraph adapter lands (Task #149). Stays empty until then;
+    # existing code paths that don't read history are unaffected.
+    history: list = field(init=False, default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         self._last_activity = time.monotonic()
