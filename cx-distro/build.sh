@@ -290,6 +290,12 @@ if [ "$SKIP_TO" -le 2 ]; then
                 -DLLAMA_BUILD_TESTS=OFF
                 -DLLAMA_BUILD_EXAMPLES=OFF
                 -DLLAMA_BUILD_SERVER=ON
+                # F-21 (2026-07-04): the default shared-library build ships
+                # a 17-20 KB llama-server binary that dlopen's
+                # libllama-server-impl.so at runtime. That .so is not in
+                # the ISO chroot → ldd check at v6.manifest:72-76 hard-fails.
+                # Force static so llama-server is a self-contained binary.
+                -DBUILD_SHARED_LIBS=OFF
             )
             # Arch-specific cross-compile: for arm64 point cmake at the
             # aarch64-linux-gnu cross toolchain that Dockerfile.build installs.
