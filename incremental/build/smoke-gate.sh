@@ -203,9 +203,18 @@ if [ "$LEVEL" -ge 6 ]; then
     # the faccessat / faccessat2 syscalls — arm64 kernels don't implement
     # access(2), so glibc routes access() through faccessat. Without either,
     # `service.logs` invocations SIGSYS-kill journalctl.
-    in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -qE 'faccessat'" \
-        && pass "mcpd links faccessat (G1 / F-55 arm64 seccomp fix present)" \
-        || fail "mcpd binary lacks faccessat symbol — F-55 will fire on arm64 service.logs"
+    #
+    # 2026-07-13: `libc::SYS_faccessat` compiles to a numeric constant, so
+    # the string `faccessat` does NOT appear in the stripped release binary.
+    # Verify at the SOURCE layer instead — the v2.manifest F-51 marker
+    # `F55-arm64-facc:src/mcpd/src/sandbox/seccomp.rs:SYS_faccessat` already
+    # covers this, but repeat it here as a smoke-gate signal so a mismatch
+    # between shipped mcpd and source tree is caught before ISO tag.
+    if grep -q "SYS_faccessat" "${REPO_ROOT:-$(pwd)}/src/mcpd/src/sandbox/seccomp.rs" 2>/dev/null; then
+        pass "mcpd source has SYS_faccessat (G1 / F-55 arm64 seccomp fix present)"
+    else
+        fail "src/mcpd/src/sandbox/seccomp.rs missing SYS_faccessat — F-55 fix reverted"
+    fi
     # G5 / F-55 (Scope G, 2026-07-11): the in-guest harvest runner must be
     # present at /usr/local/bin/mcpd-harvest-guest.sh so qemu-gate L6 can
     # exercise real-kernel seccomp inside the booted VM.

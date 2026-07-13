@@ -72,6 +72,15 @@ version_overlay() {
         'import controller,os;print(os.path.dirname(controller.__file__))')"
     [ -n "$sp" ] || { echo "FATAL[v2]: controller not importable after pip install" >&2; return 1; }
 
+    # PKG-1: pip doesn't ship package data. Copy schemas/, prompts/, grammars/,
+    # catalogue.toml into the installed package BEFORE the F-51 marker loop
+    # runs — several B2/C markers assert substrings live under schemas/, so
+    # the copy must happen first.
+    cp    "${repo}/dual-brain/controller/catalogue.toml" "${chroot}${sp}/catalogue.toml"
+    cp -a "${repo}/dual-brain/controller/schemas"  "${chroot}${sp}/schemas"
+    cp -a "${repo}/dual-brain/controller/prompts"  "${chroot}${sp}/prompts"
+    cp -a "${repo}/dual-brain/controller/grammars" "${chroot}${sp}/grammars"
+
     # F-51 (2026-07-10): venv integrity check — every recent bug we fixed
     # left a durable comment marker in the installed source. If the venv
     # tarball got reseeded from a stale tree (as it silently did between
@@ -179,10 +188,6 @@ version_overlay() {
         fi
     done
     echo "[v2] venv integrity check OK (${#_v2_markers[@]} markers)"
-    cp    "${repo}/dual-brain/controller/catalogue.toml" "${chroot}${sp}/catalogue.toml"
-    cp -a "${repo}/dual-brain/controller/schemas"  "${chroot}${sp}/schemas"
-    cp -a "${repo}/dual-brain/controller/prompts"  "${chroot}${sp}/prompts"
-    cp -a "${repo}/dual-brain/controller/grammars" "${chroot}${sp}/grammars"
     rm -rf "${chroot}/tmp/ib-src"
 
     # ── 2. mcpd binary (prebuilt on the VM by cx-distro Stage 1; v4/v5-proven) ──

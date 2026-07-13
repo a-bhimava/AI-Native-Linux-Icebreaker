@@ -58,8 +58,14 @@ version_overlay() {
     }
     echo "[v6] Embedding model (940 MB — this takes a minute)..."
     install -Dm644 "$_V6_MODEL_SRC" "${chroot}/var/lib/icebreaker/models/${_V6_MODEL}"
-    install -Dm644 "${repo}/models/checksums.sha256" \
-        "${chroot}/var/lib/icebreaker/models/checksums.sha256"
+    # Only ship .gguf lines in the model-checksums manifest. Scope G started
+    # appending mcpd-{amd64,arm64} entries to models/checksums.sha256 for the
+    # host-side build gate, but those files don't exist under
+    # /var/lib/icebreaker/models/ inside the chroot — sha256sum -c fails on
+    # them. Filter to model files only.
+    grep -E '\.gguf$' "${repo}/models/checksums.sha256" \
+        > "${chroot}/var/lib/icebreaker/models/checksums.sha256"
+    chmod 644 "${chroot}/var/lib/icebreaker/models/checksums.sha256"
 
     # ── 2. llama-server (static, F-21) ──
     [ -f "$_V6_LLAMA_STATIC" ] || {
