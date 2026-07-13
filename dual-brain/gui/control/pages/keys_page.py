@@ -60,7 +60,7 @@ class KeyRow(Adw.ExpanderRow):
         self._entry = Gtk.PasswordEntry()
         self._entry.set_show_peek_icon(True)
         self._entry.set_hexpand(True)
-        self._entry.set_placeholder_text(f"Paste your {key_state.label} key…")
+        self._entry.set_property("placeholder-text", f"Paste your {key_state.label} key…")
         entry_row = Adw.ActionRow()
         entry_row.set_child(self._entry)
         self.add_row(entry_row)
