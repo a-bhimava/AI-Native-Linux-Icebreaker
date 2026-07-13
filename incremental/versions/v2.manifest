@@ -102,7 +102,7 @@ version_overlay() {
         "F-53-daemon:daemon.py:parse_message failed:"
         "F-53-verify:logger.py:entries_skipped_verify"
         "F-53-recov:logger.py:entries_skipped_recovery"
-        "F-53-shot:rpa_bridge/bridge.py:_last_screenshot_error"
+        "F-53-shot:../rpa_bridge/bridge.py:_last_screenshot_error"
         # Phase 6 Scope B (2026-07-10) — user-configurable knobs.
         # If any substring below disappears from the installed venv,
         # the reseed dropped Scope B and the shipped ISO is silently

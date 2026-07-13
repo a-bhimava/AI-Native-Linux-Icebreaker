@@ -184,15 +184,21 @@ echo ""
 echo "── 6. F-51 markers (v2.manifest) ──"
 
 # F-53-shot marker path bug — discovered 2026-07-13
-if grep -q '"F-53-shot:bridge.py:_last_screenshot_error"' "$V2_MANIFEST"; then
-    fail "v2.manifest has 'F-53-shot:bridge.py:...' with wrong path" \
-         "bridge.py lives at rpa_bridge/bridge.py — fix marker to 'F-53-shot:rpa_bridge/bridge.py:_last_screenshot_error'"
-elif grep -q '"F-53-shot:rpa_bridge/bridge.py:_last_screenshot_error"' "$V2_MANIFEST"; then
-    pass "F-53-shot marker path correct"
+# _target="${chroot}${sp}/${_f}" where sp is the controller/ site-packages
+# path. So a marker naming a file OUTSIDE controller/ needs `../` prefix.
+# rpa_bridge/bridge.py is a sibling package to controller/, so the marker
+# path must be `../rpa_bridge/bridge.py`.
+if grep -qF '"F-53-shot:../rpa_bridge/bridge.py:_last_screenshot_error"' "$V2_MANIFEST"; then
+    pass "F-53-shot marker path correct (../rpa_bridge/bridge.py)"
+elif grep -qF '"F-53-shot:rpa_bridge/bridge.py:_last_screenshot_error"' "$V2_MANIFEST"; then
+    fail "v2.manifest F-53-shot marker resolves to controller/rpa_bridge/bridge.py (does not exist)" \
+         "prefix path with ../ so it resolves to site-packages/rpa_bridge/bridge.py"
+elif grep -qF '"F-53-shot:bridge.py:_last_screenshot_error"' "$V2_MANIFEST"; then
+    fail "v2.manifest F-53-shot marker resolves to controller/bridge.py (does not exist)" \
+         "change to '../rpa_bridge/bridge.py'"
 elif grep -q 'F-53-shot' "$V2_MANIFEST"; then
     pass "F-53-shot marker present (unknown format — manual review)"
 else
-    # marker missing entirely: not critical, only skip
     pass "F-53-shot marker not present (may be removed intentionally)"
 fi
 
