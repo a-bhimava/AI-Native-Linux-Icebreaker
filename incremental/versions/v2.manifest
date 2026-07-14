@@ -197,6 +197,13 @@ version_overlay() {
         # absent, AgentGraph reduces to a shell.
         "T146-nodes:agent_graph_nodes.py:def planner_node"
         "T146-compile:agent_graph.py:_build_graph"
+        # v6.8 Task #147 (2026-07-13) — main.py branch + bridge module.
+        # If the branch disappears, every turn silently falls through
+        # to the monolithic pipeline even when the operator sets
+        # agent_graph.enabled=true. If the bridge module is missing,
+        # the branch raises ImportError on first flag-on turn.
+        "T147-branch:main.py:run_via_agent_graph"
+        "T147-bridge:agent_graph_bridge.py:translate_outcome_to_events"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do

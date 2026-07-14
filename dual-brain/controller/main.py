@@ -404,6 +404,34 @@ class Controller:
     def backend_name(self) -> str:
         return self._cfg.qb.name
 
+    # v6.8 Task #147: lazy AgentGraph accessor. Defers the SqliteSaver +
+    # graph.compile() cost to the first turn that actually needs it.
+    # Held in a private attr; init to None in the class body so the
+    # accessor is idempotent + testable via `ctrl._agent_graph = mock`.
+    _agent_graph: Any = None
+
+    def _get_agent_graph(self) -> Any:
+        if self._agent_graph is None:
+            from .agent_graph import AgentGraph
+            from .session_store import SessionStore
+            from .risk_classifier import classify
+            agent_cfg = getattr(self._cfg, "agent_graph", None)
+            self._agent_graph = AgentGraph(
+                cfg=agent_cfg,
+                session_store=SessionStore(),
+                qb_backend=self._qb,
+                pb_backend=self._pb,
+                mcpd_client=self._mcpd,
+                audit_log=self._audit,
+                risk_classify=classify,
+                verifier=self._verifier,
+                prompts=self._prompts,
+                intent_schema=self._intent_schema,
+                controller_cfg=self._cfg,
+                intent_store=self._store,
+            )
+        return self._agent_graph
+
     def run_turn(self, user_input: str, session: Any) -> TurnResult:
         t0 = time.monotonic()
         try:
@@ -433,6 +461,22 @@ class Controller:
 
         The existing ``run_turn()`` is unchanged (BP-2 backward compat).
         """
+        # v6.8 Task #147 (2026-07-13): AgentGraph migration branch. When
+        # `cfg.agent_graph.enabled` is True (default False), delegate to
+        # the LangGraph runtime via the bridge. Old pipeline stays
+        # unchanged for the flag-off default so shipped v6.7 behavior is
+        # preserved until Task #154 flips the flag after UTM sweep.
+        _agent_cfg = getattr(self._cfg, "agent_graph", None)
+        if _agent_cfg is not None and getattr(_agent_cfg, "enabled", False):
+            from .agent_graph_bridge import run_via_agent_graph
+            yield from run_via_agent_graph(
+                self._get_agent_graph(),
+                self._build_presenter(),
+                user_input, session,
+                backend=self.backend_name(),
+            )
+            return
+
         from .turn_events import (
             CotEvent,
             ErrorEvent,

@@ -171,3 +171,101 @@ def test_live_provider_end_to_end_smoke(
         )
     finally:
         ag.close()
+
+
+# ── v6.8 Task #147 — Bridge path live test ───────────────────────────
+
+
+@pytest.mark.skipif(
+    not os.environ.get("ICEBREAKER_LIVE_GEMINI_KEY"),
+    reason="opt-in — set ICEBREAKER_LIVE_GEMINI_KEY to run",
+)
+def test_live_bridge_end_to_end_gemini():
+    """Task #147: prove Controller.run_turn_streaming routes through
+    the bridge when cfg.agent_graph.enabled=True. Uses real Gemini so
+    the QB call really runs; PB + mcpd mocked; asserts we get a
+    ProgressEvent + CotEvent stream ending in ResultEvent EXECUTED.
+
+    This is the ONE test that proves the whole Task #147 wiring works
+    end-to-end. Everything else is mocked."""
+    from unittest.mock import MagicMock
+
+    from controller.agent_graph import AgentGraph
+    from controller.agent_graph_bridge import run_via_agent_graph
+    from controller.audit import Outcome
+    from controller.backends import SecretRef
+    from controller.backends.gemini_backend import GeminiBackend
+    from controller.config import AgentGraphConfig
+    from controller.turn_events import CotEvent, ProgressEvent, ResultEvent
+
+    qb_cfg = SimpleNamespace(
+        model="gemini-2.5-flash",
+        max_tokens=50000,
+        timeout_seconds=30,
+        api_key=SecretRef("ICEBREAKER_LIVE_GEMINI_KEY"),
+    )
+    qb = GeminiBackend(qb_cfg)
+
+    session_state = MagicMock()
+    session_state.session_id = "live-bridge-session"
+    session_state.build_pb_user_turn.return_value = "pb-user-turn"
+
+    session_store = MagicMock()
+    session_store.get.return_value = session_state
+
+    pb = MagicMock()
+    pb.complete.return_value = SimpleNamespace(
+        content_json={"tool": "system.status", "params": {}}
+    )
+    mcpd = MagicMock()
+    mcpd.call.return_value = SimpleNamespace(stdout="all systems nominal")
+
+    prompts = MagicMock()
+    prompts.get.return_value = (
+        "You are an intent parser. Emit a JSON object with fields "
+        "action, target, reason, risk_level. For 'show system status' "
+        'emit {"action": "system.status", "target": "", '
+        '"reason": "user_requested", "risk_level": "read_only"}.'
+    )
+    intent_store = MagicMock()
+    intent_store.put.return_value = "live-bridge-intent"
+
+    ag = AgentGraph(
+        cfg=AgentGraphConfig(
+            enabled=True, checkpointer_path=":memory:",
+            checkpointer_retention_days=30, strict_msgpack=True,
+        ),
+        session_store=session_store,
+        qb_backend=qb,
+        pb_backend=pb,
+        mcpd_client=mcpd,
+        audit_log=MagicMock(),
+        risk_classify=MagicMock(return_value=SimpleNamespace(tier=0)),
+        verifier=MagicMock(),
+        prompts=prompts,
+        intent_schema={"type": "object"},
+        controller_cfg=SimpleNamespace(
+            run=SimpleNamespace(tier0_fast_path=True),
+            verifier=SimpleNamespace(
+                tier_floor=2, retry_mode="on_call_failed_only"
+            ),
+        ),
+        intent_store=intent_store,
+    )
+    presenter = MagicMock()  # Tier-0 fast path never invokes it.
+
+    try:
+        events = list(run_via_agent_graph(
+            ag, presenter, "show system status", session_state,
+            backend="gemini",
+        ))
+        types = [type(e) for e in events]
+        assert ProgressEvent in types, "bridge must emit ProgressEvent"
+        assert CotEvent in types, "bridge must emit CotEvent"
+        assert types.count(ResultEvent) == 1
+        result_event = next(e for e in events if isinstance(e, ResultEvent))
+        assert result_event.result.outcome == Outcome.EXECUTED
+        assert result_event.result.success is True
+        presenter.show_prompt.assert_not_called()
+    finally:
+        ag.close()

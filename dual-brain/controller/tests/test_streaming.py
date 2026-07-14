@@ -375,6 +375,47 @@ def test_pb_schema_error():
     assert result_events[0].result.outcome == Outcome.PB_SCHEMA_ERROR
 
 
+def test_agent_graph_flag_on_delegates_to_bridge():
+    """v6.8 Task #147: when cfg.agent_graph.enabled=True, run_turn_streaming
+    must delegate to run_via_agent_graph. Assert by installing a mock
+    AgentGraph via _agent_graph and observing yielded events came from
+    the bridge (ResultEvent shape + no old-pipeline TokenEvents)."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from controller.audit import Outcome
+    from controller.turn_events import ResultEvent
+
+    ctrl, qb, pb, mcpd, audit, session = _build()
+    # Flip the flag on this Controller's config.
+    ctrl._cfg.agent_graph = SimpleNamespace(enabled=True)
+
+    # Install a mock AgentGraph so the branch doesn't actually compile
+    # a LangGraph (that's exercised by test_agent_graph_run.py).
+    fake_ag = MagicMock()
+    fake_ag._turn_content = {}
+
+    def _one_shot(*args, **kwargs):
+        yield {
+            "outcome": "executed",
+            "session_id": "s", "turn_id": "t", "intent_id": "iid",
+            "tier": 0, "tool_call_hash": "h", "mcpd_result_hash": "rh",
+            "error_kind": None, "error_reason": None,
+        }
+    fake_ag.run.side_effect = _one_shot
+    ctrl._agent_graph = fake_ag
+
+    events = _collect_events(ctrl, "show system status", session)
+    result_events = [e for e in events if isinstance(e, ResultEvent)]
+    assert len(result_events) == 1
+    assert result_events[0].result.outcome == Outcome.EXECUTED
+    # Old pipeline's PB was NOT called because the flag branch takes
+    # over before Step 6.
+    pb.complete.assert_not_called()
+    # AgentGraph.run was called with the query.
+    fake_ag.run.assert_called_once()
+
+
 def test_tier0_fast_path_skips_pb_call():
     """v6.8 M7.2 integration lock: with tier0_fast_path=True on a Tier-0
     intent (system.status), pb.complete MUST NOT be called and the turn
