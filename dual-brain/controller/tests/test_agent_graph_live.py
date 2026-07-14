@@ -1,29 +1,29 @@
-"""v6.8 Task #146 Step 2b — opt-in live Gemini smoke test.
+"""v6.8 Task #146 Step 2b — opt-in live provider smoke tests.
 
-D5 decision: one end-to-end test that hits a real provider through
-the real LiteLLM adapter inside the compiled AgentGraph. Purpose: catch
+D5 decision: end-to-end tests that hit REAL providers through the real
+LiteLLM adapter inside the compiled AgentGraph. Purpose: catch
 provider-surface surprises the mocked tests can't see (auth changes,
-response-format enforcement, ContextWindowExceededError shape shifts).
+response-format enforcement, token-counting quirks, reasoning-token
+overhead).
 
-Opt-in: skipped unless ICEBREAKER_LIVE_GEMINI_KEY is set — not
-GEMINI_API_KEY, so CI's default provider keys (if any) don't
-accidentally trigger a paid call. Same env-gate pattern as G24
+Opt-in per provider: each row skips unless its dedicated env var is
+set (ICEBREAKER_LIVE_GEMINI_KEY, ICEBREAKER_LIVE_ANTHROPIC_KEY, or
+ICEBREAKER_LIVE_OPENAI_KEY). Users run one, two, or all three
+depending on which keys they have. Not GEMINI_API_KEY etc. — a
+purpose-specific env var so CI's default provider keys (if any)
+don't accidentally trigger paid calls. Same pattern as G24
 (Scope F live sweep).
 
-Cost budget: max_tokens=50000. Max theoretical cost per run is
-$0.015 (Gemini 2.5-flash output @ $0.30/1M) but actual is trivial
-because Gemini only emits what's needed — a 4-field intent JSON is
-<100 tokens. The cap is just a ceiling to prevent runaway generation.
+Cost budget: max_tokens=50000 (well under each provider's output
+ceiling). Actual per-run cost is pennies because we emit ~100 tokens
+of intent JSON; the cap only exists to eliminate the truncation
+class of bug. Max theoretical: Gemini ~\$0.015, Anthropic Haiku
+~\$0.20, OpenAI Mini ~\$0.15.
 
 Live-run learning (2026-07-13): Gemini 2.5-flash consumes reasoning
-tokens against max_tokens. My initial 100-then-512 was cost-anxious
-and still risked truncation if the model decided to think longer.
-50k eliminates the class of bug entirely (Gemini 2.5-flash supports
-64k output ceiling) at zero real cost.
-
-Production QB defaults in catalogue.toml should also use 4k-8k
-minimums for Gemini 2.5 — the shipped 256 default was tuned for
-Gemini 2.0 and is too tight for the reasoning-token model.
+tokens against max_tokens; a 4-field JSON needed >100 tokens. Setting
+50k eliminates the class of bug across all three providers regardless
+of their reasoning-token semantics.
 """
 
 from __future__ import annotations
@@ -34,41 +34,85 @@ from unittest.mock import MagicMock
 
 import pytest
 
-_LIVE_KEY = os.environ.get("ICEBREAKER_LIVE_GEMINI_KEY", "")
+
+# ── Provider registry ────────────────────────────────────────────────
+#
+# Each row: (name, env_var, model_id, backend_module, backend_class_name)
+# Backend module/class are strings so pytest.mark.parametrize's id
+# generation stays clean.
+
+_LIVE_PROVIDERS = [
+    (
+        "gemini",
+        "ICEBREAKER_LIVE_GEMINI_KEY",
+        "gemini-2.5-flash",
+        "controller.backends.gemini_backend",
+        "GeminiBackend",
+    ),
+    (
+        "anthropic",
+        "ICEBREAKER_LIVE_ANTHROPIC_KEY",
+        "claude-haiku-4-5",
+        "controller.backends.anthropic_backend",
+        "AnthropicBackend",
+    ),
+    (
+        "openai",
+        "ICEBREAKER_LIVE_OPENAI_KEY",
+        "gpt-5-mini",
+        "controller.backends.openai_backend",
+        "OpenAIBackend",
+    ),
+]
 
 
-@pytest.mark.skipif(
-    not _LIVE_KEY,
-    reason="opt-in live test — set ICEBREAKER_LIVE_GEMINI_KEY to run",
+@pytest.mark.parametrize(
+    "provider_name,env_var,model_id,backend_mod,backend_cls_name",
+    _LIVE_PROVIDERS,
+    ids=[row[0] for row in _LIVE_PROVIDERS],
 )
-def test_live_gemini_end_to_end_smoke():
-    """Real Gemini call through the LiteLLM adapter through the compiled
-    AgentGraph. Asserts: outcome=executed, tier is set, mcpd_result_hash
-    non-empty. PB + mcpd are still mocked — the point is to exercise the
-    QB provider path end-to-end, not to boot mcpd."""
+def test_live_provider_end_to_end_smoke(
+    provider_name,
+    env_var,
+    model_id,
+    backend_mod,
+    backend_cls_name,
+):
+    """Real provider call through LiteLLM through the compiled AgentGraph.
 
+    Asserts: outcome=executed, tier is set, mcpd_result_hash non-empty.
+    PB + mcpd are mocked — the point is to exercise the QB provider
+    path end-to-end, not to boot mcpd.
+    """
+    key = os.environ.get(env_var, "")
+    if not key:
+        pytest.skip(
+            f"opt-in — set {env_var} to run the {provider_name} smoke test"
+        )
+
+    import importlib
     from controller.agent_graph import AgentGraph
     from controller.backends import SecretRef
-    from controller.backends.gemini_backend import GeminiBackend
     from controller.config import AgentGraphConfig
-    from controller.session_store import SessionStore
 
-    # Wrap the live key in a SecretRef the way GeminiBackend expects.
-    # We set the env var here explicitly so SecretRef can resolve it —
-    # the test's ICEBREAKER_LIVE_GEMINI_KEY becomes the value.
-    os.environ["ICEBREAKER_LIVE_GEMINI_KEY"] = _LIVE_KEY
+    backend_cls = getattr(importlib.import_module(backend_mod), backend_cls_name)
 
+    # Wrap the key in a SecretRef the way each backend expects. The env
+    # var name IS the SecretRef target — SecretRef.reveal() reads from
+    # os.environ, so we don't need to duplicate the value here.
     qb_cfg = SimpleNamespace(
-        model="gemini-2.5-flash",
-        # Gemini 2.5 uses reasoning tokens against max_tokens. Cap at
-        # 50k (well under the 64k output ceiling) to eliminate the
-        # truncation-class of bug without inducing real cost — Gemini
-        # only emits what it needs. Max theoretical: $0.015/run.
+        model=model_id,
+        # 50k eliminates the truncation-class of bug across all three
+        # providers regardless of reasoning-token semantics (Gemini 2.5,
+        # Claude 4.x extended thinking, OpenAI o-series). Gemini 2.5-flash
+        # supports 64k output; Claude 4.5 supports 64k; OpenAI 5-mini
+        # supports 128k. Actual per-run cost is pennies — a 4-field JSON
+        # intent is <100 tokens.
         max_tokens=50000,
         timeout_seconds=30,
-        api_key=SecretRef("ICEBREAKER_LIVE_GEMINI_KEY"),
+        api_key=SecretRef(env_var),
     )
-    qb = GeminiBackend(qb_cfg)
+    qb = backend_cls(qb_cfg)
 
     session_state = MagicMock()
     session_state.build_pb_user_turn.return_value = "pb-user-turn"
@@ -91,7 +135,7 @@ def test_live_gemini_end_to_end_smoke():
     )
 
     intent_store = MagicMock()
-    intent_store.put.return_value = "live-intent-id"
+    intent_store.put.return_value = f"live-intent-{provider_name}"
 
     ag = AgentGraph(
         cfg=AgentGraphConfig(
@@ -109,20 +153,21 @@ def test_live_gemini_end_to_end_smoke():
         intent_schema={"type": "object"},
         controller_cfg=SimpleNamespace(
             run=SimpleNamespace(tier0_fast_path=True),
-            verifier=SimpleNamespace(tier_floor=2, retry_mode="on_call_failed_only"),
+            verifier=SimpleNamespace(
+                tier_floor=2, retry_mode="on_call_failed_only"
+            ),
         ),
         intent_store=intent_store,
     )
     try:
-        results = list(ag.run("show system status", "live-session-1"))
+        results = list(ag.run("show system status", f"live-session-{provider_name}"))
         out = results[0]
-        # The QB call actually happened — outcome is executed (fast path
-        # bypasses PB) and mcpd_result_hash is populated.
-        assert out["outcome"] == "executed", f"got {out}"
-        assert out["tier"] == 0
-        assert out["mcpd_result_hash"]
-        # Real cost: tokens > 0 would need audit-line access; the fact
-        # that we got a valid intent back proves LiteLLM ↔ Gemini works
-        # end-to-end.
+        assert out["outcome"] == "executed", (
+            f"[{provider_name}] expected executed, got {out}"
+        )
+        assert out["tier"] == 0, f"[{provider_name}] tier not classified"
+        assert out["mcpd_result_hash"], (
+            f"[{provider_name}] mcpd never fired — QB likely returned invalid intent"
+        )
     finally:
         ag.close()

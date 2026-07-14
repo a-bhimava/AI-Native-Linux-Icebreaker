@@ -87,6 +87,28 @@ def test_call_via_litellm_returns_text_and_tokens():
     assert tout == 5
 
 
+def test_call_via_litellm_never_sends_top_p():
+    """v6.8 2026-07-13 regression lock: Anthropic Claude 4.5+ rejects
+    requests that specify BOTH temperature and top_p. Since Icebreaker
+    uses temperature-based sampling decay, top_p is redundant. Make
+    sure a future refactor doesn't accidentally reintroduce top_p in
+    the LiteLLM kwargs — that would break every Anthropic QB turn."""
+    with patch.object(_litellm_shared.litellm, "completion") as mock_comp:
+        mock_comp.return_value = _mock_response()
+        call_via_litellm(
+            model="anthropic/claude-haiku-4-5",
+            envelope=_envelope(),
+            max_tokens=100,
+            timeout_seconds=10.0,
+            api_key="key",
+        )
+    kwargs = mock_comp.call_args.kwargs
+    assert "top_p" not in kwargs, (
+        "top_p in LiteLLM kwargs will break Anthropic Claude 4.5+"
+    )
+    assert "temperature" in kwargs  # temperature is still fine
+
+
 def test_call_via_litellm_never_sends_tools_kwarg():
     """INV-1: the `tools` kwarg must never be built into the LiteLLM
     completion call. Assert on kwargs seen by the mock."""

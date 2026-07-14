@@ -94,11 +94,20 @@ def _build_kwargs(
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
+    # Live-run learning (2026-07-13): Anthropic Claude 4.5+ rejects
+    # requests that specify BOTH `temperature` AND `top_p`. Gemini +
+    # OpenAI accept both. Icebreaker uses TEMPERATURE-based sampling
+    # decay (base.py:_SAMPLING_DECAY) so top_p is redundant with the
+    # temperature axis — dropping it unconditionally is semantically
+    # neutral for our workload AND fixes Anthropic.
+    #
+    # If we later need nucleus sampling in production, we'll drop
+    # temperature instead (Anthropic recommends picking one or the
+    # other, not both).
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "temperature": float(sampling.get("temperature", 0.0)),
-        "top_p": float(sampling.get("top_p", 1.0)),
         "max_tokens": int(max_tokens),
         "timeout": float(timeout_seconds),
         "api_key": api_key,
