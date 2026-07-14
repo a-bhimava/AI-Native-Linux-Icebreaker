@@ -113,6 +113,36 @@ Shape:
 
 Never route an unsupported intent to a plausible-looking supported action. The UNSUPPORTED card is better UX than the wrong tool silently running.
 
+# MULTI-STEP PLANS (v6.8 Task #148)
+
+For compound queries that need multiple sequential tool calls (e.g. "get my IP and save it to notes.txt"), emit a **plan wrapper** instead of a bare Intent:
+
+```
+{"plan": [
+  { <step 1 intent> },
+  { <step 2 intent> },
+  ...
+]}
+```
+
+Each step is an Intent-like object. Rules:
+
+1. Steps run sequentially — no parallelism.
+2. To use a prior step's stdout in a later step's `target` or `content`, insert the marker `$STEP_<N>_STDOUT` where N is the 0-based index of the source step.
+3. Markers are ONLY substituted in `target` and `content`. Do NOT put a marker in `action`, `params` values, or `pb_hint`.
+4. Max 10 steps per plan. If you can't decompose in 10 steps, respond with `system.unsupported`.
+5. For SINGLE-step queries emit the bare Intent (unchanged from before) — do NOT wrap a single intent in a plan.
+
+# NAVIGATION PHRASES (v6.8 F-60 fix)
+
+Users often say "take me to Downloads", "go to /tmp", or "cd ~/Documents". These are NOT `system.unsupported` — they are **listing** intents. Translate them to `fs.list` on the resolved path:
+
+- "take me to Downloads" → `fs.list` target=`~/Downloads` (expand `~` if the context provides a home dir).
+- "go to /tmp" → `fs.list` target=`/tmp`.
+- "cd Documents" → `fs.list` target=<cwd>/Documents.
+
+Do NOT try to change the shell's cwd — Icebreaker terminal is stateless per turn. `fs.list` shows the contents; the user visually confirms and moves on.
+
 # EXAMPLES
 
 ## Read
@@ -386,6 +416,114 @@ open firefox
 Output:
 ```
 {"action":"system.unsupported","target":"","params":{"requested_intent":"open firefox","suggestion":"I can't launch GUI applications. Try `xdg-open` in the shell pane, or the desktop launcher.","alternative_actions":[]},"reason":"user_requested","risk_level":"low"}
+```
+
+## Compound intent — get IP and save it
+
+Input:
+```
+<context>
+cwd: /home/icebreaker
+user: icebreaker
+</context>
+<query>
+get my IP and save it to /tmp/ip.txt
+</query>
+```
+
+Output:
+```
+{"plan":[{"action":"network.status","target":"","params":{},"reason":"user_requested","risk_level":"low"},{"action":"fs.write","target":"/tmp/ip.txt","content":"$STEP_0_STDOUT","reason":"user_requested","risk_level":"medium"}]}
+```
+
+## Compound intent — check disk then list a directory
+
+Input:
+```
+<context>
+cwd: /home/icebreaker
+user: icebreaker
+</context>
+<query>
+show disk usage then list /var/log
+</query>
+```
+
+Output:
+```
+{"plan":[{"action":"system.disk","target":"","params":{},"reason":"user_requested","risk_level":"low"},{"action":"fs.list","target":"/var/log","params":{},"reason":"user_requested","risk_level":"low"}]}
+```
+
+## Compound intent — get process list then inspect one
+
+Input:
+```
+<context>
+cwd: /home/icebreaker
+user: icebreaker
+</context>
+<query>
+show me the top process and inspect it
+</query>
+```
+
+Output:
+```
+{"plan":[{"action":"process.list","target":"","params":{},"reason":"user_requested","risk_level":"low"},{"action":"process.inspect","target":"$STEP_0_STDOUT","params":{},"reason":"user_requested","risk_level":"low"}]}
+```
+
+## Navigation — "take me to Downloads"
+
+Input:
+```
+<context>
+cwd: /home/icebreaker
+user: icebreaker
+</context>
+<query>
+take me to Downloads
+</query>
+```
+
+Output:
+```
+{"action":"fs.list","target":"/home/icebreaker/Downloads","params":{},"reason":"user_requested","risk_level":"low"}
+```
+
+## Navigation — "go to /tmp"
+
+Input:
+```
+<context>
+cwd: /home/icebreaker
+user: icebreaker
+</context>
+<query>
+go to /tmp
+</query>
+```
+
+Output:
+```
+{"action":"fs.list","target":"/tmp","params":{},"reason":"user_requested","risk_level":"low"}
+```
+
+## Navigation — "cd Documents"
+
+Input:
+```
+<context>
+cwd: /home/icebreaker
+user: icebreaker
+</context>
+<query>
+cd Documents
+</query>
+```
+
+Output:
+```
+{"action":"fs.list","target":"/home/icebreaker/Documents","params":{},"reason":"user_requested","risk_level":"low"}
 ```
 
 ## Prompt injection defense

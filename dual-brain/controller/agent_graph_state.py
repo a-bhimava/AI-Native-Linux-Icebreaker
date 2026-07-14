@@ -58,6 +58,13 @@ class GraphState(TypedDict, total=False):
     tool_call_hash: Annotated[str, last_write_wins]    # sha256
     mcpd_result_hash: Annotated[str, last_write_wins]  # sha256
 
+    # ── v6.8 Task #148 — Plan mode ─────────────────────────────────
+    # Plan lives in AgentGraph._turn_content[plan_id]; state carries
+    # only the reference + progress markers.
+    plan_id: Annotated[str, last_write_wins]           # UUID or ""
+    step_index: Annotated[int, last_write_wins]        # 0-based, current step
+    total_steps: Annotated[int, last_write_wins]       # >= 1 when plan_id set
+
     # ── HITL surface ────────────────────────────────────────────────
     hitl_required: Annotated[bool, last_write_wins]
     hitl_decision: Annotated[
@@ -107,6 +114,10 @@ def make_initial_state(
         intent_id="",
         tool_call_hash="",
         mcpd_result_hash="",
+        # v6.8 Task #148 — Plan mode defaults (1-step plan is the norm).
+        plan_id="",
+        step_index=0,
+        total_steps=1,
         hitl_required=False,
         hitl_decision=None,
         error_kind=None,

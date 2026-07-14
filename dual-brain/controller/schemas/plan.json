@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://icebreaker.local/schemas/plan/v1",
+  "title": "PlanObject",
+  "description": "v6.8 Task #148 — multi-step plan wrapper. QB may emit either a bare Intent (backward compat) OR a plan wrapper with an array of step objects. Each step is an Intent-like object where `target` and `content` may contain marker references (e.g. `$STEP_0_STDOUT`) that get resolved to prior-step outputs by the Executor before schema validation and dispatch. The resolved intent must pass intent.json strictly.",
+  "type": "object",
+  "required": ["plan"],
+  "additionalProperties": false,
+  "properties": {
+    "plan": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "description": "Ordered list of steps. Max 10 steps per plan — a soft cap to prevent runaway plan generation. Steps execute sequentially, each with access to prior step results via `$STEP_<N>_STDOUT` markers.",
+      "items": {
+        "type": "object",
+        "required": ["action", "target"],
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "maxLength": 64,
+            "description": "MCP tool name. Same shape as intent.json.action. Markers ARE NOT ALLOWED here — attacker crafting a compound query must not be able to rewrite an action mid-plan. Pattern rejects `$`."
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 512,
+            "description": "Primary target. MAY contain `$STEP_<N>_STDOUT` markers (which include `$`); Executor resolves them, then validates the resulting string against intent.json's strict pattern. This wrapper schema is looser than intent.json specifically to allow the marker."
+          },
+          "params": {
+            "type": "object",
+            "description": "Tool-specific parameters. In v6.8 Task #148 params does NOT support marker substitution (D15); only target and content do. Params values must satisfy intent.json's constraints already.",
+            "additionalProperties": {
+              "oneOf": [
+                {"type": "string", "maxLength": 1024},
+                {"type": "number"},
+                {"type": "boolean"},
+                {"type": "null"}
+              ]
+            }
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 65536,
+            "description": "Optional verbatim payload (e.g. bytes for fs.write). MAY contain `$STEP_<N>_STDOUT` markers. Resolved before dispatch."
+          },
+          "pb_hint": {
+            "type": "string",
+            "maxLength": 2048,
+            "description": "Optional PB coaching. Same as intent.json.pb_hint."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Short human-facing summary of THIS step (not the whole plan). Rendered in HITL card + audit trail."
+          },
+          "risk_level": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"],
+            "description": "QB's own risk assessment for this step. Risk classifier still runs at graph time; this field is informational + used for max-tier calculation."
+          }
+        }
+      }
+    }
+  }
+}

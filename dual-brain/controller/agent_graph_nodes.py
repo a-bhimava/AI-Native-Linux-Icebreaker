@@ -28,6 +28,12 @@ from typing import Any, Callable
 
 from .agent_graph_state import GraphState
 from .backends.base import BrainError, BrainProviderError
+from .plan_executor import (
+    normalize_planner_output,
+    plan_max_tier,
+    resolve_step_markers,
+    validate_resolved_intent,
+)
 from .tier0_fast_path import try_fast_path
 from .verifier import should_skip_verifier
 
@@ -85,10 +91,13 @@ def _sha(payload: Any) -> str:
 
 
 def planner_node(collab: dict) -> Callable[[GraphState], dict]:
-    """QB planner — reads user query, emits a validated Intent.
+    """QB planner — reads user query, emits either a bare Intent (v6.7
+    backward compat) OR a plan wrapper (v6.8 Task #148 multi-step).
 
-    Bound closure returns the actual node function; the closure captures
-    the collaborator kit so nodes stay pure (state) -> dict.
+    Task #148: normalize both shapes to a canonical plan list; store
+    the whole plan by ``plan_id`` in turn_content; write ``intent_id``
+    for the FIRST step so downstream nodes (risk_classifier, executor)
+    have a starting point.
     """
 
     def _run(state: GraphState) -> dict:
@@ -100,7 +109,7 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
                 schema=collab["intent_schema"],
                 max_retries=1,
             )
-            intent = resp.content_json
+            raw = resp.content_json
         except BrainError as exc:
             return {
                 "intent_valid": False,
@@ -109,18 +118,32 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
                 "completed": True,
             }
 
-        if not isinstance(intent, dict) or "action" not in intent:
+        # Task #148: accept bare intent OR plan wrapper.
+        try:
+            plan = normalize_planner_output(raw)
+        except ValueError as exc:
             return {
                 "intent_valid": False,
                 "error_kind": "planner",
-                "error_reason": "planner returned non-intent payload",
+                "error_reason": f"malformed planner output: {exc}"[:400],
                 "completed": True,
             }
 
-        intent_id = collab["intent_store"].put(intent)
-        collab["turn_content"][intent_id] = intent
+        # Store the whole plan under a fresh plan_id. Also store step 0
+        # under an intent_id so risk_classifier's per-step lookup (which
+        # uses intent_id) finds it. Subsequent steps get looked up via
+        # the plan_id + step_index keys the executor builds.
+        import uuid as _uuid
+        plan_id = str(_uuid.uuid4())
+        collab["turn_content"][plan_id] = plan
+
+        intent_id = collab["intent_store"].put(plan[0])
+        collab["turn_content"][intent_id] = plan[0]
 
         return {
+            "plan_id": plan_id,
+            "step_index": 0,
+            "total_steps": len(plan),
             "intent_id": intent_id,
             "intent_valid": True,
         }
@@ -129,9 +152,23 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
 
 
 def risk_classifier_node(collab: dict) -> Callable[[GraphState], dict]:
-    """Classify the Intent's tier (0/1/2/3). Pure function of the intent."""
+    """Classify the plan's tier (0/1/2/3).
+
+    Task #148 (D13): for multi-step plans, use max(step.tier) so HITL
+    fires ONCE for the whole plan at the highest-risk step. Single-step
+    plans behave identically to Task #146 (single intent classification).
+    """
 
     def _run(state: GraphState) -> dict:
+        plan_id = state.get("plan_id", "")
+        plan = collab["turn_content"].get(plan_id) if plan_id else None
+
+        if plan and isinstance(plan, list) and len(plan) > 1:
+            # Multi-step plan: max-tier wins.
+            tier = plan_max_tier(plan, collab["risk_classify"])
+            return {"tier": int(tier)}
+
+        # Backward-compat single-step path — classify the intent directly.
         intent = collab["turn_content"].get(state.get("intent_id", ""))
         if intent is None:
             return {
@@ -140,7 +177,6 @@ def risk_classifier_node(collab: dict) -> Callable[[GraphState], dict]:
                 "completed": True,
             }
         result = collab["risk_classify"](intent)
-        # ClassificationResult has .tier (an IntEnum) — coerce to int.
         return {"tier": int(getattr(result, "tier", -1))}
 
     return _run
@@ -221,20 +257,57 @@ def hitl_gate_node(collab: dict) -> Callable[[GraphState], dict]:
 
 
 def executor_node(collab: dict) -> Callable[[GraphState], dict]:
-    """Turn the Intent into a validated mcp_tool_call.
+    """Turn the CURRENT plan step's Intent into a validated mcp_tool_call.
 
-    Fast path (M7.2): for Tier-0 allowlisted actions, construct the
-    tool_call in code without calling PB. Otherwise: PB grammar-decode.
+    Task #148: look up the current step by (plan_id, step_index); resolve
+    ``$STEP_<N>_STDOUT`` markers using prior step results; re-validate
+    against intent.json (marker-substitution must complete before dispatch);
+    then Tier-0 fast path OR PB grammar-decode.
     """
 
     def _run(state: GraphState) -> dict:
-        intent = collab["turn_content"].get(state.get("intent_id", ""))
-        if intent is None:
-            return {
-                "error_kind": "internal",
-                "error_reason": "executor: intent lookup miss",
-                "completed": True,
-            }
+        # Task #148: look up the current step from the plan.
+        plan_id = state.get("plan_id", "")
+        step_index = int(state.get("step_index", 0))
+        total_steps = int(state.get("total_steps", 1))
+        plan = collab["turn_content"].get(plan_id) if plan_id else None
+
+        if plan and isinstance(plan, list) and step_index < len(plan):
+            raw_step = plan[step_index]
+            # Gather prior step results (indices 0..step_index-1).
+            prior_results: dict[int, str] = {}
+            for i in range(step_index):
+                key = f"{plan_id}:{i}:result"
+                cached = collab["turn_content"].get(key)
+                if cached is not None:
+                    prior_results[i] = _extract_stdout_for_marker(cached)
+            # Substitute markers → resolved intent.
+            intent = resolve_step_markers(raw_step, prior_results)
+
+            # Post-substitution strict validation.
+            validation_err = validate_resolved_intent(
+                intent, collab["intent_schema"],
+            )
+            if validation_err is not None:
+                return {
+                    "tool_call_valid": False,
+                    "error_kind": "planner",
+                    "error_reason": (
+                        f"step {step_index + 1}/{total_steps} "
+                        f"failed validation: {validation_err}"
+                    )[:400],
+                    "completed": True,
+                }
+        else:
+            # Backward-compat single-intent path (Task #146 behavior).
+            intent = collab["turn_content"].get(state.get("intent_id", ""))
+            if intent is None:
+                return {
+                    "tool_call_valid": False,
+                    "error_kind": "internal",
+                    "error_reason": "executor: intent lookup miss",
+                    "completed": True,
+                }
 
         tier = int(state.get("tier", -1))
         rcfg = getattr(collab["cfg"], "run", None)
@@ -247,10 +320,11 @@ def executor_node(collab: dict) -> Callable[[GraphState], dict]:
         if tool_call is None:
             # Slow path — call PB via HTTP.
             try:
-                pb_user = collab["session_store"].get(state["session_id"]).build_pb_user_turn(
+                session_state = collab["session_store"].get(state["session_id"])
+                pb_user = session_state.build_pb_user_turn(
                     state.get("intent_id", ""),
                     intent["action"],
-                    tool_schema={},  # Task #146 skeleton — Task #147 wires real schema
+                    tool_schema={},
                     target=intent.get("target", ""),
                     content=intent.get("content", ""),
                     pb_hint=intent.get("pb_hint", ""),
@@ -268,7 +342,6 @@ def executor_node(collab: dict) -> Callable[[GraphState], dict]:
                     "completed": True,
                 }
             except AttributeError:
-                # session_store.get() may return None in tests; skip PB.
                 return {
                     "tool_call_valid": False,
                     "error_kind": "internal",
@@ -276,7 +349,7 @@ def executor_node(collab: dict) -> Callable[[GraphState], dict]:
                     "completed": True,
                 }
 
-        # Stash the tool_call by hash so mcpd_dispatcher can retrieve it.
+        # Stash tool_call by hash so mcpd_dispatcher can retrieve it.
         tc_hash = _sha(tool_call)
         collab["turn_content"][tc_hash] = tool_call
 
@@ -288,9 +361,30 @@ def executor_node(collab: dict) -> Callable[[GraphState], dict]:
     return _run
 
 
+def _extract_stdout_for_marker(result: Any) -> str:
+    """Extract the string a ``$STEP_<N>_STDOUT`` marker should resolve to.
+
+    mcpd_dispatcher stores whatever mcpd returned. Common shapes:
+    - SimpleNamespace(stdout="...") — the primary shipped path
+    - {"stdout": "..."} — JSON-serialized
+    - Any other value → str(...) fallback
+    """
+    stdout = getattr(result, "stdout", None)
+    if stdout is None and isinstance(result, dict):
+        stdout = result.get("stdout")
+    if stdout is None:
+        stdout = str(result)
+    return str(stdout)
+
+
 def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
     """Send the tool_call to mcpd. Comes AFTER hitl_gate on Tier ≥ 2
     paths so the side effect only fires on approve.
+
+    Task #148: also stores the result at ``{plan_id}:{step_index}:result``
+    so subsequent steps can substitute it via markers. Increments
+    step_index in the returned state; the after_mcpd edge routes back
+    to executor when step_index < total_steps.
     """
 
     def _run(state: GraphState) -> dict:
@@ -307,14 +401,32 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
                 params=tool_call.get("params", {}),
             )
         except Exception as exc:  # noqa: BLE001 — wrap unknown mcpd faults
+            step_index = int(state.get("step_index", 0))
+            total_steps = int(state.get("total_steps", 1))
+            step_label = f"step {step_index + 1}/{total_steps}"
             return {
                 "error_kind": "mcpd",
-                "error_reason": f"{type(exc).__name__}: {exc}"[:400],
+                "error_reason": f"{step_label} ({tool_call.get('tool', '')}): "
+                                f"{type(exc).__name__}: {exc}"[:400],
                 "completed": True,
             }
         result_hash = _sha(getattr(result, "stdout", "") or str(result))
         collab["turn_content"][result_hash] = result
-        return {"mcpd_result_hash": result_hash}
+
+        # Task #148: also stash by (plan_id, step_index) so subsequent
+        # steps' marker resolution can look it up.
+        plan_id = state.get("plan_id", "")
+        step_index = int(state.get("step_index", 0))
+        if plan_id:
+            key = f"{plan_id}:{step_index}:result"
+            collab["turn_content"][key] = result
+
+        # Advance to the next step. after_mcpd edge decides whether to
+        # loop back to executor or route to responder.
+        return {
+            "mcpd_result_hash": result_hash,
+            "step_index": step_index + 1,
+        }
 
     return _run
 
@@ -378,6 +490,16 @@ def after_executor(state: GraphState) -> str:
 
 
 def after_mcpd(state: GraphState) -> str:
+    """Task #148: loop back to executor if more steps remain in the plan.
+
+    step_index was incremented by mcpd_dispatcher_node after storing the
+    step's result. When step_index reaches total_steps, all steps are
+    done → route to responder.
+    """
     if state.get("error_kind"):
         return "END"
+    step_index = int(state.get("step_index", 0))
+    total_steps = int(state.get("total_steps", 1))
+    if step_index < total_steps:
+        return "executor"   # loop for the next step
     return "responder"

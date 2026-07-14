@@ -213,6 +213,137 @@ def test_turn_content_cleared_after_success():
         ag.close()
 
 
+def test_multi_step_plan_tier0_executes_all_steps():
+    """v6.8 Task #148 F-62 compound-intent fix: QB emits a 2-step plan;
+    executor loops twice; mcpd fires twice; marker resolution provably
+    replaces $STEP_0_STDOUT in step 2's params.
+
+    Both steps use Tier-0 fast-path tools so marker resolution happens
+    in-code (no PB mock overriding the tool_call shape). Step 1 =
+    network.status (no params); step 2 = fs.list with target that
+    references step 1's stdout via marker.
+    """
+    ag = _make_agent()
+    ag._qb.complete.return_value = SimpleNamespace(content_json={
+        "plan": [
+            {"action": "network.status", "target": "",
+             "reason": "user_requested", "risk_level": "low"},
+            # Step 2 target references step 0's stdout — after resolution
+            # this becomes /tmp/foo which flows into params.path via
+            # tier0_fast_path.
+            {"action": "fs.list", "target": "/tmp/$STEP_0_STDOUT",
+             "reason": "user_requested", "risk_level": "low"},
+        ]
+    })
+    ag._risk_classify = MagicMock(return_value=SimpleNamespace(tier=0))
+    ag._mcpd.call.side_effect = [
+        SimpleNamespace(stdout="foo"),               # step 0
+        SimpleNamespace(stdout="listed /tmp/foo"),   # step 1
+    ]
+    ag._graph = ag._build_graph()
+
+    try:
+        results = list(ag.run("get ip and list the dir", "sess-plan-1"))
+        out = results[0]
+        assert out["outcome"] == "executed", f"expected executed, got {out}"
+        assert ag._mcpd.call.call_count == 2, "mcpd should fire for BOTH steps"
+
+        # Step 2's params.path came from marker substitution: /tmp/foo.
+        step2_kwargs = ag._mcpd.call.call_args_list[1].kwargs
+        assert step2_kwargs["params"]["path"] == "/tmp/foo", (
+            f"marker not resolved; got params={step2_kwargs['params']}"
+        )
+        assert "$STEP_" not in step2_kwargs["params"]["path"], (
+            "marker survived substitution"
+        )
+    finally:
+        ag.close()
+
+
+def test_multi_step_plan_step_failure_short_circuits():
+    """Step 2 fails at mcpd → outcome=error with step-labeled reason."""
+    ag = _make_agent()
+    ag._qb.complete.return_value = SimpleNamespace(content_json={
+        "plan": [
+            {"action": "network.status", "target": "",
+             "reason": "u", "risk_level": "low"},
+            {"action": "fs.write", "target": "/tmp/x.txt",
+             "content": "$STEP_0_STDOUT",
+             "reason": "u", "risk_level": "low"},
+        ]
+    })
+    ag._risk_classify = MagicMock(return_value=SimpleNamespace(tier=0))
+    ag._mcpd.call.side_effect = [
+        SimpleNamespace(stdout="10.0.0.1"),
+        RuntimeError("permission denied"),
+    ]
+    ag._graph = ag._build_graph()
+
+    try:
+        results = list(ag.run("query", "sess-plan-fail"))
+        out = results[0]
+        assert out["outcome"] == "error"
+        assert out["error_kind"] == "mcpd"
+        assert "step 2/2" in out["error_reason"]
+        # First step still fired, second step failed.
+        assert ag._mcpd.call.call_count == 2
+    finally:
+        ag.close()
+
+
+def test_multi_step_plan_bare_intent_backward_compat():
+    """A QB that emits a bare intent (v6.7 shape) still works — the
+    Planner normalizes it to a 1-step plan and the graph executes
+    identically to Task #146."""
+    ag = _make_agent()
+    # Bare intent (no 'plan' wrapper).
+    ag._qb.complete.return_value = SimpleNamespace(content_json={
+        "action": "fs.list", "target": "/tmp",
+        "reason": "user_requested", "risk_level": "low",
+    })
+    ag._risk_classify = MagicMock(return_value=SimpleNamespace(tier=0))
+    ag._graph = ag._build_graph()
+
+    try:
+        results = list(ag.run("list /tmp", "sess-plan-bc"))
+        out = results[0]
+        assert out["outcome"] == "executed"
+        assert ag._mcpd.call.call_count == 1
+    finally:
+        ag.close()
+
+
+def test_multi_step_plan_max_tier_wins_for_hitl_gate():
+    """Task #148 D13: multi-step plan with a Tier-2 step at position 1
+    should trigger HitlGate once at max-tier, not per-step. Verify by
+    running and observing the graph pauses before ANY mcpd fires."""
+    ag = _make_agent()
+    ag._qb.complete.return_value = SimpleNamespace(content_json={
+        "plan": [
+            {"action": "network.status", "target": "",
+             "reason": "u", "risk_level": "low"},
+            {"action": "package.install", "target": "htop",
+             "reason": "u", "risk_level": "medium"},
+        ]
+    })
+    # First step is Tier 0, second is Tier 2. Max is 2.
+    def _rc(step):
+        tier = 2 if step.get("action") == "package.install" else 0
+        return SimpleNamespace(tier=tier)
+    ag._risk_classify = _rc
+    ag._graph = ag._build_graph()
+
+    try:
+        results = list(ag.run("get IP and install htop", "sess-plan-tier"))
+        out = results[0]
+        # HitlGate should have paused the graph before any mcpd call.
+        assert out["outcome"] == "paused"
+        assert ag._mcpd.call.call_count == 0
+        assert out["tier"] == 2
+    finally:
+        ag.close()
+
+
 def test_turn_content_survives_pause():
     """Between pause and resume the collaborator's turn_content dict
     MUST still hold the intent — the risk_classifier / executor look

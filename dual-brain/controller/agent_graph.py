@@ -265,7 +265,11 @@ class AgentGraph:
         )
         builder.add_conditional_edges(
             "mcpd_dispatcher", after_mcpd,
-            _route_end({"responder": "responder"}),
+            # Task #148: loop back to executor when more steps remain.
+            _route_end({
+                "responder": "responder",
+                "executor": "executor",
+            }),
         )
         builder.add_edge("responder", END)
 

@@ -334,7 +334,19 @@ def test_after_executor_ends_on_error():
 
 
 def test_after_mcpd_routes_to_responder_on_success():
-    assert after_mcpd(_state()) == "responder"
+    # mcpd_dispatcher increments step_index before after_mcpd runs;
+    # simulate: single-step plan means step_index=1, total_steps=1 → done.
+    assert after_mcpd(_state(step_index=1, total_steps=1)) == "responder"
+
+
+def test_after_mcpd_loops_to_executor_when_more_steps():
+    """Task #148: multi-step plans loop back to executor after each
+    step's mcpd dispatch completes."""
+    assert after_mcpd(_state(step_index=1, total_steps=3)) == "executor"
+
+
+def test_after_mcpd_routes_to_responder_when_all_steps_done():
+    assert after_mcpd(_state(step_index=3, total_steps=3)) == "responder"
 
 
 def test_after_mcpd_ends_on_error():

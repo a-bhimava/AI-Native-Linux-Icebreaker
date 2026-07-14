@@ -204,6 +204,14 @@ version_overlay() {
         # the branch raises ImportError on first flag-on turn.
         "T147-branch:main.py:run_via_agent_graph"
         "T147-bridge:agent_graph_bridge.py:translate_outcome_to_events"
+        # v6.8 Task #148 (2026-07-13) — Plan mode. If any of these
+        # disappears from the installed venv, either compound queries
+        # break (F-62 regression) or marker substitution stops working
+        # (attacker could inject $STEP_ markers into a shipped intent
+        # that the loose plan-wrapper schema accepts).
+        "T148-schema:schemas/plan.json:properties"
+        "T148-marker:plan_executor.py:resolve_step_markers"
+        "T148-loop:agent_graph_nodes.py:after_mcpd"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do
