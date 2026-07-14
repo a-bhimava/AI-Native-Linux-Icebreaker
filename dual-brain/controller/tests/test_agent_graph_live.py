@@ -10,12 +10,20 @@ GEMINI_API_KEY, so CI's default provider keys (if any) don't
 accidentally trigger a paid call. Same env-gate pattern as G24
 (Scope F live sweep).
 
-Cost budget: max_tokens=512. ~$0.0002 per run. Trivial.
+Cost budget: max_tokens=50000. Max theoretical cost per run is
+$0.015 (Gemini 2.5-flash output @ $0.30/1M) but actual is trivial
+because Gemini only emits what's needed — a 4-field intent JSON is
+<100 tokens. The cap is just a ceiling to prevent runaway generation.
 
 Live-run learning (2026-07-13): Gemini 2.5-flash consumes reasoning
-tokens against the max_tokens budget — a 4-field JSON like our intent
-needs at least 256 output tokens of headroom, not 50. Setting to 512
-gives comfortable margin.
+tokens against max_tokens. My initial 100-then-512 was cost-anxious
+and still risked truncation if the model decided to think longer.
+50k eliminates the class of bug entirely (Gemini 2.5-flash supports
+64k output ceiling) at zero real cost.
+
+Production QB defaults in catalogue.toml should also use 4k-8k
+minimums for Gemini 2.5 — the shipped 256 default was tuned for
+Gemini 2.0 and is too tight for the reasoning-token model.
 """
 
 from __future__ import annotations
@@ -52,9 +60,11 @@ def test_live_gemini_end_to_end_smoke():
 
     qb_cfg = SimpleNamespace(
         model="gemini-2.5-flash",
-        # Gemini 2.5 uses reasoning tokens against max_tokens; 100 is
-        # not enough for a 4-field JSON. 512 gives comfortable headroom.
-        max_tokens=512,
+        # Gemini 2.5 uses reasoning tokens against max_tokens. Cap at
+        # 50k (well under the 64k output ceiling) to eliminate the
+        # truncation-class of bug without inducing real cost — Gemini
+        # only emits what it needs. Max theoretical: $0.015/run.
+        max_tokens=50000,
         timeout_seconds=30,
         api_key=SecretRef("ICEBREAKER_LIVE_GEMINI_KEY"),
     )
