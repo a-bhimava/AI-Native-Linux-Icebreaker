@@ -212,6 +212,16 @@ version_overlay() {
         "T148-schema:schemas/plan.json:properties"
         "T148-marker:plan_executor.py:resolve_step_markers"
         "T148-loop:agent_graph_nodes.py:after_mcpd"
+        # v6.9 Scope O Layer 1 (2026-07-14) — tool_catalogue.yaml is the
+        # single source of truth for prompts + tests + risk classifier.
+        # If any of these disappears from the installed venv, prompts
+        # regress to the old hand-list state, test corpus SUPPORTED_ACTIONS
+        # goes stale, or the drift detector stops firing — v6.9's whole
+        # scalability pivot silently reverts to per-tool-costs-12-files.
+        "LayerO-cat:tool_catalogue.yaml:name:"
+        "LayerO-gen:_intent_corpus_supported.py:SUPPORTED_ACTIONS"
+        "LayerO-block:prompts/_catalogue_block.txt:system.unsupported"
+        "LayerO-loader:config.py:_substitute_placeholders"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do

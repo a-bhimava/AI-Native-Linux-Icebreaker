@@ -130,15 +130,40 @@ class PromptLoader:
     def _load(self, name: str) -> str:
         override = getattr(self._cfg, name, "")
         if override:
-            return Path(override).expanduser().read_text(encoding="utf-8").strip()
+            raw = Path(override).expanduser().read_text(encoding="utf-8").strip()
+        else:
+            base = Path(self._cfg.prompts_dir).expanduser()
+            path = base / f"{name}.txt"
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"Prompt '{name}' not found at {path}. "
+                    "Set [prompts] prompts_dir or a per-backend override in controller.toml."
+                )
+            raw = path.read_text(encoding="utf-8").strip()
+        return self._substitute_placeholders(raw)
+
+    def _substitute_placeholders(self, text: str) -> str:
+        """v6.9 Scope O Layer 1: substitute {{CATALOGUE}} with the auto-generated
+        prompt block that lists every tool grouped by tier. The block lives at
+        prompts/_catalogue_block.txt (produced by
+        `scripts/export_mcpd_catalogue.py emit`). Prompts without the
+        placeholder pass through unchanged.
+        """
+        if "{{CATALOGUE}}" not in text:
+            return text
         base = Path(self._cfg.prompts_dir).expanduser()
-        path = base / f"{name}.txt"
-        if not path.exists():
+        block_path = base / "_catalogue_block.txt"
+        if not block_path.exists():
             raise FileNotFoundError(
-                f"Prompt '{name}' not found at {path}. "
-                "Set [prompts] prompts_dir or a per-backend override in controller.toml."
+                f"Prompt uses {{{{CATALOGUE}}}} but {block_path} is missing. "
+                "Run `python scripts/export_mcpd_catalogue.py emit --from-categories`."
             )
-        return path.read_text(encoding="utf-8").strip()
+        # Strip generator header comments — QB doesn't need to see them.
+        block = "\n".join(
+            line for line in block_path.read_text(encoding="utf-8").splitlines()
+            if not line.startswith("#")
+        ).strip()
+        return text.replace("{{CATALOGUE}}", block)
 
 
 @dataclass(frozen=True)

@@ -631,6 +631,23 @@ else
   fi
 fi
 
+# ── G25: v6.9 Scope O Layer 1 — tool catalogue drift detector ───────────
+# tool_catalogue.yaml is the single source of truth for the mcpd tool
+# surface. Three artifacts derive from it (_mcpd_tools.py,
+# _intent_corpus_supported.py, prompts/_catalogue_block.txt). If any
+# drifts vs the YAML — because someone hand-edited a generated file or
+# forgot to re-run the emit script — this gate fails. Offline; no mcpd
+# binary required.
+echo "G25: Tool catalogue drift (v6.9 Scope O Layer 1)..."
+if PYTHONPATH="${DUAL_BRAIN}" python3 -m pytest \
+    "${DUAL_BRAIN}/controller/tests/test_tool_catalogue_yaml.py" \
+    --timeout=30 -q > /tmp/g25_out.log 2>&1; then
+  pass 25 "tool catalogue YAML in sync with all 3 generated artifacts"
+else
+  fail 25 "tool catalogue drift — see /tmp/g25_out.log; regenerate via \
+scripts/export_mcpd_catalogue.py emit --from-categories"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════════════"
 

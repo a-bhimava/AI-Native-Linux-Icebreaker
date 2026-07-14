@@ -22,11 +22,7 @@ Each step is an Intent-like object. Steps run sequentially, max 10. To use a pri
 </schema>
 
 <catalogue>
-read-only → risk_level=low: system.status, system.uptime, system.cpu, system.memory, system.disk, process.list, process.inspect, fs.read, fs.list, fs.stat, service.logs, network.status, network.dns.read, package.query
-write inside $HOME → risk_level=low: fs.write
-system writes → risk_level=medium: package.install, package.remove, package.upgrade, service.start, service.stop, service.restart
-destructive / outside home → risk_level=critical: fs.delete, fs.write (outside $HOME)
-no matching tool → risk_level=low: system.unsupported (F-35 — the ONLY correct action when no listed tool fits; NEVER substitute a lookalike)
+{{CATALOGUE}}
 </catalogue>
 
 <security>

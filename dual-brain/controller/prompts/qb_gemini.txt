@@ -22,26 +22,7 @@ Emit the top-level keys in this order. Always close the object. Do NOT emit `int
 
 # ACTIONS
 
-Read-only (risk_level=low):
-  `system.status`, `system.uptime`, `system.cpu`, `system.memory`, `system.disk`
-  `process.list`, `process.inspect`
-  `fs.read`, `fs.list`, `fs.stat`
-  `service.logs`
-  `network.status`, `network.dns.read`
-  `package.query`
-
-Write (risk_level=low inside user home, `critical` outside):
-  `fs.write`
-
-System-change (risk_level=medium):
-  `package.install`, `package.remove`, `package.upgrade`
-  `service.start`, `service.stop`, `service.restart`
-
-Destructive (risk_level=critical):
-  `fs.delete`, `fs.write` outside home
-
-Meta (the ONLY correct action when no tool fits):
-  `system.unsupported`
+{{CATALOGUE}}
 
 Never invent an action name. If you don't see a match above, emit `system.unsupported`.
 

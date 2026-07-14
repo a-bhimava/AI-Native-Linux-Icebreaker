@@ -1,0 +1,285 @@
+# tool_catalogue.yaml — v6.9 Scope O Layer 1 single source of truth
+#
+# Every mcpd tool AND every controller-side meta-action lives here. The
+# generator `scripts/export_mcpd_catalogue.py emit` reads this file and
+# writes three consumers:
+#
+#   1. controller/_mcpd_tools.py            — tier frozensets (risk classifier)
+#   2. controller/_intent_corpus_supported.py — SUPPORTED_ACTIONS frozenset (tests)
+#   3. controller/prompts/_catalogue_block.txt — the block QB prompts substitute
+#
+# When a new mcpd tool ships, add a row here. Do NOT hand-edit the three
+# generated files, and do NOT list actions in the four QB prompt files
+# manually — they read `{{CATALOGUE}}` from `_catalogue_block.txt` at load
+# time.
+#
+# Fields (only name, provided_by, tier_hint, risk_level_default, one_line
+# are consumed by v6.9 generators; natural_phrases and example_intent are
+# reserved for Layer 2 manifest loader and Layer 3 QB propose_tool flow):
+#
+#   name                    Fully-qualified tool name (matches mcpd tools/list)
+#   provided_by             mcpd | controller
+#   tier_hint               tier0 | conditional | system_write | destructive | meta
+#   risk_level_default      low | medium | high | critical
+#   one_line                Short human description (used in prompt block + docs)
+#   param_schema_ref        Path (from repo root) to JSON Schema; null for controller-side
+#   natural_phrases         Optional list of NL phrases that should route here (Layer 2+)
+#   example_intent          Optional minimal Intent object (Layer 2+ few-shot generation)
+
+# ── Tier 0 read-only (14) ────────────────────────────────────────────────
+- name: system.status
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Return uptime, load, memory, and OS release summary."
+  param_schema_ref: src/mcpd/schemas/system.status.json
+
+- name: system.uptime
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Return system uptime and boot time."
+  param_schema_ref: src/mcpd/schemas/system.uptime.json
+
+- name: system.cpu
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Return per-core CPU usage from /proc/stat."
+  param_schema_ref: src/mcpd/schemas/system.cpu.json
+
+- name: system.memory
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Return memory usage from /proc/meminfo."
+  param_schema_ref: src/mcpd/schemas/system.memory.json
+
+- name: system.disk
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Return filesystem usage summary."
+  param_schema_ref: src/mcpd/schemas/system.disk.json
+
+- name: process.list
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "List running processes with PID, name, CPU%, RSS."
+  param_schema_ref: src/mcpd/schemas/process.list.json
+
+- name: process.inspect
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Return detailed info for one PID (cmdline, cwd, open FDs)."
+  param_schema_ref: src/mcpd/schemas/process.inspect.json
+
+- name: fs.read
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Read a file under the allowed roots."
+  param_schema_ref: src/mcpd/schemas/fs.read.json
+
+- name: fs.list
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "List directory entries under the allowed roots."
+  param_schema_ref: src/mcpd/schemas/fs.list.json
+  natural_phrases:
+    - "list <path>"
+    - "what's in <path>"
+    - "take me to <path>"     # v6.8 F-60 nav phrase (v6.9 replaces with nav.cd)
+    - "go to <path>"
+    - "cd <path>"
+
+- name: fs.stat
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Return metadata (size, mtime, permissions) for one path."
+  param_schema_ref: src/mcpd/schemas/fs.stat.json
+
+- name: service.logs
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Return recent journalctl entries for a systemd unit."
+  param_schema_ref: src/mcpd/schemas/service.logs.json
+
+- name: network.status
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Return network interfaces + primary IP + default route."
+  param_schema_ref: src/mcpd/schemas/network.status.json
+
+- name: network.dns.read
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Return the current resolver configuration (/etc/resolv.conf)."
+  param_schema_ref: src/mcpd/schemas/network.dns.read.json
+
+- name: package.query
+  provided_by: mcpd
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Check whether a package is installed (dpkg -l)."
+  param_schema_ref: src/mcpd/schemas/package.query.json
+
+# ── Conditional tier (1) — fs.write is Tier 1 in $HOME, Tier 3 outside ─
+- name: fs.write
+  provided_by: mcpd
+  tier_hint: conditional
+  # QB should default to low inside $HOME. Risk classifier upgrades to
+  # critical for paths outside $HOME at runtime.
+  risk_level_default: low
+  one_line: "Write a file (COW-mediated outside $HOME; Tier 3 requires HITL)."
+  param_schema_ref: src/mcpd/schemas/fs.write.json
+
+# ── Always Tier 3 destructive (1) ────────────────────────────────────────
+- name: fs.delete
+  provided_by: mcpd
+  tier_hint: destructive
+  risk_level_default: critical
+  one_line: "Delete a file or directory (always HITL, COW dry-run first)."
+  param_schema_ref: src/mcpd/schemas/fs.delete.json
+
+# ── Tier 2 system writes (6) ─────────────────────────────────────────────
+- name: service.start
+  provided_by: mcpd
+  tier_hint: system_write
+  risk_level_default: medium
+  one_line: "Start a systemd unit."
+  param_schema_ref: src/mcpd/schemas/service.start.json
+
+- name: service.stop
+  provided_by: mcpd
+  tier_hint: system_write
+  risk_level_default: medium
+  one_line: "Stop a systemd unit."
+  param_schema_ref: src/mcpd/schemas/service.stop.json
+
+- name: service.restart
+  provided_by: mcpd
+  tier_hint: system_write
+  risk_level_default: medium
+  one_line: "Restart a systemd unit."
+  param_schema_ref: src/mcpd/schemas/service.restart.json
+
+- name: package.install
+  provided_by: mcpd
+  tier_hint: system_write
+  risk_level_default: medium
+  one_line: "Install a package via apt-get."
+  param_schema_ref: src/mcpd/schemas/package.install.json
+
+- name: package.remove
+  provided_by: mcpd
+  tier_hint: system_write
+  risk_level_default: medium
+  one_line: "Remove a package via apt-get."
+  param_schema_ref: src/mcpd/schemas/package.remove.json
+
+- name: package.upgrade
+  provided_by: mcpd
+  tier_hint: system_write
+  risk_level_default: medium
+  one_line: "Upgrade a package or the whole system via apt-get."
+  param_schema_ref: src/mcpd/schemas/package.upgrade.json
+
+# ── Meta (controller-side) ───────────────────────────────────────────────
+# system.unsupported is NOT an mcpd tool. It's the F-35 "no listed tool
+# fits" escape hatch the controller synthesizes so unrecognized intents
+# get a helpful reply instead of a plausible-lookalike misroute.
+- name: system.unsupported
+  provided_by: controller
+  tier_hint: meta
+  risk_level_default: low
+  one_line: "F-35 escape hatch — the ONLY correct action when no listed tool fits."
+  param_schema_ref: src/mcpd/schemas/system.unsupported.json
+
+# ── GUI Agent tools (dual-brain/gui_agent/, dispatched via AT-SPI) ───────
+# Not in mcpd's tools/list — the controller dispatches these directly to
+# gui_agent through the Landlock-sandboxed subprocess. Risk classifier
+# groups them separately (gui_readonly vs gui_write) because Landlock
+# already contains blast radius.
+- name: gui.ping
+  provided_by: gui_agent
+  tier_hint: gui_readonly
+  risk_level_default: low
+  one_line: "Round-trip check that gui_agent is responsive."
+
+- name: gui.screenshot
+  provided_by: gui_agent
+  tier_hint: gui_readonly
+  risk_level_default: low
+  one_line: "Capture the focused window's screenshot (hash returned to QB per INV-1)."
+
+- name: gui.find_element
+  provided_by: gui_agent
+  tier_hint: gui_readonly
+  risk_level_default: low
+  one_line: "Locate an AT-SPI element by role + name in the focused window."
+
+- name: gui.get_window_list
+  provided_by: gui_agent
+  tier_hint: gui_readonly
+  risk_level_default: low
+  one_line: "List open top-level windows via AT-SPI."
+
+- name: gui.get_element_tree
+  provided_by: gui_agent
+  tier_hint: gui_readonly
+  risk_level_default: low
+  one_line: "Dump the AT-SPI accessibility tree of the focused window."
+
+- name: gui.click
+  provided_by: gui_agent
+  tier_hint: gui_write
+  risk_level_default: medium
+  one_line: "Click an AT-SPI element (Landlock+Seccomp sandbox contains blast)."
+
+- name: gui.type
+  provided_by: gui_agent
+  tier_hint: gui_write
+  risk_level_default: medium
+  one_line: "Type text into an AT-SPI text field (per-window rate-limited)."
+
+- name: gui.select
+  provided_by: gui_agent
+  tier_hint: gui_write
+  risk_level_default: medium
+  one_line: "Select an AT-SPI menu item / combo entry."
+
+# ── RPA Bridge tools (dual-brain/rpa_bridge/, Robot Framework + uinput) ──
+# The most-permissive sandbox in the system (Landlock + Seccomp +
+# /dev/uinput). Kept separate from GUI Agent because uinput lets it
+# escape AT-SPI when needed.
+- name: rpa.ping
+  provided_by: rpa_bridge
+  tier_hint: rpa_readonly
+  risk_level_default: low
+  one_line: "Round-trip check that rpa_bridge is responsive."
+
+- name: rpa.find_by_image
+  provided_by: rpa_bridge
+  tier_hint: rpa_readonly
+  risk_level_default: low
+  one_line: "Locate a screen region by fuzzy image match."
+
+- name: rpa.list_workflows
+  provided_by: rpa_bridge
+  tier_hint: rpa_readonly
+  risk_level_default: low
+  one_line: "List available Robot Framework workflows in the allowlist."
+
+- name: rpa.execute_workflow
+  provided_by: rpa_bridge
+  tier_hint: rpa_write
+  risk_level_default: high
+  one_line: "Execute an allowlisted Robot Framework workflow (Tier 2, HITL)."

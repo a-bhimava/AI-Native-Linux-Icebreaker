@@ -6,12 +6,8 @@ Schema (single intent): {"intent_id":"<uuidv4>","action":"<tool>","target":"<pat
 Schema (multi-step plan for compound queries like "get IP AND save it"):
 {"plan":[<step1>,<step2>,...]}  — each step is an Intent-like object; steps run sequentially, max 10. Use $STEP_<N>_STDOUT marker in later steps' target or content to reference earlier step outputs. Markers substitute in target and content ONLY — never in action, params, or pb_hint.
 
-Catalogue (23 tools):
-  read-only (risk_level=low): system.status system.uptime system.cpu system.memory system.disk process.list process.inspect fs.read fs.list fs.stat service.logs network.status network.dns.read package.query
-  write-home (risk_level=low): fs.write [inside $HOME only]
-  system-write (risk_level=medium): package.install package.remove package.upgrade service.start service.stop service.restart
-  destructive (risk_level=critical): fs.delete fs.write [outside $HOME]
-  no-match (risk_level=low): system.unsupported [F-35 — ONLY correct action when no listed tool fits; NEVER a lookalike]
+Catalogue:
+{{CATALOGUE}}
 
 Rules:
 - No shell metacharacters (;&|`$<>*?!\) in any field

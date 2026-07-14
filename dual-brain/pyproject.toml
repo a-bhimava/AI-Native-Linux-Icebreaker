@@ -32,6 +32,10 @@ dependencies = [
     "tomli>=2.0; python_version < '3.11'",
     "tomlkit>=0.12",
     "tomli-w>=1.0",
+    # v6.9 Scope O Layer 1 (2026-07-14): tool_catalogue.yaml is the single
+    # source for prompts + tests + risk classifier; export_mcpd_catalogue.py
+    # loads it via yaml.safe_load.
+    "PyYAML>=6.0",
 ]
 
 [project.scripts]
