@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterator, Literal, Optional
 
@@ -90,6 +91,11 @@ class AgentGraph:
         verifier: Any,                     # VerifierStrategy
         prompts: Any,                      # prompt_loader
         intent_schema: dict,
+        # Controller-level config carrier so nodes can read [verifier]
+        # + [run] sections (tier_floor, tier0_fast_path).
+        controller_cfg: Any = None,
+        # Reuse Controller's IntentStore for opaque UUID → intent map.
+        intent_store: Any = None,
         # Test hook: allow injecting an in-memory checkpointer path.
         checkpointer_path_override: Optional[str] = None,
     ) -> None:
@@ -103,13 +109,26 @@ class AgentGraph:
         self._verifier = verifier
         self._prompts = prompts
         self._intent_schema = intent_schema
+        self._controller_cfg = controller_cfg
+
+        # Fall back to a lightweight in-memory intent store if none is
+        # passed — keeps tests wire-simple without importing IntentStore.
+        if intent_store is None:
+            intent_store = _InMemoryIntentStore()
+        self._intent_store = intent_store
+
+        # Per-turn ephemeral content lookup (intent + tool_call + result
+        # bytes keyed by UUID/hash). Wiped between turns by _reset_turn.
+        # State carries only the keys — the content stays here, off the
+        # checkpoint DB (INV-1 preservation per plan §5.3).
+        self._turn_content: dict[str, Any] = {}
 
         # Checkpointer construction — includes the CVE mitigation.
         self._checkpointer_conn: Optional[sqlite3.Connection] = None
         self._checkpointer = self._build_checkpointer(checkpointer_path_override)
 
-        # Graph compile happens in Step 2b once nodes + edges are defined.
-        self._graph = None
+        # Compile the graph now — all nodes + edges are defined.
+        self._graph = self._build_graph()
 
     # ── Checkpointer + CVE mitigation ────────────────────────────────
 
@@ -171,25 +190,160 @@ class AgentGraph:
             # the state itself.
         ]
 
-    # ── Public API (bodies land in Step 2b) ──────────────────────────
+    # ── Graph construction ───────────────────────────────────────────
+
+    def _build_graph(self) -> Any:
+        """Assemble Planner → RiskClassifier → (Verifier + HitlGate for
+        Tier ≥ 2 else direct) → Executor → McpdDispatcher → Responder.
+
+        Node functions live in agent_graph_nodes.py so tests can exercise
+        them without compiling the whole graph.
+        """
+        from langgraph.graph import StateGraph, START, END
+        from .agent_graph_state import GraphState
+        from .agent_graph_nodes import (
+            after_executor, after_hitl, after_mcpd, after_planner,
+            after_risk, after_verifier,
+            executor_node, hitl_gate_node, mcpd_dispatcher_node,
+            make_collaborators, planner_node, responder_node,
+            risk_classifier_node, verifier_node,
+        )
+
+        collab = make_collaborators(
+            cfg=self._controller_cfg,
+            session_store=self._session_store,
+            qb_backend=self._qb,
+            pb_backend=self._pb,
+            mcpd_client=self._mcpd,
+            audit_log=self._audit,
+            risk_classify=self._risk_classify,
+            verifier=self._verifier,
+            prompts=self._prompts,
+            intent_schema=self._intent_schema,
+            intent_store=self._intent_store,
+            turn_content=self._turn_content,
+        )
+
+        builder = StateGraph(GraphState)
+        builder.add_node("planner", planner_node(collab))
+        builder.add_node("risk_classifier", risk_classifier_node(collab))
+        builder.add_node("verifier", verifier_node(collab))
+        builder.add_node("hitl_gate", hitl_gate_node(collab))
+        builder.add_node("executor", executor_node(collab))
+        builder.add_node("mcpd_dispatcher", mcpd_dispatcher_node(collab))
+        builder.add_node("responder", responder_node(collab))
+
+        builder.add_edge(START, "planner")
+
+        # Conditional edges — each maps the router's return value to the
+        # actual node name (or END).
+        def _route_end(dest_map: dict[str, str]) -> dict[str, str]:
+            """Add END → real END sentinel in every route table."""
+            table = dict(dest_map)
+            table["END"] = END
+            return table
+
+        builder.add_conditional_edges(
+            "planner", after_planner,
+            _route_end({"risk_classifier": "risk_classifier"}),
+        )
+        builder.add_conditional_edges(
+            "risk_classifier", after_risk,
+            _route_end({"executor": "executor", "verifier": "verifier"}),
+        )
+        builder.add_conditional_edges(
+            "verifier", after_verifier,
+            _route_end({"hitl_gate": "hitl_gate"}),
+        )
+        builder.add_conditional_edges(
+            "hitl_gate", after_hitl,
+            _route_end({"executor": "executor"}),
+        )
+        builder.add_conditional_edges(
+            "executor", after_executor,
+            _route_end({"mcpd_dispatcher": "mcpd_dispatcher"}),
+        )
+        builder.add_conditional_edges(
+            "mcpd_dispatcher", after_mcpd,
+            _route_end({"responder": "responder"}),
+        )
+        builder.add_edge("responder", END)
+
+        return builder.compile(checkpointer=self._checkpointer)
+
+    # ── Turn lifecycle ───────────────────────────────────────────────
+
+    def _reset_turn(self) -> None:
+        """Clear per-turn content lookup — called after each terminal
+        yield so the next turn starts clean."""
+        self._turn_content.clear()
+
+    def _thread_config(self, session_id: str) -> dict:
+        """LangGraph's per-thread config: thread_id keys the checkpoint."""
+        return {"configurable": {"thread_id": session_id}}
+
+    # ── Public API ───────────────────────────────────────────────────
 
     def run(self, query: str, session_id: str) -> Iterator[Any]:
-        """Sync generator of TurnEvents for a fresh turn.
+        """Invoke the graph for a new turn. Yields one terminal outcome
+        object at the end. If the graph interrupts (Tier ≥ 2 HITL), the
+        yielded object is a paused marker; caller then invokes resume().
 
-        Body implemented in Step 2b — Task #146 substantive commit.
+        Streaming events are wired in Task #151 (M7.6); for now this is
+        invoke-then-yield-final.
         """
-        raise NotImplementedError("AgentGraph.run — pending Step 2b")
+        from .agent_graph_state import make_initial_state
+
+        turn_id = str(uuid.uuid4())
+        initial = make_initial_state(
+            session_id=session_id, turn_id=turn_id, query=query,
+        )
+        final = self._graph.invoke(initial, config=self._thread_config(session_id))
+        yield self._as_outcome(final, session_id)
 
     def resume(
         self,
         session_id: str,
         decision: Literal["approve", "deny"],
     ) -> Iterator[Any]:
-        """Resume an interrupted turn with the HITL decision.
-
-        Body implemented in Step 2b.
+        """Resume from an interrupted HitlGate. The Command's resume
+        value becomes the return value of interrupt() inside the node.
         """
-        raise NotImplementedError("AgentGraph.resume — pending Step 2b")
+        from langgraph.types import Command
+
+        final = self._graph.invoke(
+            Command(resume=decision),
+            config=self._thread_config(session_id),
+        )
+        yield self._as_outcome(final, session_id)
+
+    def _as_outcome(self, final_state: dict, session_id: str) -> dict:
+        """Translate final GraphState to a simple outcome dict — enough
+        for tests + the daemon migration in Task #147 to consume. The
+        richer TurnEvent stream lands in Task #151.
+        """
+        state = final_state or {}
+        outcome = "executed"
+        if state.get("error_kind"):
+            outcome = "error"
+        elif state.get("hitl_decision") == "deny":
+            outcome = "denied"
+        elif not state.get("completed"):
+            outcome = "paused"
+        out = {
+            "outcome": outcome,
+            "session_id": session_id,
+            "turn_id": state.get("turn_id", ""),
+            "intent_id": state.get("intent_id", ""),
+            "tier": state.get("tier", -1),
+            "tool_call_hash": state.get("tool_call_hash", ""),
+            "mcpd_result_hash": state.get("mcpd_result_hash", ""),
+            "error_kind": state.get("error_kind"),
+            "error_reason": state.get("error_reason"),
+        }
+        if outcome != "paused":
+            self._reset_turn()
+        return out
 
     def status(
         self,
@@ -248,3 +402,20 @@ class AgentGraph:
             except sqlite3.Error:
                 pass
             self._checkpointer_conn = None
+
+
+class _InMemoryIntentStore:
+    """Fallback IntentStore for tests/wire-simple bootstrap. Real
+    Controller passes its own IntentStore. UUID → dict, no size cap
+    for now (turn_content wipes between turns anyway)."""
+
+    def __init__(self) -> None:
+        self._items: dict[str, dict] = {}
+
+    def put(self, intent: dict) -> str:
+        intent_id = str(uuid.uuid4())
+        self._items[intent_id] = intent
+        return intent_id
+
+    def get(self, intent_id: str) -> Optional[dict]:
+        return self._items.get(intent_id)

@@ -192,6 +192,11 @@ version_overlay() {
         "T146-state:agent_graph_state.py:GraphState"
         "T146-safe-msg:agent_graph.py:allowed_msgpack_modules"
         "T146-langsmith-gate:agent_graph.py:_ICEBREAKER_PROFILE"
+        # v6.8 Task #146 Step 2b (2026-07-13) — nodes + edges + run/resume
+        # bodies. If the nodes module is missing or the compile call is
+        # absent, AgentGraph reduces to a shell.
+        "T146-nodes:agent_graph_nodes.py:def planner_node"
+        "T146-compile:agent_graph.py:_build_graph"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do

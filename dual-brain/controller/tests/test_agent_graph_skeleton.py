@@ -170,27 +170,7 @@ def test_synchronous_pragma_is_normal_not_off():
         g.close()
 
 
-# ── Public API stubs (Step 2a leaves run/resume as NotImplementedError) ─
-
-
-def test_run_raises_pending_step_2b():
-    kit = _collab_kit()
-    g = AgentGraph(**kit)
-    try:
-        with pytest.raises(NotImplementedError, match="Step 2b"):
-            list(g.run("query", "session-id"))
-    finally:
-        g.close()
-
-
-def test_resume_raises_pending_step_2b():
-    kit = _collab_kit()
-    g = AgentGraph(**kit)
-    try:
-        with pytest.raises(NotImplementedError, match="Step 2b"):
-            list(g.resume("session-id", "approve"))
-    finally:
-        g.close()
+# ── status stub (still works after Step 2b lands nodes) ─────────────────
 
 
 def test_status_returns_idle_when_no_session():
