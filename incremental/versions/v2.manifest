@@ -184,6 +184,14 @@ version_overlay() {
         # regresses to paying the PB HTTP round-trip.
         "M7.2-mod:tier0_fast_path.py:TIER0_FAST_PATH_TOOLS"
         "M7.2-branch:main.py:_try_tier0_fast_path"
+        # v6.8 Task #146 Step 2a (2026-07-13) — AgentGraph adapter shell.
+        # If the LangSmith gate is broken, a release ISO could ship
+        # tracing on. If the msgpack allowlist is dropped, the SQLi->RCE
+        # CVE (§13.1) is exposed.
+        "T146-adapter:agent_graph.py:class AgentGraph"
+        "T146-state:agent_graph_state.py:GraphState"
+        "T146-safe-msg:agent_graph.py:allowed_msgpack_modules"
+        "T146-langsmith-gate:agent_graph.py:_ICEBREAKER_PROFILE"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do

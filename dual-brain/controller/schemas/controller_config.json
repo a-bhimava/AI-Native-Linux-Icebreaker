@@ -251,6 +251,33 @@
         }
       }
     },
+    "agent_graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "v6.8 Task #146: LangGraph runtime orchestration. Off by default (BP-2); Task #147 flips it on after the migration passes UTM sweep.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "x-reload": "restart",
+          "description": "Route run_turn_streaming through AgentGraph.run() instead of the monolithic pipeline. Default false; Task #147 flips it on."
+        },
+        "checkpointer_path": {
+          "type": "string",
+          "x-reload": "restart",
+          "description": "SQLite checkpoint DB path for durable execution. Uses tilde-expansion. XDG-compliant default under ~/.local/state/. File chmod 0600."
+        },
+        "checkpointer_retention_days": {
+          "type": "integer", "minimum": 1, "maximum": 365,
+          "x-reload": "restart",
+          "description": "Prune checkpoint rows older than N days on daemon startup. 30 default; SQLite DB stays small at 100 turns/day."
+        },
+        "strict_msgpack": {
+          "type": "boolean",
+          "x-reload": "restart",
+          "description": "CVE mitigation (§13.1 SQLi->RCE). True = restrict checkpoint deserialization to a built-in safe set + Icebreaker allowlist. Never disable in production."
+        }
+      }
+    },
     "daemon": {
       "type": "object",
       "additionalProperties": false,

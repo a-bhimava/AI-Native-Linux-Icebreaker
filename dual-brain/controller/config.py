@@ -238,6 +238,30 @@ class VerifierConfig:
 
 
 @dataclass(frozen=True)
+class AgentGraphConfig:
+    """v6.8 Task #146 (2026-07-13) — LangGraph runtime orchestration.
+
+    BP-2: `enabled=False` by default. Task #147 flips it on after the
+    migration lands and passes the live UTM sweep. Setting it True
+    routes `run_turn_streaming` through `AgentGraph.run()` instead of
+    the monolithic pipeline in main.py.
+    """
+
+    enabled: bool = False
+    # XDG state directory. Chmod 0600 on the file, 0700 on the parent
+    # (v2.manifest first-boot creates the parent per §5.5).
+    checkpointer_path: str = "~/.local/state/icebreaker/agent_checkpoints.db"
+    # Housekeeping: prune checkpoint rows older than N days on daemon
+    # startup. 30 days is generous for durable-execution replay window;
+    # SQLite DB stays small even at 100 turns/day.
+    checkpointer_retention_days: int = 30
+    # CVE mitigation (§13.1): LANGGRAPH_STRICT_MSGPACK=true + explicit
+    # allowed_msgpack_modules allowlist. When False the checkpointer
+    # falls back to permissive mode with warnings — never in production.
+    strict_msgpack: bool = True
+
+
+@dataclass(frozen=True)
 class DebugConfig:
     """Phase 6 Scope D/E — structured debug logging. Off by default
     (BP-2). Turn on via the Control Center → Behavior page or by
@@ -316,6 +340,7 @@ class ControllerConfig:
     undo: UndoConfig = field(default_factory=UndoConfig)
     verifier: VerifierConfig = field(default_factory=VerifierConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
+    agent_graph: AgentGraphConfig = field(default_factory=AgentGraphConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
     terminal: TerminalConfig = field(default_factory=TerminalConfig)
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
@@ -681,6 +706,22 @@ def _build_debug_config(raw: dict) -> DebugConfig:
     )
 
 
+def _build_agent_graph_config(raw: dict) -> AgentGraphConfig:
+    """v6.8 Task #146 — build the [agent_graph] section. Off by default
+    (BP-2); Task #147 flips it on after the LangGraph adapter migration
+    passes UTM sweep."""
+    section = raw.get("agent_graph", {}) if isinstance(raw.get("agent_graph"), dict) else {}
+    return AgentGraphConfig(
+        enabled=bool(section.get("enabled", False)),
+        checkpointer_path=str(section.get(
+            "checkpointer_path",
+            "~/.local/state/icebreaker/agent_checkpoints.db",
+        )),
+        checkpointer_retention_days=int(section.get("checkpointer_retention_days", 30)),
+        strict_msgpack=bool(section.get("strict_msgpack", True)),
+    )
+
+
 def _build_gui_config(raw: dict) -> GuiConfig:
     section = raw.get("gui", {})
     return GuiConfig(
@@ -754,6 +795,7 @@ def _build_config(raw: dict, config_path: Path) -> ControllerConfig:
         undo=_build_undo_config(raw),
         verifier=_build_verifier_config(raw),
         debug=_build_debug_config(raw),
+        agent_graph=_build_agent_graph_config(raw),
         daemon=_build_daemon_config(raw),
         terminal=_build_terminal_config(raw),
         desktop=_build_desktop_config(raw),
