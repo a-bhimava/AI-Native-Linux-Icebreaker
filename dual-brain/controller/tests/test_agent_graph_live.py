@@ -269,3 +269,148 @@ def test_live_bridge_end_to_end_gemini():
         presenter.show_prompt.assert_not_called()
     finally:
         ag.close()
+
+
+# ── v6.8 Task #148 — Multi-step Plan mode live tests ─────────────────
+#
+# Compound-intent decomposition (F-62). QB is asked a query that
+# requires two sequential steps. Assertion: mcpd fires twice, and the
+# second call receives step 1's stdout via marker substitution.
+#
+# PB + mcpd are still mocked — the point is to prove the QB planner
+# produces a valid plan wrapper through the real provider surface,
+# not to boot mcpd. Uses Tier-0 fast-path tools so marker resolution
+# runs in-code without a PB round-trip.
+
+
+_PLAN_PROMPT = (
+    "You are a plan generator. For compound queries with two OS actions, "
+    "emit a JSON plan wrapper with this shape:\n"
+    '{"plan": [\n'
+    '  {"action": "network.status", "target": "", '
+    '"reason": "user_requested", "risk_level": "low"},\n'
+    '  {"action": "fs.list", "target": "/tmp/$STEP_0_STDOUT", '
+    '"reason": "user_requested", "risk_level": "low"}\n'
+    "]}\n"
+    "For the query 'get network status then list /tmp/<result>', emit "
+    "EXACTLY the plan above. Do not add fields. Do not change actions."
+)
+
+
+_LIVE_PLAN_PROVIDERS = [
+    (
+        "gemini",
+        "ICEBREAKER_LIVE_GEMINI_KEY",
+        "gemini-2.5-flash",
+        "controller.backends.gemini_backend",
+        "GeminiBackend",
+    ),
+    (
+        "anthropic",
+        "ICEBREAKER_LIVE_ANTHROPIC_KEY",
+        "claude-haiku-4-5",
+        "controller.backends.anthropic_backend",
+        "AnthropicBackend",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "provider_name,env_var,model_id,backend_mod,backend_cls_name",
+    _LIVE_PLAN_PROVIDERS,
+    ids=[row[0] for row in _LIVE_PLAN_PROVIDERS],
+)
+def test_live_multi_step_plan_end_to_end(
+    provider_name,
+    env_var,
+    model_id,
+    backend_mod,
+    backend_cls_name,
+):
+    """Task #148 F-62: real QB emits a 2-step plan; executor loops
+    twice; mcpd fires twice; marker $STEP_0_STDOUT is provably
+    resolved to step 0's real stdout before step 1's dispatch."""
+    key = os.environ.get(env_var, "")
+    if not key:
+        pytest.skip(
+            f"opt-in — set {env_var} to run the {provider_name} plan test"
+        )
+
+    import importlib
+    from controller.agent_graph import AgentGraph
+    from controller.backends import SecretRef
+    from controller.config import AgentGraphConfig
+
+    backend_cls = getattr(importlib.import_module(backend_mod), backend_cls_name)
+
+    qb_cfg = SimpleNamespace(
+        model=model_id,
+        max_tokens=50000,
+        timeout_seconds=30,
+        api_key=SecretRef(env_var),
+    )
+    qb = backend_cls(qb_cfg)
+
+    session_state = MagicMock()
+    session_state.build_pb_user_turn.return_value = "pb-user-turn"
+    session_store = MagicMock()
+    session_store.get.return_value = session_state
+
+    pb = MagicMock()
+    mcpd = MagicMock()
+    mcpd.call.side_effect = [
+        SimpleNamespace(stdout="foo"),               # step 0
+        SimpleNamespace(stdout="listed /tmp/foo"),   # step 1
+    ]
+
+    prompts = MagicMock()
+    prompts.get.return_value = _PLAN_PROMPT
+
+    intent_store = MagicMock()
+    intent_store.put.return_value = f"live-plan-intent-{provider_name}"
+
+    ag = AgentGraph(
+        cfg=AgentGraphConfig(
+            enabled=True, checkpointer_path=":memory:",
+            checkpointer_retention_days=30, strict_msgpack=True,
+        ),
+        session_store=session_store,
+        qb_backend=qb,
+        pb_backend=pb,
+        mcpd_client=mcpd,
+        audit_log=MagicMock(),
+        risk_classify=MagicMock(return_value=SimpleNamespace(tier=0)),
+        verifier=MagicMock(),
+        prompts=prompts,
+        intent_schema={"type": "object"},
+        controller_cfg=SimpleNamespace(
+            run=SimpleNamespace(tier0_fast_path=True),
+            verifier=SimpleNamespace(
+                tier_floor=2, retry_mode="on_call_failed_only"
+            ),
+        ),
+        intent_store=intent_store,
+    )
+    try:
+        results = list(ag.run(
+            "get network status then list /tmp/<result>",
+            f"live-plan-session-{provider_name}",
+        ))
+        out = results[0]
+        assert out["outcome"] == "executed", (
+            f"[{provider_name}] expected executed, got {out}"
+        )
+        assert mcpd.call.call_count == 2, (
+            f"[{provider_name}] expected mcpd fired twice for 2-step plan, "
+            f"got {mcpd.call.call_count}"
+        )
+        # Step 2's params.path must be the marker-resolved value.
+        step2_kwargs = mcpd.call.call_args_list[1].kwargs
+        assert step2_kwargs["params"]["path"] == "/tmp/foo", (
+            f"[{provider_name}] marker not resolved; got {step2_kwargs}"
+        )
+        assert "$STEP_" not in step2_kwargs["params"]["path"], (
+            f"[{provider_name}] marker survived substitution"
+        )
+    finally:
+        ag.close()
