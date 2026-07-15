@@ -11,6 +11,7 @@
 //! individual modules.
 
 pub mod audit;
+pub mod manifest_loader;
 pub mod sandbox;
 pub mod schema;
 pub mod server;

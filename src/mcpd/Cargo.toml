@@ -24,6 +24,13 @@ fs-test-roots = []
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# v6.9 Scope O Layer 2 Part B (2026-07-14): runtime YAML manifest loader.
+# Manifests live in `src/mcpd/manifests/*.yaml` and are read at daemon
+# startup; the loader validates each against a hardcoded meta-schema
+# and rejects any that fails, so a malformed manifest can never expose
+# an untested tool. serde_yaml is the lightest option that plays with
+# our existing serde derives.
+serde_yaml = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"

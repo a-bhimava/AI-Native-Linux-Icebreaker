@@ -1,0 +1,31 @@
+# v6.9 Scope O Layer 2 Part B — pilot manifest.
+#
+# demo.uptime = read /proc/uptime and return raw bytes. Purpose: prove
+# the manifest loader path end-to-end (parse -> validate -> register ->
+# tools/list advertisement -> dispatch through impl_kinds::fs_read).
+#
+# This is deliberately a NEW tool name (not a migration of the legacy
+# system.uptime), so no existing client's schema expectations change.
+# When we opportunistically migrate legacy tools to manifests in v6.10+,
+# each migration gets its own name-preserving manifest that replaces
+# the hand-written dispatch arm.
+#
+# Sandbox: pure read of /proc/uptime. The base seccomp allowlist
+# already covers openat + read + close (used by every legacy fs.read
+# path), so no widening is needed and the reads_only preset is a
+# faithful description.
+name: demo.uptime
+version: 1
+description: "Layer 2 pilot — reads /proc/uptime as raw bytes to prove the manifest loader path end-to-end."
+tier: 0
+param_schema:
+  type: object
+  additionalProperties: false
+sandbox:
+  landlock:
+    ro: [/proc/uptime]
+  seccomp: reads_only
+  cow: false
+impl:
+  kind: fs_read
+  path: /proc/uptime

@@ -168,7 +168,12 @@ async fn dispatch(mut req: JsonRpcRequest) -> Result<JsonRpcResponse> {
     // Sequence matters: known-method check FIRST (so unknown methods return
     // -32601 Method not found), then schema validation (-32602 Invalid params),
     // then execution. This keeps error codes faithful to JSON-RPC 2.0 §5.1.
-    if !is_known_method(&req.method) {
+    //
+    // v6.9 Scope O Layer 2 Part B: manifest-registered methods count as
+    // known — this is how declarative tools join tools/list without a
+    // hand-written match arm.
+    let is_manifest_method = crate::manifest_loader::registry().has(&req.method);
+    if !is_known_method(&req.method) && !is_manifest_method {
         return Ok(JsonRpcResponse::err(
             id,
             -32601,
@@ -184,8 +189,26 @@ async fn dispatch(mut req: JsonRpcRequest) -> Result<JsonRpcResponse> {
     }
 
     // INV-4: every dispatched call's params are validated against its schema
-    // before the tool function runs. Schemas are embedded at compile time
-    // (see schema.rs) so this check cannot be bypassed at runtime.
+    // before the tool function runs. Legacy tools use compile-time embedded
+    // schemas; manifest tools use their own compiled param_schema (Layer 2
+    // Part B). Both paths refuse invalid params with -32602.
+    if is_manifest_method {
+        let entry = crate::manifest_loader::registry().get(&req.method).expect("checked above");
+        if let Err(errors) = entry.compiled_schema.validate(&req.params) {
+            let joined: Vec<String> = errors.map(|e| e.to_string()).collect();
+            return Ok(JsonRpcResponse::err(
+                id, -32602,
+                format!("Invalid params: {}", joined.join("; ")),
+            ));
+        }
+        let result = crate::manifest_loader::impl_kinds::dispatch(
+            &entry.manifest, &req.params,
+        ).await;
+        return Ok(match result {
+            Ok(v) => JsonRpcResponse::ok(id, v),
+            Err(e) => JsonRpcResponse::err(id, -32603, format!("Internal error: {}", e)),
+        });
+    }
     if let Err(e) = crate::schema::validate(&req.method, &req.params) {
         return Ok(JsonRpcResponse::err(id, -32602, format!("Invalid params: {}", e)));
     }

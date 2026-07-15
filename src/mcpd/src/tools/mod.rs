@@ -79,8 +79,13 @@ const TOOLS: &[ToolDescriptor] = &[
 /// Each tool entry includes its real JSON Schema (from `schemas/<name>.json`),
 /// so the Controller validates Intent Objects against the same schema mcpd
 /// uses to gate dispatch (INV-4).
+///
+/// v6.9 Scope O Layer 2 Part B: also appends every manifest-registered
+/// tool. Manifest tools carry `params_schema` from their own YAML +
+/// `read_only` = (tier <= 1) heuristic (no dedicated field in the
+/// manifest today; matches the ToolDescriptor convention above).
 pub fn list_all() -> anyhow::Result<Value> {
-    let tools: Vec<Value> = TOOLS.iter().map(|t| {
+    let mut tools: Vec<Value> = TOOLS.iter().map(|t| {
         let params_schema = schema::schema_json(t.name).cloned().unwrap_or_else(|| json!({}));
         json!({
             "name": t.name,
@@ -92,10 +97,40 @@ pub fn list_all() -> anyhow::Result<Value> {
         })
     }).collect();
 
+    for entry in crate::manifest_loader::registry().all() {
+        let m = &entry.manifest;
+        tools.push(json!({
+            "name": m.name,
+            "description": m.description,
+            "category": category_from_name(&m.name),
+            "tier": m.tier,
+            "read_only": m.tier <= 1,
+            "params_schema": m.param_schema,
+            "source": "manifest",
+        }));
+    }
+
     Ok(json!({
         "schema_version": schema::SCHEMA_VERSION,
         "tools": tools,
     }))
+}
+
+
+/// Derive the coarse category tag from a dotted tool name — matches the
+/// legacy convention (e.g. "system.uptime" -> "system"). Falls back to
+/// "misc" for names without a dot (shouldn't happen; loader enforces
+/// dotted-lowercase).
+fn category_from_name(name: &str) -> &'static str {
+    match name.split('.').next().unwrap_or("misc") {
+        "system" => "system",
+        "process" => "process",
+        "fs" => "fs",
+        "service" => "service",
+        "network" => "network",
+        "package" => "package",
+        _ => "misc",
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 use anyhow::Result;
-use mcpd::{sandbox, schema, server};
+use mcpd::{manifest_loader, sandbox, schema, server};
+use std::path::PathBuf;
 use tracing::info;
 
 #[tokio::main]
@@ -23,6 +24,29 @@ async fn main() -> Result<()> {
     // and (b) fail loudly if the file is corrupt on disk before we
     // start relying on it.
     log_mcp_allowlist();
+
+    // v6.9 Scope O Layer 2 Part B: load declarative YAML tool manifests
+    // BEFORE the sandbox is applied so a malformed manifest aborts
+    // startup with a clear error (the sandbox can't recover from a
+    // registry read failure once locked down). init() is idempotent:
+    // the OnceLock keeps the registry immutable for the daemon's
+    // lifetime — hot-reload is Layer 3 territory (v7.5).
+    // Path matches the shipped-ISO layout: mcpd itself lives at
+    // /usr/libexec/icebreaker/mcpd; manifests ride alongside so both
+    // are one directory apart. MCPD_MANIFESTS_DIR env var overrides
+    // for dev + tests.
+    let manifests_dir = std::env::var("MCPD_MANIFESTS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/usr/libexec/icebreaker/manifests"));
+    manifest_loader::init(&manifests_dir)?;
+    let manifest_names = manifest_loader::registry().names();
+    if manifest_names.is_empty() {
+        info!("manifest registry: 0 tools loaded from {}",
+              manifests_dir.display());
+    } else {
+        info!("manifest registry: {} tool(s) loaded from {}: {:?}",
+              manifest_names.len(), manifests_dir.display(), manifest_names);
+    }
 
     // INV-5: kernel sandbox applied BEFORE accepting any request.
     sandbox::apply()?;

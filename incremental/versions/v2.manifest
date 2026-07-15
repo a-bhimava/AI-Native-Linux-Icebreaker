@@ -280,6 +280,32 @@ version_overlay() {
     fi
     install -Dm755 "$mcpd_bin" "${chroot}/usr/libexec/icebreaker/mcpd"
 
+    # v6.9 Scope O Layer 2 Part B — ship the declarative manifests
+    # alongside mcpd so main.rs's default MCPD_MANIFESTS_DIR resolves
+    # to /usr/libexec/icebreaker/manifests. A missing dir is not fatal
+    # (manifest_loader::load returns empty registry) but every shipped
+    # YAML is a load-time gate — a malformed manifest aborts mcpd
+    # startup.
+    for f in "${repo}"/src/mcpd/manifests/*.yaml; do
+        [ -f "$f" ] && install -Dm644 "$f" \
+            "${chroot}/usr/libexec/icebreaker/manifests/$(basename "$f")"
+    done
+    # Part B F-51-analogue tripwire: the pilot manifest MUST be present
+    # in the shipped tree with its load-bearing impl.kind intact. If the
+    # file disappears or the string mutates (rogue commit, stale cache),
+    # abort the build here — matches the intent of the venv F-51 markers
+    # above but scoped to non-venv shipped assets.
+    local _pilot_manifest="${chroot}/usr/libexec/icebreaker/manifests/demo.uptime.yaml"
+    [ -f "$_pilot_manifest" ] || {
+        echo "FATAL[v2]: Layer 2 Part B pilot manifest missing at ${_pilot_manifest}" >&2
+        return 1
+    }
+    if ! grep -qF "kind: fs_read" "$_pilot_manifest"; then
+        echo "FATAL[v2]: Layer 2 Part B pilot manifest lacks 'kind: fs_read' — reseed suspected" >&2
+        return 1
+    fi
+    echo "[v2] Layer 2 Part B: shipped $(ls "${chroot}/usr/libexec/icebreaker/manifests/"*.yaml 2>/dev/null | wc -l | tr -d ' ') manifest(s)"
+
     # ── 3. /usr/share/icebreaker: schemas (controller + mcpd), prompts, catalogue ──
     local f
     for f in "${repo}"/dual-brain/controller/schemas/*.json "${repo}"/src/mcpd/schemas/*.json; do
