@@ -277,6 +277,9 @@ _SUPPORTED_ACTIONS = frozenset({
     "fs.delete",
     # F-35: catalogue landing pad — never a lookalike
     "system.unsupported",
+    # v6.9 Scope O Layer 2 Part A — manifest-served (controller-side,
+    # dispatched via manifest_loader before mcpd; see manifests/nav.cd.yaml)
+    "nav.cd",
 })
 
 
@@ -380,6 +383,16 @@ class Controller:
         self._intent_schema: dict = json.loads(
             (Path(__file__).parent / "schemas" / "intent.json").read_text(encoding="utf-8")
         )
+        # v6.9 Scope O Layer 2 Part A — load declarative controller-side
+        # tool manifests from controller/manifests/*.yaml. Every manifest
+        # is validated against schemas/tool_manifest.json at load time;
+        # a malformed manifest raises here, blocking daemon startup.
+        # session_op (nav.cd) is the only shipped impl.kind for Part A;
+        # Part B adds fs_read/fs_write_cow/dbus_call/exec_pipeline via
+        # the mcpd-side loader.
+        from .manifest_loader import load as _load_manifests
+        self._manifests = _load_manifests()
+        # manifest_loader logs per-registered-manifest at INFO.
         # F-52 (2026-07-10): the backend applies response_schema BEFORE
         # returning content_json, so any field the model gets "wrong" here
         # triggers a retry loop and eventually leaks as an error. But we
@@ -1334,58 +1347,72 @@ class Controller:
                             execution_tier="rpa",
                             requires_cow=False)
             else:
-                yield _cot("mcpd_dispatch", "active",
-                            body=f"Executing {tool_name} via mcpd",
-                            tool=tool_name)
-                try:
-                    tool_result = self._mcpd.call(
-                        tool_call["tool"], tool_call.get("params"),
-                        timeout=self._cfg.run.mcpd_timeout_seconds,
-                    )
-                except McpdTimeoutError:
-                    yield _cot("mcpd_dispatch", "failed", body="Timeout")
-                    duration = (time.monotonic() - t0) * 1000
-                    self._audit.write_fields(AuditFields(
-                        session_id=session.session_id, turn_index=session.turn_index,
-                        intent_id=intent_id, action=intent["action"],
-                        target=intent["target"], tier=int(cls_result.tier),
-                        reason=intent["reason"], risk_level=intent["risk_level"],
-                        outcome=Outcome.TOOL_TIMEOUT, duration_ms=duration,
-                        backend=session.backend, model=self._cfg.qb.model,
-                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                        cost_estimate_usd=total_cost,
-                    ))
-                    yield ResultEvent(result=TurnResult(
-                        success=False, output="mcpd timed out — operation did not complete.",
-                        outcome=Outcome.TOOL_TIMEOUT, tier=int(cls_result.tier),
-                        backend=session.backend, duration_ms=duration,
-                        cost_usd=total_cost if total_cost > 0 else None,
-                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                    ))
-                    return
-                except (McpdProcessError, JsonRpcError) as exc:
-                    yield _cot("mcpd_dispatch", "failed", body=str(exc))
-                    duration = (time.monotonic() - t0) * 1000
-                    self._audit.write_fields(AuditFields(
-                        session_id=session.session_id, turn_index=session.turn_index,
-                        intent_id=intent_id, action=intent["action"],
-                        target=intent["target"], tier=int(cls_result.tier),
-                        reason=intent["reason"], risk_level=intent["risk_level"],
-                        outcome=Outcome.TOOL_ERROR, duration_ms=duration,
-                        backend=session.backend, model=self._cfg.qb.model,
-                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                        cost_estimate_usd=total_cost,
-                    ))
-                    yield ResultEvent(result=TurnResult(
-                        success=False, output=f"Tool error: {exc}",
-                        outcome=Outcome.TOOL_ERROR, tier=int(cls_result.tier),
-                        backend=session.backend, duration_ms=duration,
-                        cost_usd=total_cost if total_cost > 0 else None,
-                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                    ))
-                    return
-                yield _cot("mcpd_dispatch", "done", body="Execution complete",
-                            requires_cow=tool_result.requires_cow_approval)
+                # v6.9 Scope O Layer 2 Part A: consult manifest registry
+                # BEFORE mcpd. Manifest-served tools (nav.cd today) never
+                # touch mcpd — pure controller-side session state. If no
+                # manifest matches, fall through to the mcpd path.
+                _manifest_result = self._try_manifest_dispatch(tool_call, session)
+                if _manifest_result is not None:
+                    yield _cot("mcpd_dispatch", "active",
+                                body=f"Executing {tool_name} via manifest",
+                                tool=tool_name, dispatch="manifest")
+                    tool_result = _manifest_result
+                    yield _cot("mcpd_dispatch", "done",
+                                body=f"{tool_name} manifest dispatch complete",
+                                tool=tool_name, dispatch="manifest")
+                else:
+                    yield _cot("mcpd_dispatch", "active",
+                                body=f"Executing {tool_name} via mcpd",
+                                tool=tool_name)
+                    try:
+                        tool_result = self._mcpd.call(
+                            tool_call["tool"], tool_call.get("params"),
+                            timeout=self._cfg.run.mcpd_timeout_seconds,
+                        )
+                    except McpdTimeoutError:
+                        yield _cot("mcpd_dispatch", "failed", body="Timeout")
+                        duration = (time.monotonic() - t0) * 1000
+                        self._audit.write_fields(AuditFields(
+                            session_id=session.session_id, turn_index=session.turn_index,
+                            intent_id=intent_id, action=intent["action"],
+                            target=intent["target"], tier=int(cls_result.tier),
+                            reason=intent["reason"], risk_level=intent["risk_level"],
+                            outcome=Outcome.TOOL_TIMEOUT, duration_ms=duration,
+                            backend=session.backend, model=self._cfg.qb.model,
+                            tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                            cost_estimate_usd=total_cost,
+                        ))
+                        yield ResultEvent(result=TurnResult(
+                            success=False, output="mcpd timed out — operation did not complete.",
+                            outcome=Outcome.TOOL_TIMEOUT, tier=int(cls_result.tier),
+                            backend=session.backend, duration_ms=duration,
+                            cost_usd=total_cost if total_cost > 0 else None,
+                            tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                        ))
+                        return
+                    except (McpdProcessError, JsonRpcError) as exc:
+                        yield _cot("mcpd_dispatch", "failed", body=str(exc))
+                        duration = (time.monotonic() - t0) * 1000
+                        self._audit.write_fields(AuditFields(
+                            session_id=session.session_id, turn_index=session.turn_index,
+                            intent_id=intent_id, action=intent["action"],
+                            target=intent["target"], tier=int(cls_result.tier),
+                            reason=intent["reason"], risk_level=intent["risk_level"],
+                            outcome=Outcome.TOOL_ERROR, duration_ms=duration,
+                            backend=session.backend, model=self._cfg.qb.model,
+                            tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                            cost_estimate_usd=total_cost,
+                        ))
+                        yield ResultEvent(result=TurnResult(
+                            success=False, output=f"Tool error: {exc}",
+                            outcome=Outcome.TOOL_ERROR, tier=int(cls_result.tier),
+                            backend=session.backend, duration_ms=duration,
+                            cost_usd=total_cost if total_cost > 0 else None,
+                            tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                        ))
+                        return
+                    yield _cot("mcpd_dispatch", "done", body="Execution complete",
+                                requires_cow=tool_result.requires_cow_approval)
 
             # Step 10: COW approval
             if tool_result.requires_cow_approval:
@@ -1915,50 +1942,58 @@ class Controller:
                 )
             tool_result = ToolResult(result=gui_result, request_id=0)
         else:
-            try:
-                tool_result = self._mcpd.call(
-                    tool_call["tool"],
-                    tool_call.get("params"),
-                    timeout=self._cfg.run.mcpd_timeout_seconds,
-                )
-            except McpdTimeoutError:
-                duration = (time.monotonic() - t0) * 1000
-                self._audit.write_fields(AuditFields(
-                    session_id=session.session_id, turn_index=session.turn_index,
-                    intent_id=intent_id, action=intent["action"],
-                    target=intent["target"], tier=int(cls_result.tier),
-                    reason=intent["reason"], risk_level=intent["risk_level"],
-                    outcome=Outcome.TOOL_TIMEOUT, duration_ms=duration,
-                    backend=session.backend, model=self._cfg.qb.model,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                    cost_estimate_usd=total_cost,
-                ))
-                return TurnResult(
-                    success=False, output="mcpd timed out — operation did not complete.",
-                    outcome=Outcome.TOOL_TIMEOUT, tier=int(cls_result.tier),
-                    backend=session.backend, duration_ms=duration,
-                    cost_usd=total_cost if total_cost > 0 else None,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                )
-            except (McpdProcessError, JsonRpcError) as exc:
-                duration = (time.monotonic() - t0) * 1000
-                self._audit.write_fields(AuditFields(
-                    session_id=session.session_id, turn_index=session.turn_index,
-                    intent_id=intent_id, action=intent["action"],
-                    target=intent["target"], tier=int(cls_result.tier),
-                    reason=intent["reason"], risk_level=intent["risk_level"],
-                    outcome=Outcome.TOOL_ERROR, duration_ms=duration,
-                    backend=session.backend, model=self._cfg.qb.model,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                    cost_estimate_usd=total_cost,
-                ))
-                return TurnResult(
-                    success=False, output=f"Tool error: {exc}",
-                    outcome=Outcome.TOOL_ERROR, tier=int(cls_result.tier),
-                    backend=session.backend, duration_ms=duration,
-                    cost_usd=total_cost if total_cost > 0 else None,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                )
+            # v6.9 Scope O Layer 2 Part A: manifest-first dispatch. If
+            # the tool is registered via a controller-side manifest
+            # (nav.cd today), route there and skip mcpd. Falls through
+            # cleanly for any tool the registry doesn't know.
+            _manifest_result = self._try_manifest_dispatch(tool_call, session)
+            if _manifest_result is not None:
+                tool_result = _manifest_result
+            else:
+                try:
+                    tool_result = self._mcpd.call(
+                        tool_call["tool"],
+                        tool_call.get("params"),
+                        timeout=self._cfg.run.mcpd_timeout_seconds,
+                    )
+                except McpdTimeoutError:
+                    duration = (time.monotonic() - t0) * 1000
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id, turn_index=session.turn_index,
+                        intent_id=intent_id, action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"], risk_level=intent["risk_level"],
+                        outcome=Outcome.TOOL_TIMEOUT, duration_ms=duration,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                        cost_estimate_usd=total_cost,
+                    ))
+                    return TurnResult(
+                        success=False, output="mcpd timed out — operation did not complete.",
+                        outcome=Outcome.TOOL_TIMEOUT, tier=int(cls_result.tier),
+                        backend=session.backend, duration_ms=duration,
+                        cost_usd=total_cost if total_cost > 0 else None,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    )
+                except (McpdProcessError, JsonRpcError) as exc:
+                    duration = (time.monotonic() - t0) * 1000
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id, turn_index=session.turn_index,
+                        intent_id=intent_id, action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"], risk_level=intent["risk_level"],
+                        outcome=Outcome.TOOL_ERROR, duration_ms=duration,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                        cost_estimate_usd=total_cost,
+                    ))
+                    return TurnResult(
+                        success=False, output=f"Tool error: {exc}",
+                        outcome=Outcome.TOOL_ERROR, tier=int(cls_result.tier),
+                        backend=session.backend, duration_ms=duration,
+                        cost_usd=total_cost if total_cost > 0 else None,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    )
 
         # ── Step 10: COW approval (if mcpd requires it) ───────────────────────
         if tool_result.requires_cow_approval:
@@ -2018,6 +2053,37 @@ class Controller:
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _try_manifest_dispatch(self, tool_call: dict, session: Any) -> Any:
+        """v6.9 Scope O Layer 2 Part A — dispatch to a controller-side
+        manifest if one is registered for tool_call["tool"]; else return
+        None so the caller falls through to mcpd.
+
+        Returns a ToolResult-shaped object so downstream code
+        (raw_output serialization, requires_cow_approval checks, audit
+        write) is agnostic to whether the tool was manifest-served or
+        mcpd-served.
+
+        Raises the impl's exception verbatim on failure — the caller's
+        existing McpdProcessError/JsonRpcError handler catches and
+        surfaces it consistently with mcpd-side failures.
+        """
+        tool_name = tool_call.get("tool", "")
+        if not tool_name or not self._manifests.has(tool_name):
+            return None
+        from .impl_kinds import DispatchContext
+        from .mcpd_client import ToolResult
+
+        ctx = DispatchContext(session=session, audit_log=self._audit)
+        impl_result = self._manifests.dispatch(
+            tool_name, tool_call.get("params") or {}, ctx,
+        )
+        # Wrap the ImplResult so downstream code sees a mcpd-shaped
+        # result. `stdout` becomes $STEP_N_STDOUT for plan mode; extra
+        # metadata rides in the same dict for audit visibility.
+        payload = {"stdout": impl_result.stdout, "ok": True}
+        payload.update(impl_result.metadata)
+        return ToolResult(result=payload, request_id=0)
 
     def _qb_summarise(self, raw_output: str, intent: dict) -> str:
         summarise_system = (

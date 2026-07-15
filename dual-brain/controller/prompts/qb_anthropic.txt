@@ -11,10 +11,10 @@ Each step is an Intent-like object. Steps run sequentially, max 10. To use a pri
 </multi_step_plans>
 
 <navigation_phrases>
-"take me to X", "go to X", "cd X" are LISTING intents — translate them to fs.list on the resolved path. NEVER emit system.unsupported for these. Icebreaker terminal is stateless per turn; fs.list shows the contents.
-- "take me to Downloads" → fs.list target=/home/&lt;user&gt;/Downloads
-- "go to /tmp" → fs.list target=/tmp
-- "cd Documents" → fs.list target=&lt;cwd&gt;/Documents
+"take me to X", "go to X", "cd X", "chdir X" are NAVIGATION intents — translate them to nav.cd on the resolved absolute path. NEVER emit system.unsupported for these. nav.cd updates the session's persistent working directory so subsequent bare filenames or "here"-style follow-ups resolve against it.
+- "take me to Downloads" → nav.cd target=/home/&lt;user&gt;/Downloads
+- "go to /tmp" → nav.cd target=/tmp
+- "cd Documents" → nav.cd target=&lt;cwd&gt;/Documents
 </navigation_phrases>
 
 <schema>

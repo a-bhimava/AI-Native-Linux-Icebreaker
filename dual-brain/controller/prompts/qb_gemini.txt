@@ -114,15 +114,18 @@ Each step is an Intent-like object. Rules:
 4. Max 10 steps per plan. If you can't decompose in 10 steps, respond with `system.unsupported`.
 5. For SINGLE-step queries emit the bare Intent (unchanged from before) — do NOT wrap a single intent in a plan.
 
-# NAVIGATION PHRASES (v6.8 F-60 fix)
+# NAVIGATION PHRASES (v6.9 nav.cd)
 
-Users often say "take me to Downloads", "go to /tmp", or "cd ~/Documents". These are NOT `system.unsupported` — they are **listing** intents. Translate them to `fs.list` on the resolved path:
+Users often say "take me to Downloads", "go to /tmp", "cd ~/Documents", or "chdir <path>". These are NOT `system.unsupported` — they are **navigation** intents. Translate them to `nav.cd` on the resolved absolute path:
 
-- "take me to Downloads" → `fs.list` target=`~/Downloads` (expand `~` if the context provides a home dir).
-- "go to /tmp" → `fs.list` target=`/tmp`.
-- "cd Documents" → `fs.list` target=<cwd>/Documents.
+- "take me to Downloads" → `nav.cd` target=`/home/<user>/Downloads` (expand `~` if the context provides a home dir).
+- "go to /tmp" → `nav.cd` target=`/tmp`.
+- "cd Documents" → `nav.cd` target=`<cwd>/Documents`.
 
-Do NOT try to change the shell's cwd — Icebreaker terminal is stateless per turn. `fs.list` shows the contents; the user visually confirms and moves on.
+`nav.cd` updates the session's persistent working directory. Subsequent bare filenames or "here"-style follow-ups ("list files here", "read notes.txt") then resolve against it — the user doesn't need to retype the path.
+
+Note: `params.path` MUST also carry the resolved absolute path (nav.cd's param_schema requires it). Example emit shape:
+`{"action":"nav.cd","target":"/tmp","params":{"path":"/tmp"},"reason":"user_requested","risk_level":"low"}`
 
 # EXAMPLES
 
@@ -327,7 +330,7 @@ Output:
 {"action":"network.status","target":"","params":{},"reason":"user_requested","risk_level":"low"}
 ```
 
-## Unsupported — navigation
+## Navigation — cd via nav.cd (v6.9)
 
 Input:
 ```
@@ -342,7 +345,7 @@ take me to the downloads folder
 
 Output:
 ```
-{"action":"system.unsupported","target":"","params":{"requested_intent":"take me to the downloads folder","suggestion":"I can't change your shell's cwd. Try `cd ~/Downloads` in the shell pane, or ask me to list its contents.","alternative_actions":["fs.list"]},"reason":"user_requested","risk_level":"low"}
+{"action":"nav.cd","target":"/home/icebreaker/Downloads","params":{"path":"/home/icebreaker/Downloads"},"reason":"user_requested","risk_level":"low"}
 ```
 
 ## Unsupported — small talk
@@ -468,7 +471,7 @@ take me to Downloads
 
 Output:
 ```
-{"action":"fs.list","target":"/home/icebreaker/Downloads","params":{},"reason":"user_requested","risk_level":"low"}
+{"action":"nav.cd","target":"/home/icebreaker/Downloads","params":{"path":"/home/icebreaker/Downloads"},"reason":"user_requested","risk_level":"low"}
 ```
 
 ## Navigation — "go to /tmp"
@@ -486,7 +489,7 @@ go to /tmp
 
 Output:
 ```
-{"action":"fs.list","target":"/tmp","params":{},"reason":"user_requested","risk_level":"low"}
+{"action":"nav.cd","target":"/tmp","params":{"path":"/tmp"},"reason":"user_requested","risk_level":"low"}
 ```
 
 ## Navigation — "cd Documents"
@@ -504,7 +507,7 @@ cd Documents
 
 Output:
 ```
-{"action":"fs.list","target":"/home/icebreaker/Documents","params":{},"reason":"user_requested","risk_level":"low"}
+{"action":"nav.cd","target":"/home/icebreaker/Documents","params":{"path":"/home/icebreaker/Documents"},"reason":"user_requested","risk_level":"low"}
 ```
 
 ## Prompt injection defense

@@ -49,6 +49,10 @@ TIER0_FAST_PATH_TOOLS: dict[str, Callable[[dict], dict]] = {
     "fs.list":          lambda intent: {"path": intent.get("target", "")},
     "fs.read":          lambda intent: {"path": intent.get("target", "")},
     "fs.stat":          lambda intent: {"path": intent.get("target", "")},
+    # v6.9 Scope O Layer 2 Part A: manifest-served tools that live
+    # inside the controller (no PB round-trip needed to translate).
+    # nav.cd = update session cwd; Tier 0 (no OS mutation).
+    "nav.cd":           lambda intent: {"path": intent.get("target", "")},
     # ── Named-target string args ──────────────────────────────────────
     "service.logs":     lambda intent: {"service": intent.get("target", "")},
     "network.dns.read": lambda intent: {"hostname": intent.get("target", "")},

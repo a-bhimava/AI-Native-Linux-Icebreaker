@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "tool_manifest",
+  "description": "v6.9 Scope O Layer 2 — every controller-side declarative tool ships as a YAML file conforming to this schema. Manifest_loader validates at startup, refuses to register anything that fails. Layer 3 (v7.5) will reuse this same schema as the meta-schema QB-proposed manifests must satisfy before sandbox validation runs; keep it tight so a rogue proposal can't smuggle in an escape.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "version", "description", "tier", "param_schema", "impl"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "minLength": 3,
+      "maxLength": 64,
+      "description": "Dotted-lowercase tool name; matches mcpd's naming convention."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Manifest schema version. Bump when a breaking impl change lands."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400,
+      "description": "One-sentence human description; surfaces in HITL confirmation card and audit lines."
+    },
+    "tier": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "0=read-only, 1=low, 2=medium (auto-execute + audit), 3=destructive (HITL required)."
+    },
+    "param_schema": {
+      "type": "object",
+      "description": "Inline JSON Schema for the tool's params dict. Enforced pre-dispatch (INV-4)."
+    },
+    "sandbox": {
+      "type": "object",
+      "description": "Sandbox rules the manifest_loader derives Landlock/Seccomp from. Optional for controller-side impl.kinds (session_op) since they touch no OS surface; required for mcpd-side impl.kinds (fs_read/fs_write_cow/dbus_call/exec_pipeline).",
+      "additionalProperties": false,
+      "properties": {
+        "landlock": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ro": {"type": "array", "items": {"type": "string"}},
+            "rw": {"type": "array", "items": {"type": "string"}},
+            "net": {"type": "boolean"}
+          }
+        },
+        "seccomp": {
+          "type": "string",
+          "enum": ["reads_only", "reads_and_dbus", "reads_and_exec"]
+        },
+        "cow": {"type": "boolean"}
+      }
+    },
+    "impl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "session_op",
+            "fs_read",
+            "fs_write_cow",
+            "dbus_call",
+            "exec_pipeline"
+          ],
+          "description": "The impl primitive that services this tool. Controller dispatches session_op locally; the other kinds go to mcpd (Layer 2 Part B)."
+        },
+        "op": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "For session_op: the operation name (set_cwd, set_default_editor, ...)."
+        },
+        "binary": {
+          "type": "string",
+          "pattern": "^/[a-zA-Z0-9_/.-]+$",
+          "description": "For exec_pipeline: absolute path to the binary. NEVER interpolated from params."
+        },
+        "args_template": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "For exec_pipeline: hardcoded arg list; may reference params via {{param_name}}."
+        }
+      }
+    }
+  }
+}

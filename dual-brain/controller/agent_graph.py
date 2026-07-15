@@ -98,6 +98,13 @@ class AgentGraph:
         intent_store: Any = None,
         # Test hook: allow injecting an in-memory checkpointer path.
         checkpointer_path_override: Optional[str] = None,
+        # v6.9 Scope O Layer 2 Part A: optional ManifestRegistry (from
+        # controller.manifest_loader.load()). Non-None → the graph's
+        # mcpd_dispatcher checks the registry before mcpd. If None the
+        # loader is called with no args here — matches how Controller
+        # initializes it. Pass a specific registry (or the sentinel
+        # SKIP) in tests to override.
+        manifests: Any = None,
     ) -> None:
         self._cfg = cfg
         self._session_store = session_store
@@ -110,6 +117,20 @@ class AgentGraph:
         self._prompts = prompts
         self._intent_schema = intent_schema
         self._controller_cfg = controller_cfg
+        # v6.9 Scope O Layer 2 Part A: lazy-load manifests if the caller
+        # didn't inject a specific registry. Failure to load raises here
+        # so a malformed manifest surfaces at daemon startup, matching
+        # main.py's Controller behavior.
+        if manifests is None:
+            try:
+                from .manifest_loader import load as _load_manifests
+                manifests = _load_manifests()
+            except Exception:  # noqa: BLE001
+                # Tests that predate Layer 2 don't provide the manifests
+                # dir; disable the registry so they pass through to mcpd
+                # exactly as before.
+                manifests = None
+        self._manifests = manifests
 
         # Fall back to a lightweight in-memory intent store if none is
         # passed — keeps tests wire-simple without importing IntentStore.
@@ -222,6 +243,7 @@ class AgentGraph:
             intent_schema=self._intent_schema,
             intent_store=self._intent_store,
             turn_content=self._turn_content,
+            manifests=self._manifests,
         )
 
         builder = StateGraph(GraphState)

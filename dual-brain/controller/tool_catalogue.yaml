@@ -203,6 +203,25 @@
   one_line: "F-35 escape hatch — the ONLY correct action when no listed tool fits."
   param_schema_ref: src/mcpd/schemas/system.unsupported.json
 
+# ── Manifest-served (controller-side, Layer 2 Part A) ────────────────────
+# Tools loaded from controller/manifests/*.yaml at daemon startup and
+# dispatched through impl.kind primitives (session_op etc.) BEFORE mcpd
+# sees the intent. Pure controller state — no OS surface, no sandbox
+# widening needed. Adding a new manifest-served tool = one YAML in
+# manifests/, one row here, one TOOL_CATEGORIES entry with "manifest"
+# category (skips the mcpd tools/list drift check).
+- name: nav.cd
+  provided_by: manifest
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Change the session's working directory (persistent per-session cwd)."
+  param_schema_ref: controller/manifests/nav.cd.yaml
+  natural_phrases:
+    - "cd <path>"
+    - "take me to <path>"
+    - "go to <path>"
+    - "chdir <path>"
+
 # ── GUI Agent tools (dual-brain/gui_agent/, dispatched via AT-SPI) ───────
 # Not in mcpd's tools/list — the controller dispatches these directly to
 # gui_agent through the Landlock-sandboxed subprocess. Risk classifier

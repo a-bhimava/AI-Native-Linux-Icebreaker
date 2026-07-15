@@ -1,0 +1,30 @@
+# v6.9 Scope O Layer 2 Part A — first declarative tool.
+#
+# nav.cd = "change the session's working directory". Pure controller
+# state — the terminal shell doesn't actually chdir (Icebreaker doesn't
+# own the shell). What persists is SessionState.session_cwd, which:
+#   1. The QB prompt reads on the next turn (cwd context).
+#   2. Relative-path resolvers fall back to when shell_context.cwd is
+#      empty.
+#
+# Replaces v6.8's F-60 workaround (nav phrases -> fs.list <path>) with a
+# permanent fix: nav.cd updates session state, subsequent "list files
+# here" resolves against the new cwd without the user retyping the path.
+name: nav.cd
+version: 1
+description: "Change the session's working directory. No filesystem side effect; validates that path is an absolute directory allowed for reads."
+tier: 0
+param_schema:
+  type: object
+  additionalProperties: false
+  required: [path]
+  properties:
+    path:
+      type: string
+      minLength: 1
+      maxLength: 4096
+      pattern: "^/[^\\x00]*$"
+      description: "Absolute directory path. Must exist AND be a directory AND fall under Landlock read roots."
+impl:
+  kind: session_op
+  op: set_cwd

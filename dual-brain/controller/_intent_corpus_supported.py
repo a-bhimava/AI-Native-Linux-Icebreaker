@@ -8,6 +8,7 @@ SUPPORTED_ACTIONS = frozenset({
     "fs.read",
     "fs.stat",
     "fs.write",
+    "nav.cd",
     "network.dns.read",
     "network.status",
     "package.install",

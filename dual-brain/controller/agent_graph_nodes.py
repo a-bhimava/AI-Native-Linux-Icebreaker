@@ -24,6 +24,7 @@ import hashlib
 import json
 import time
 import uuid
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from .agent_graph_state import GraphState
@@ -58,6 +59,11 @@ def make_collaborators(
     # wiped between turns. For Task #146 it's a dict; Task #148 will
     # migrate to session-scoped storage when Plan mode lands.
     turn_content: dict,
+    # v6.9 Scope O Layer 2 Part A: optional ManifestRegistry. If set,
+    # mcpd_dispatcher_node checks the registry BEFORE mcpd — matching
+    # the wiring in main.py::_try_manifest_dispatch. None → mcpd-only
+    # dispatch (backward-compatible with pre-Layer 2 tests).
+    manifests: Any = None,
 ) -> dict:
     return {
         "cfg": cfg,
@@ -72,6 +78,7 @@ def make_collaborators(
         "intent_schema": intent_schema,
         "intent_store": intent_store,
         "turn_content": turn_content,
+        "manifests": manifests,
     }
 
 
@@ -396,10 +403,38 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
                 "completed": True,
             }
         try:
-            result = collab["mcpd"].call(
-                method=tool_call.get("tool", ""),
-                params=tool_call.get("params", {}),
-            )
+            # v6.9 Scope O Layer 2 Part A: manifest-first dispatch.
+            # If the tool is registered in the ManifestRegistry, route
+            # to the controller-side impl (nav.cd → session_op.set_cwd)
+            # and skip mcpd. Falls through to mcpd for everything the
+            # registry doesn't know.
+            tool_name = tool_call.get("tool", "")
+            manifests = collab.get("manifests")
+            if manifests is not None and manifests.has(tool_name):
+                from .impl_kinds import DispatchContext
+                # session_store is a MagicMock in some tests; get() may
+                # return None. session_op tolerates a bare namespace.
+                sess = None
+                try:
+                    sess = collab["session_store"].get(
+                        state.get("session_id", "")
+                    )
+                except Exception:  # noqa: BLE001
+                    sess = None
+                ctx = DispatchContext(session=sess, audit_log=collab["audit"])
+                impl_res = manifests.dispatch(
+                    tool_name, tool_call.get("params", {}), ctx,
+                )
+                # Give the graph a mcpd-shaped `result` object so the
+                # downstream .stdout / marker substitution path stays
+                # agnostic to whether it was manifest- or mcpd-served.
+                result = SimpleNamespace(stdout=impl_res.stdout,
+                                         metadata=impl_res.metadata)
+            else:
+                result = collab["mcpd"].call(
+                    method=tool_name,
+                    params=tool_call.get("params", {}),
+                )
         except Exception as exc:  # noqa: BLE001 — wrap unknown mcpd faults
             step_index = int(state.get("step_index", 0))
             total_steps = int(state.get("total_steps", 1))

@@ -152,11 +152,31 @@ def _run_one(query: str, backend_name: str) -> None:
 
     session_state = MagicMock()
     session_state.build_pb_user_turn.return_value = "u"
+    session_state.backend = backend_name
     session_store = MagicMock()
     session_store.get.return_value = session_state
 
-    prompts = MagicMock()
-    prompts.get.return_value = PROMPT_TEMPLATE
+    # v6.9: use the real PromptLoader so the smoke reflects what the
+    # shipped daemon sees (including {{CATALOGUE}} substitution + the
+    # nav.cd routing rules). The AgentGraph calls prompts.get("qb"), so
+    # remap that generic key to qb_<backend>. Falls back to
+    # PROMPT_TEMPLATE if the real loader fails — for CI hosts without
+    # prompt files.
+    try:
+        from controller.config import PromptLoader
+        _pl_cfg = SimpleNamespace(
+            prompts_dir=str(_PARENT / "controller" / "prompts"),
+            qb_local="", qb_anthropic="", qb_gemini="", qb_openai="",
+            pb="", qb_verifier="",
+        )
+        _real_pl = PromptLoader(_pl_cfg)
+        def _lookup(name):
+            return _real_pl.get(f"qb_{backend_name}") if name == "qb" else _real_pl.get(name)
+        prompts = MagicMock()
+        prompts.get.side_effect = _lookup
+    except Exception:
+        prompts = MagicMock()
+        prompts.get.return_value = PROMPT_TEMPLATE
 
     intent_store = MagicMock()
     _counter = {"n": 0}

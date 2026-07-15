@@ -174,6 +174,14 @@ class SessionState:
     # LangGraph adapter lands (Task #149). Stays empty until then;
     # existing code paths that don't read history are unaffected.
     history: list = field(init=False, default_factory=list, repr=False)
+    # v6.9 Scope O Layer 2 Part A — persistent per-session working
+    # directory mutated by the nav.cd manifest. When empty the QB prompt
+    # falls back to shell_context.cwd (the per-turn terminal state).
+    # When non-empty it persists across turns and survives daemon
+    # restarts only if session_id is stable (fresh session = fresh cwd).
+    # F-60 permanent fix — replaces the v6.8 nav-phrase -> fs.list
+    # workaround. See controller/manifests/nav.cd.yaml.
+    session_cwd: str = field(init=False, default="", repr=False)
 
     def __post_init__(self) -> None:
         self._last_activity = time.monotonic()

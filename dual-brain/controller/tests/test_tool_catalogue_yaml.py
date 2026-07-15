@@ -45,7 +45,7 @@ _ALLOWED_TIER_HINTS = {
     "gui_readonly", "gui_write", "rpa_readonly", "rpa_write",
 }
 _ALLOWED_RISK_LEVELS = {"low", "medium", "high", "critical"}
-_ALLOWED_PROVIDED_BY = {"mcpd", "controller", "gui_agent", "rpa_bridge"}
+_ALLOWED_PROVIDED_BY = {"mcpd", "controller", "manifest", "gui_agent", "rpa_bridge"}
 
 
 def test_yaml_file_exists() -> None:
@@ -132,9 +132,9 @@ def test_generated_mcpd_tools_agrees_with_yaml(entries: list[dict]) -> None:
 
 def test_generated_supported_actions_agrees_with_yaml(entries: list[dict]) -> None:
     """_intent_corpus_supported.SUPPORTED_ACTIONS must equal YAML entries
-    whose provided_by is mcpd or controller. GUI + RPA entries are
-    excluded because QB doesn't emit them directly (see generator docstring
-    + main.py::_SUPPORTED_ACTIONS parity)."""
+    whose provided_by is mcpd, controller, or manifest. GUI + RPA entries
+    are excluded because QB doesn't emit them directly (see generator
+    docstring + main.py::_SUPPORTED_ACTIONS parity)."""
     assert _SUPPORTED_PY.exists(), (
         f"{_SUPPORTED_PY} missing — run the emit script"
     )
@@ -142,7 +142,7 @@ def test_generated_supported_actions_agrees_with_yaml(entries: list[dict]) -> No
 
     yaml_qb_emittable = {
         e["name"] for e in entries
-        if e.get("provided_by") in {"mcpd", "controller"}
+        if e.get("provided_by") in {"mcpd", "controller", "manifest"}
     }
     if set(SUPPORTED_ACTIONS) != yaml_qb_emittable:
         diff = set(SUPPORTED_ACTIONS) ^ yaml_qb_emittable
@@ -160,7 +160,7 @@ def test_generated_catalogue_block_contains_every_qb_emittable_tool(entries: lis
     )
     block_text = _CATALOGUE_BLOCK.read_text(encoding="utf-8")
     for e in entries:
-        if e.get("provided_by") not in {"mcpd", "controller"}:
+        if e.get("provided_by") not in {"mcpd", "controller", "manifest"}:
             continue
         assert e["name"] in block_text, (
             f"catalogue block does not mention {e['name']!r} — "

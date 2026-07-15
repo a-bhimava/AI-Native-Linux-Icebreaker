@@ -222,6 +222,18 @@ version_overlay() {
         "LayerO-gen:_intent_corpus_supported.py:SUPPORTED_ACTIONS"
         "LayerO-block:prompts/_catalogue_block.txt:system.unsupported"
         "LayerO-loader:config.py:_substitute_placeholders"
+        # v6.9 Scope O Layer 2 Part A (2026-07-14) — declarative tool
+        # manifests dispatched controller-side (nav.cd, F-60 permanent
+        # fix). If any of these disappears from the installed venv,
+        # nav.cd silently regresses to system.unsupported OR the meta-
+        # schema stops firing (attacker-supplied manifest could then
+        # skip validation), and the dispatch-before-mcpd path is gone.
+        "LayerO-L2A-schema:schemas/tool_manifest.json:tool_manifest"
+        "LayerO-L2A-loader:manifest_loader.py:ManifestRegistry"
+        "LayerO-L2A-impl:impl_kinds/session_op.py:set_cwd"
+        "LayerO-L2A-manifest:manifests/nav.cd.yaml:set_cwd"
+        "LayerO-L2A-dispatch:main.py:_try_manifest_dispatch"
+        "LayerO-L2A-cwd:session.py:session_cwd"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do

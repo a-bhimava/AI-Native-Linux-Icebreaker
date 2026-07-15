@@ -2,7 +2,7 @@
 # controller/tool_catalogue.yaml. DO NOT EDIT MANUALLY.
 # QB prompts substitute this via the {{CATALOGUE}} placeholder.
 
-read-only → risk_level=low: fs.list, fs.read, fs.stat, network.dns.read, network.status, package.query, process.inspect, process.list, service.logs, system.cpu, system.disk, system.memory, system.status, system.uptime
+read-only → risk_level=low: fs.list, fs.read, fs.stat, nav.cd, network.dns.read, network.status, package.query, process.inspect, process.list, service.logs, system.cpu, system.disk, system.memory, system.status, system.uptime
 write inside $HOME → risk_level=low: fs.write
 system writes → risk_level=medium: package.install, package.remove, package.upgrade, service.restart, service.start, service.stop
 destructive / outside home → risk_level=critical: fs.delete, fs.write (outside $HOME)
