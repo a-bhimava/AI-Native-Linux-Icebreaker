@@ -80,6 +80,15 @@ version_overlay() {
     cp -a "${repo}/dual-brain/controller/schemas"  "${chroot}${sp}/schemas"
     cp -a "${repo}/dual-brain/controller/prompts"  "${chroot}${sp}/prompts"
     cp -a "${repo}/dual-brain/controller/grammars" "${chroot}${sp}/grammars"
+    # v6.9 Scope O Layer 2 Part A — controller-side declarative tool
+    # manifests. manifest_loader.py resolves _MANIFESTS_DIR via
+    # `_HERE / "manifests"` (site-packages), so pip's package-data
+    # exclusion for `controller` (PKG-1 convention) means we MUST copy
+    # here. Without this the ManifestRegistry loads empty on the ISO
+    # and nav.cd silently regresses to system.unsupported (F-60 comes
+    # back). The directory only holds YAML today; `cp -a` preserves
+    # permissions + is idempotent for reseeds.
+    cp -a "${repo}/dual-brain/controller/manifests" "${chroot}${sp}/manifests"
 
     # F-51 (2026-07-10): venv integrity check — every recent bug we fixed
     # left a durable comment marker in the installed source. If the venv
