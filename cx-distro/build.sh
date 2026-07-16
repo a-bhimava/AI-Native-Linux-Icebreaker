@@ -968,11 +968,20 @@ GRUBCFG
 
     info "ISO built: ${ISO_FILE} (${ISO_SIZE})"
     info "SHA-256: ${ISO_HASH}"
-    
-    # Move the final ISO to the mandatory destination path
-    ISO_DEST="/Users/aditya/Documents/Icebreaker/ISO/icebreaker_full_ubuntu.iso"
+
+    # v6.9 (2026-07-16): the pre-v6.9 code hardcoded a Mac path
+    # (/Users/aditya/…) and used `mv`. Inside Docker with --rm this
+    # copied the ISO to the container's ephemeral overlay, then
+    # destroyed both the source (via mv's unlink step across
+    # filesystems) and the destination (via --rm) — losing the ISO
+    # entirely. Fix: default the destination to a path inside the
+    # bind-mounted REPO_ROOT so it survives container teardown, and
+    # `cp` instead of `mv` so the build-side source stays too. Allows
+    # env override via ISO_DEST for operators who need a different
+    # target.
+    ISO_DEST="${ISO_DEST:-${REPO_ROOT}/ISO/icebreaker_full_ubuntu.iso}"
     mkdir -p "$(dirname "$ISO_DEST")"
-    mv "$ISO_FILE" "$ISO_DEST"
-    info "Final ISO moved to ${ISO_DEST}"
+    cp "$ISO_FILE" "$ISO_DEST"
+    info "Final ISO copied to ${ISO_DEST}"
     info "Build complete."
 fi
