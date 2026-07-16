@@ -82,6 +82,7 @@ impl std::fmt::Display for ImplKind {
 
 /// The `impl:` block of a manifest.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Impl {
     pub kind: ImplKind,
     /// For `fs_read`: absolute path to read. `{{param}}` placeholders
@@ -110,6 +111,7 @@ pub struct Impl {
 /// — this block is a HUMAN-READABLE hint of intent + a load-time gate
 /// (validated shape, not enforced by Landlock at runtime).
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SandboxHint {
     #[serde(default)]
     pub landlock: Option<LandlockHint>,
@@ -123,6 +125,7 @@ pub struct SandboxHint {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct LandlockHint {
     #[serde(default)]
     pub ro: Vec<String>,
@@ -135,6 +138,7 @@ pub struct LandlockHint {
 
 /// A validated, ready-to-dispatch tool manifest.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub name: String,
     pub version: u32,
@@ -495,6 +499,78 @@ impl:
         let err = format!("{:#}", load(tmp.path()).unwrap_err());
         assert!(err.contains("unknown variant") || err.contains("eval_python"),
                 "unexpected: {}", err);
+    }
+
+    // ── v6.9 P0-1 (2026-07-15 CT scan) — deny_unknown_fields lockdown ──
+
+    #[test]
+    fn rejects_unknown_top_level_field() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "bad.yaml", r#"
+name: bad.thing
+version: 1
+description: "test"
+tier: 0
+param_schema: {type: object}
+escape_all: true
+impl:
+  kind: fs_read
+  path: /proc/uptime
+"#);
+        let err = format!("{:#}", load(tmp.path()).unwrap_err());
+        assert!(
+            err.contains("unknown field") || err.contains("escape_all"),
+            "expected serde to reject unknown top-level field; got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_impl_field() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "bad.yaml", r#"
+name: bad.thing
+version: 1
+description: "test"
+tier: 0
+param_schema: {type: object}
+impl:
+  kind: fs_read
+  path: /proc/uptime
+  hidden_escape: true
+"#);
+        let err = format!("{:#}", load(tmp.path()).unwrap_err());
+        assert!(
+            err.contains("unknown field") || err.contains("hidden_escape"),
+            "expected serde to reject unknown impl field; got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_sandbox_field() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "bad.yaml", r#"
+name: bad.thing
+version: 1
+description: "test"
+tier: 0
+param_schema: {type: object}
+sandbox:
+  landlock:
+    ro: [/proc/uptime]
+  seccomp: reads_only
+  escape_seccomp: true
+impl:
+  kind: fs_read
+  path: /proc/uptime
+"#);
+        let err = format!("{:#}", load(tmp.path()).unwrap_err());
+        assert!(
+            err.contains("unknown field") || err.contains("escape_seccomp"),
+            "expected serde to reject unknown sandbox field; got: {}",
+            err
+        );
     }
 
     #[test]
