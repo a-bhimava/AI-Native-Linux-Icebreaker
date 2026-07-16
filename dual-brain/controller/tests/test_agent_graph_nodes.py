@@ -351,3 +351,85 @@ def test_after_mcpd_routes_to_responder_when_all_steps_done():
 
 def test_after_mcpd_ends_on_error():
     assert after_mcpd(_state(error_kind="mcpd")) == "END"
+
+
+# ── v6.9 P0-3 (2026-07-15 CT scan) — shape normalization ─────────────
+#
+# The manifest branch of mcpd_dispatcher_node used to return a
+# SimpleNamespace(stdout=...) while the mcpd branch returned a real
+# ToolResult. Downstream code that read .requires_cow_approval on the
+# result silently degraded for the manifest branch. These tests lock
+# in: both paths return ToolResult, and _extract_stdout is shape-
+# agnostic.
+
+
+def test_manifest_dispatch_returns_toolresult_not_simplenamespace():
+    """P0-3: agent_graph manifest branch must return a real ToolResult
+    with .result[dict] shape, matching what main.py::_try_manifest_dispatch
+    returns. Otherwise Tier-2 manifests bypass COW via the graph path."""
+    from unittest.mock import MagicMock
+
+    from controller.agent_graph_nodes import mcpd_dispatcher_node
+    from controller.impl_kinds import ImplResult
+    from controller.mcpd_client import ToolResult
+
+    manifests = MagicMock()
+    manifests.has.return_value = True
+    manifests.dispatch.return_value = ImplResult(
+        stdout="/tmp/foo",
+        metadata={"old_cwd": "", "new_cwd": "/tmp/foo"},
+    )
+    turn_content = {"tc-hash": {"tool": "nav.cd", "params": {"path": "/tmp/foo"}}}
+    session_state = MagicMock()
+    session_store = MagicMock()
+    session_store.get.return_value = session_state
+
+    collab = {
+        "mcpd": MagicMock(),
+        "manifests": manifests,
+        "turn_content": turn_content,
+        "audit": MagicMock(),
+        "session_store": session_store,
+    }
+    node = mcpd_dispatcher_node(collab)
+    state = {
+        "session_id": "s1",
+        "tool_call_hash": "tc-hash",
+        "step_index": 0,
+        "total_steps": 1,
+        "plan_id": "p1",
+    }
+    node(state)
+
+    stashed = turn_content.get("p1:0:result")
+    assert isinstance(stashed, ToolResult), (
+        f"expected ToolResult, got {type(stashed).__name__}"
+    )
+    assert isinstance(stashed.result, dict)
+    assert stashed.result["stdout"] == "/tmp/foo"
+    assert stashed.result["manifest_dispatched"] is True
+    # ToolResult properties must resolve — this is what a future Tier-2
+    # manifest path would trip on:
+    assert stashed.requires_cow_approval is False
+    assert stashed.status is None
+    # mcpd was NOT called for a manifest tool:
+    collab["mcpd"].call.assert_not_called()
+
+
+def test_extract_stdout_helper_covers_both_shapes():
+    """Regression guard for _extract_stdout: must yield the same string
+    for a ToolResult(result={"stdout": X}) as for a legacy
+    SimpleNamespace(stdout=X). Never raises."""
+    from types import SimpleNamespace as _NS
+
+    from controller.agent_graph_nodes import _extract_stdout
+    from controller.mcpd_client import ToolResult
+
+    tr = ToolResult(result={"stdout": "hello"}, request_id=0)
+    ns = _NS(stdout="hello")
+    assert _extract_stdout(tr) == "hello"
+    assert _extract_stdout(ns) == "hello"
+    # Fully broken shape yields "" — never raises:
+    assert _extract_stdout(object()) == ""
+    # Empty ToolResult:
+    assert _extract_stdout(ToolResult(result={}, request_id=0)) == ""

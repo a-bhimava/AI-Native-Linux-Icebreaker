@@ -24,11 +24,11 @@ import hashlib
 import json
 import time
 import uuid
-from types import SimpleNamespace
 from typing import Any, Callable
 
 from .agent_graph_state import GraphState
 from .backends.base import BrainError, BrainProviderError
+from .mcpd_client import ToolResult
 from .plan_executor import (
     normalize_planner_output,
     plan_max_tier,
@@ -92,6 +92,25 @@ def _sha(payload: Any) -> str:
         return hashlib.sha256(bytes(payload)).hexdigest()
     text = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _extract_stdout(result: Any) -> str:
+    """v6.9 P0-3 (2026-07-15 CT scan): uniformly extract a tool's stdout
+    string regardless of whether the dispatcher returned a
+    mcpd_client.ToolResult (from either mcpd or the Scope O manifest
+    path) or a legacy SimpleNamespace-shape fallback. Returns "" if no
+    stdout can be recovered — never raises. Used by the result-hash step
+    in mcpd_dispatcher_node so the hash is shape-agnostic and both
+    dispatch branches produce identical keys for identical stdout."""
+    inner = getattr(result, "result", None)
+    if isinstance(inner, dict):
+        v = inner.get("stdout", "")
+        if isinstance(v, str):
+            return v
+    v = getattr(result, "stdout", "")
+    if isinstance(v, str):
+        return v
+    return ""
 
 
 # ── Nodes ────────────────────────────────────────────────────────────
@@ -371,11 +390,23 @@ def executor_node(collab: dict) -> Callable[[GraphState], dict]:
 def _extract_stdout_for_marker(result: Any) -> str:
     """Extract the string a ``$STEP_<N>_STDOUT`` marker should resolve to.
 
-    mcpd_dispatcher stores whatever mcpd returned. Common shapes:
-    - SimpleNamespace(stdout="...") — the primary shipped path
-    - {"stdout": "..."} — JSON-serialized
-    - Any other value → str(...) fallback
+    mcpd_dispatcher stores whatever the dispatcher returned. Post-v6.9-P0-3
+    (2026-07-15 CT scan) both dispatch paths (mcpd + manifest) return a
+    real ``mcpd_client.ToolResult(result={...})``, so ``.result["stdout"]``
+    is the primary shape. Older shapes still tolerated for defensive
+    resilience. Falls back to ``str(result)`` at the end so markers get
+    SOMETHING to substitute (unlike ``_extract_stdout`` which returns "" —
+    markers want a substitution string, hashes want empty for consistency).
+
+    Common shapes handled:
+    - ToolResult(result={"stdout": "..."}) — v6.9 primary
+    - object.stdout attribute (legacy SimpleNamespace fallback)
+    - dict {"stdout": "..."}
+    - anything else → str(...) fallback
     """
+    inner = getattr(result, "result", None)
+    if isinstance(inner, dict) and isinstance(inner.get("stdout"), str):
+        return inner["stdout"]
     stdout = getattr(result, "stdout", None)
     if stdout is None and isinstance(result, dict):
         stdout = result.get("stdout")
@@ -425,11 +456,21 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
                 impl_res = manifests.dispatch(
                     tool_name, tool_call.get("params", {}), ctx,
                 )
-                # Give the graph a mcpd-shaped `result` object so the
-                # downstream .stdout / marker substitution path stays
-                # agnostic to whether it was manifest- or mcpd-served.
-                result = SimpleNamespace(stdout=impl_res.stdout,
-                                         metadata=impl_res.metadata)
+                # v6.9 P0-3 (2026-07-15 CT scan): wrap ImplResult in a
+                # real ToolResult so downstream code sees the SAME shape
+                # regardless of whether the tool was manifest- or
+                # mcpd-served. Previously we returned SimpleNamespace,
+                # which meant a future Tier-2 manifest could bypass COW
+                # via this branch (SimpleNamespace has no
+                # .requires_cow_approval property). Preserves INV-6.
+                _payload = {
+                    "stdout": impl_res.stdout,
+                    "ok": True,
+                    "manifest_name": tool_name,      # INV-8 audit provenance
+                    "manifest_dispatched": True,     # discriminates manifest vs mcpd
+                }
+                _payload.update(impl_res.metadata)
+                result = ToolResult(result=_payload, request_id=0)
             else:
                 result = collab["mcpd"].call(
                     method=tool_name,
@@ -445,7 +486,11 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
                                 f"{type(exc).__name__}: {exc}"[:400],
                 "completed": True,
             }
-        result_hash = _sha(getattr(result, "stdout", "") or str(result))
+        # v6.9 P0-3 (2026-07-15 CT scan): shape-agnostic hash extraction.
+        # Both dispatch paths now return ToolResult (mcpd via .call, manifest
+        # via the wrap above), but a legacy SimpleNamespace-shape may still
+        # slip through in tests — _extract_stdout handles both.
+        result_hash = _sha(_extract_stdout(result) or str(getattr(result, "result", result)))
         collab["turn_content"][result_hash] = result
 
         # Task #148: also stash by (plan_id, step_index) so subsequent
