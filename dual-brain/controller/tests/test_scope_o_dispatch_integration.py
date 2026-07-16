@@ -217,3 +217,77 @@ def test_tier0_fast_path_does_not_qualify_at_higher_tier(nav_cd_session):
     assert try_fast_path(intent, tier=1) is None
     assert try_fast_path(intent, tier=2) is None
     assert try_fast_path(intent, tier=3) is None
+
+
+# ── v6.9 test gap 4 (2026-07-16 CT scan) — tier declaration cross-check ──
+
+
+def test_tier_manifest_agrees_with_tool_catalogue(real_registry):
+    """v6.9 test gap 4: every registered manifest declares a tier in
+    its YAML. That declaration MUST agree with the tier_hint in
+    tool_catalogue.yaml so the risk classifier upgrades intents
+    accordingly. If they diverge, a Tier-2 manifest could ship with
+    the classifier treating it as Tier-0 (bypasses HITL) — the exact
+    failure mode this test locks against.
+
+    Contract: for every manifest name in the registry, if the name
+    appears in tool_catalogue.yaml, the tiers must agree via the
+    tier_hint → tier mapping in this test."""
+    from pathlib import Path
+
+    import yaml
+
+    yaml_path = (
+        Path(__file__).resolve().parent.parent / "tool_catalogue.yaml"
+    )
+    entries = yaml.safe_load(yaml_path.read_text())
+    by_name = {e["name"]: e for e in entries}
+
+    tier_from_hint = {
+        "tier0": 0,
+        "conditional": 1,   # fs.write: 1 in $HOME, 3 outside — runtime-classified
+        "system_write": 2,
+        "destructive": 3,
+        "meta": 0,
+        # GUI/RPA hints sit outside the manifest surface today; skip
+        # cross-check for those tier_hints when they arrive.
+        "gui_readonly": 0,
+        "gui_write": 2,
+        "rpa_readonly": 0,
+        "rpa_write": 2,
+    }
+
+    for name in real_registry.names():
+        manifest_tier = real_registry.get(name).manifest["tier"]
+        if name not in by_name:
+            # Manifest-only tool (not surfaced to QB via
+            # tool_catalogue). No cross-check possible; skip.
+            continue
+        yaml_tier_hint = by_name[name]["tier_hint"]
+        expected_tier = tier_from_hint.get(yaml_tier_hint)
+        assert expected_tier is not None, (
+            f"tool_catalogue.yaml entry {name!r} has tier_hint "
+            f"{yaml_tier_hint!r} not in {list(tier_from_hint)}"
+        )
+        if yaml_tier_hint == "conditional":
+            # fs.write is conditional; the manifest can honestly
+            # declare tier: 1 for the $HOME entry point. Skip strict
+            # compare; the classifier makes the runtime call.
+            continue
+        assert manifest_tier == expected_tier, (
+            f"Tier mismatch for {name!r}: manifest declares tier "
+            f"{manifest_tier} but tool_catalogue.yaml tier_hint "
+            f"{yaml_tier_hint!r} maps to tier {expected_tier}. "
+            f"Divergence lets a Tier-2 manifest ship with the "
+            f"classifier treating it as Tier-0 (bypasses HITL)."
+        )
+
+
+def test_registered_manifest_tiers_are_valid(real_registry):
+    """v6.9 test gap 4 companion: every registered manifest declares
+    a tier in {0, 1, 2, 3}. Belt-and-braces vs the meta-schema."""
+    for name in real_registry.names():
+        tier = real_registry.get(name).manifest["tier"]
+        assert tier in {0, 1, 2, 3}, (
+            f"manifest {name!r} declares invalid tier {tier}"
+        )
