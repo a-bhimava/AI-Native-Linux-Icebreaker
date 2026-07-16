@@ -11,7 +11,7 @@
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::manifest_loader::Manifest;
 
@@ -39,6 +39,10 @@ pub async fn dispatch(manifest: &Manifest, params: &Value) -> Result<Value> {
             resolved, template
         );
     }
+    // canonicalize() collapses .. + follows symlinks BEFORE the
+    // allow-list check so a symlink-under-declared-root pointing
+    // outside the roots is caught by userspace, not by kernel
+    // Landlock only.
     let canonical = PathBuf::from(&resolved)
         .canonicalize()
         .with_context(|| format!("fs_read: cannot resolve {:?}", resolved))?;
@@ -46,6 +50,16 @@ pub async fn dispatch(manifest: &Manifest, params: &Value) -> Result<Value> {
         .to_str()
         .ok_or_else(|| anyhow!("fs_read: resolved path is not valid UTF-8"))?
         .to_string();
+
+    // v6.9 Scope O P0-2 (2026-07-15 CT scan) — userspace defense in
+    // depth per BP-9. The manifest's own `sandbox.landlock.ro` array
+    // is the allow-list for this manifest's fs_read impl. Landlock at
+    // the kernel is the second layer; refusing at userspace produces
+    // a sanitized error string ("not under any declared") instead of
+    // a raw ENOACCES from the kernel + gives us test coverage that
+    // symlink-escape is caught pre-kernel.
+    check_against_declared_roots(&canonical, manifest)
+        .context("fs_read: sandbox.landlock.ro userspace enforcement")?;
 
     // Read (up to MAX_READ_BYTES). Errors bubble as anyhow — the
     // dispatch caller converts to JSON-RPC -32603 (Internal error)
@@ -68,6 +82,55 @@ pub async fn dispatch(manifest: &Manifest, params: &Value) -> Result<Value> {
         "truncated": truncated,
         "tool_name": manifest.name,
     }))
+}
+
+
+/// v6.9 Scope O P0-2 (2026-07-15 CT scan) — userspace enforcement of
+/// the manifest's `sandbox.landlock.ro` array as the read allow-list
+/// for this manifest's `fs_read` impl.
+///
+/// This is the userspace half of a defense-in-depth pair; kernel
+/// Landlock is the other half (applied at daemon startup per INV-5).
+/// Symlinks pointing outside the declared roots are caught here
+/// because `canonical` has already had `canonicalize()` applied.
+///
+/// A manifest with no `sandbox.landlock.ro` (or an empty ro array)
+/// refuses ALL reads at userspace — the operator must declare intent.
+/// This is deliberate: an undeclared manifest is a rogue manifest.
+fn check_against_declared_roots(canonical: &Path, manifest: &Manifest) -> Result<()> {
+    let ro_roots: &[String] = manifest
+        .sandbox
+        .landlock
+        .as_ref()
+        .map(|ll| ll.ro.as_slice())
+        .unwrap_or(&[]);
+    if ro_roots.is_empty() {
+        bail!(
+            "manifest {:?} declares no sandbox.landlock.ro roots; fs_read \
+             refuses to read any path at userspace. Add ro: [<paths>] to \
+             the manifest's sandbox.landlock block.",
+            manifest.name
+        );
+    }
+    for root in ro_roots {
+        // Canonicalize the root too so a declared root that itself
+        // contains a symlink (Linux /tmp on some distros; macOS /var)
+        // matches the canonicalized target. Fall back to the raw
+        // string on canonicalize failure (e.g. root doesn't exist
+        // yet on the system running mcpd) — that path won't match a
+        // real canonical target anyway, which is the safe answer.
+        let root_canonical = PathBuf::from(root)
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(root));
+        if canonical.starts_with(&root_canonical) {
+            return Ok(());
+        }
+    }
+    bail!(
+        "fs_read: canonical path {:?} not under any declared \
+         sandbox.landlock.ro root {:?}",
+        canonical, ro_roots
+    );
 }
 
 
@@ -128,6 +191,15 @@ mod tests {
     use tempfile::TempDir;
 
     fn mk_manifest(path_template: &str) -> Manifest {
+        // Legacy helper — permissive ro: ["/"] so pre-P0-2 tests
+        // (path shape, substitution, truncation, etc.) continue to
+        // exercise only what they intended to test. New P0-2 tests
+        // that assert enforcement build their manifests with
+        // mk_manifest_with_roots.
+        mk_manifest_with_roots(path_template, &["/"])
+    }
+
+    fn mk_manifest_with_roots(path_template: &str, ro_roots: &[&str]) -> Manifest {
         // Test-only Manifest construction. Real code path always goes
         // through the loader — this stub bypasses schema compile since
         // we're testing the dispatcher directly.
@@ -137,7 +209,15 @@ mod tests {
             description: "test".to_string(),
             tier: 0,
             param_schema: json!({"type": "object"}),
-            sandbox: Default::default(),
+            sandbox: crate::manifest_loader::SandboxHint {
+                landlock: Some(crate::manifest_loader::LandlockHint {
+                    ro: ro_roots.iter().map(|s| s.to_string()).collect(),
+                    rw: vec![],
+                    net: false,
+                }),
+                seccomp: None,
+                cow: false,
+            },
             imp: crate::manifest_loader::Impl {
                 kind: crate::manifest_loader::ImplKind::FsRead,
                 path: Some(path_template.to_string()),
@@ -209,5 +289,101 @@ mod tests {
         assert_eq!(result["size_bytes"], MAX_READ_BYTES + 100);
         assert_eq!(result["truncated"], true);
         assert_eq!(result["content"].as_str().unwrap().len(), MAX_READ_BYTES);
+    }
+
+    // ── v6.9 P0-2 (2026-07-15 CT scan) — userspace ro-root enforcement ──
+
+    #[tokio::test]
+    async fn refuses_read_when_sandbox_landlock_ro_missing() {
+        let tmp = TempDir::new().unwrap();
+        let f = tmp.path().join("target.txt");
+        std::fs::write(&f, "content").unwrap();
+
+        // Manifest with NO sandbox.landlock declared:
+        let m = Manifest {
+            name: "test.no_ro".to_string(),
+            version: 1,
+            description: "test".to_string(),
+            tier: 0,
+            param_schema: json!({"type": "object"}),
+            sandbox: Default::default(),
+            imp: crate::manifest_loader::Impl {
+                kind: crate::manifest_loader::ImplKind::FsRead,
+                path: Some(f.to_str().unwrap().to_string()),
+                binary: None,
+                args_template: None,
+                method: None,
+            },
+            source_path: None,
+        };
+        let err = format!("{:#}", dispatch(&m, &json!({})).await.unwrap_err());
+        assert!(
+            err.contains("declares no sandbox.landlock.ro"),
+            "expected refusal for undeclared ro; got: {}", err
+        );
+    }
+
+    #[tokio::test]
+    async fn refuses_read_outside_declared_ro_roots() {
+        let tmp = TempDir::new().unwrap();
+        let allowed = tmp.path().join("allowed");
+        std::fs::create_dir(&allowed).unwrap();
+        let target = tmp.path().join("target.txt");
+        std::fs::write(&target, "content").unwrap();
+
+        // Manifest allows only $tmp/allowed, tries to read $tmp/target.txt:
+        let allowed_str = allowed.to_str().unwrap().to_string();
+        let m = mk_manifest_with_roots(target.to_str().unwrap(), &[&allowed_str]);
+        let err = format!("{:#}", dispatch(&m, &json!({})).await.unwrap_err());
+        assert!(
+            err.contains("not under any declared"),
+            "expected refusal for path outside declared ro; got: {}", err
+        );
+    }
+
+    #[tokio::test]
+    async fn allows_read_under_declared_ro_root() {
+        let tmp = TempDir::new().unwrap();
+        let allowed = tmp.path().join("allowed");
+        std::fs::create_dir(&allowed).unwrap();
+        let target = allowed.join("data.txt");
+        std::fs::write(&target, "hello").unwrap();
+
+        let allowed_str = allowed.to_str().unwrap().to_string();
+        let m = mk_manifest_with_roots(target.to_str().unwrap(), &[&allowed_str]);
+        let result = dispatch(&m, &json!({})).await.unwrap();
+        assert_eq!(result["content"], "hello");
+    }
+
+    #[tokio::test]
+    async fn refuses_symlink_escape_from_declared_root() {
+        // Create a symlink UNDER the allowed root that points OUTSIDE
+        // it. canonicalize() resolves the symlink, our check verifies
+        // the canonical path is still under the declared root. Catches
+        // the escape at userspace before Landlock would.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let tmp = TempDir::new().unwrap();
+            let allowed = tmp.path().join("allowed");
+            std::fs::create_dir(&allowed).unwrap();
+            let outside = tmp.path().join("outside");
+            std::fs::create_dir(&outside).unwrap();
+            let secret = outside.join("secret.txt");
+            std::fs::write(&secret, "should-not-be-readable").unwrap();
+            let symlink_in_allowed = allowed.join("escape");
+            symlink(&secret, &symlink_in_allowed).unwrap();
+
+            let allowed_str = allowed.to_str().unwrap().to_string();
+            let m = mk_manifest_with_roots(
+                symlink_in_allowed.to_str().unwrap(),
+                &[&allowed_str],
+            );
+            let err = format!("{:#}", dispatch(&m, &json!({})).await.unwrap_err());
+            assert!(
+                err.contains("not under any declared"),
+                "expected userspace refusal for symlink escape; got: {}", err
+            );
+        }
     }
 }
