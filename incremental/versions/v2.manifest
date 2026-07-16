@@ -77,6 +77,11 @@ version_overlay() {
     # runs — several B2/C markers assert substrings live under schemas/, so
     # the copy must happen first.
     cp    "${repo}/dual-brain/controller/catalogue.toml" "${chroot}${sp}/catalogue.toml"
+    # v6.9 Scope O Layer 1 — tool_catalogue.yaml is the single source of
+    # truth consumed by export_mcpd_catalogue.py + QB prompt {{CATALOGUE}}
+    # substitution + risk classifier. Marker LayerO-cat below requires
+    # its presence in the venv; without this copy F-51 aborts the build.
+    cp    "${repo}/dual-brain/controller/tool_catalogue.yaml" "${chroot}${sp}/tool_catalogue.yaml"
     cp -a "${repo}/dual-brain/controller/schemas"  "${chroot}${sp}/schemas"
     cp -a "${repo}/dual-brain/controller/prompts"  "${chroot}${sp}/prompts"
     cp -a "${repo}/dual-brain/controller/grammars" "${chroot}${sp}/grammars"

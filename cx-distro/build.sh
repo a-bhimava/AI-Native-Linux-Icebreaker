@@ -362,9 +362,11 @@ if [ "$SKIP_TO" -le 3 ]; then
         -exec dirname {} \; | head -1)
     if [ -n "$CONTROLLER_PKG" ]; then
         cp "${REPO_ROOT}/dual-brain/controller/catalogue.toml" "${CONTROLLER_PKG}/catalogue.toml"
+        cp "${REPO_ROOT}/dual-brain/controller/tool_catalogue.yaml" "${CONTROLLER_PKG}/tool_catalogue.yaml"
         cp -a "${REPO_ROOT}/dual-brain/controller/schemas"  "${CONTROLLER_PKG}/schemas"
         cp -a "${REPO_ROOT}/dual-brain/controller/prompts"  "${CONTROLLER_PKG}/prompts"
         cp -a "${REPO_ROOT}/dual-brain/controller/grammars" "${CONTROLLER_PKG}/grammars"
+        cp -a "${REPO_ROOT}/dual-brain/controller/manifests" "${CONTROLLER_PKG}/manifests"
         info "Data files copied into venv package"
     fi
 
