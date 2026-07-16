@@ -275,9 +275,19 @@ def test_registry_dispatch_unknown_tool_raises() -> None:
         reg.dispatch("does.not.exist", {}, ctx)
 
 
-def test_registry_dispatch_unknown_kind_raises_not_implemented(tmp_path: Path) -> None:
-    """A manifest that would use fs_read (Part B kind, no dispatcher yet)
-    should refuse at dispatch — not silently no-op."""
+def test_load_rejects_mcpd_side_kind_at_load_time(tmp_path: Path) -> None:
+    """v6.9 P1-5 (2026-07-16 CT scan): a controller-side manifest
+    declaring an mcpd-side impl.kind (fs_read, fs_write_cow, dbus_call,
+    exec_pipeline) must refuse at LOAD, not at dispatch. Otherwise the
+    operator sees a confusing NotImplementedError the first time the
+    tool is invoked — days after the daemon started.
+
+    Replaces the pre-v6.9 test
+    ``test_registry_dispatch_unknown_kind_raises_not_implemented`` which
+    exercised the runtime NotImplementedError path — obsolete under the
+    new load-time contract. The runtime raise still exists in
+    ManifestRegistry.dispatch() as belt-and-braces defense, but the ONLY
+    way to reach it is if the loader is bypassed."""
     (tmp_path / "future.yaml").write_text(textwrap.dedent("""
         name: future.tool
         version: 1
@@ -287,7 +297,5 @@ def test_registry_dispatch_unknown_kind_raises_not_implemented(tmp_path: Path) -
         impl:
           kind: fs_read
     """), encoding="utf-8")
-    reg = load(manifests_dir=tmp_path)
-    ctx, _ = _mk_ctx()
-    with pytest.raises(NotImplementedError, match="fs_read"):
-        reg.dispatch("future.tool", {}, ctx)
+    with pytest.raises(ValueError, match="no controller-side dispatcher"):
+        load(manifests_dir=tmp_path)

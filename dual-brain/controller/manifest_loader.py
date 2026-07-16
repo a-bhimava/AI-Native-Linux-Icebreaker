@@ -152,6 +152,27 @@ def load(manifests_dir: Path | None = None) -> ManifestRegistry:
 
         kind = raw["impl"]["kind"]
 
+        # v6.9 P1-5 (2026-07-16 CT scan): the meta-schema
+        # (controller/schemas/tool_manifest.json) permits mcpd-side
+        # impl.kinds (fs_read, fs_write_cow, dbus_call, exec_pipeline)
+        # so operators can lint mcpd manifests against the same schema.
+        # On the CONTROLLER side those kinds have no dispatcher —
+        # refuse at load-time with an actionable message rather than
+        # a NotImplementedError at dispatch (which would surface days
+        # after the daemon started, the first time the tool was
+        # invoked).
+        #
+        # Belt-and-braces: the runtime NotImplementedError in
+        # ManifestRegistry.dispatch() below still fires if the loader
+        # is somehow bypassed. Two layers of defense.
+        if kind not in _KIND_DISPATCH:
+            raise ValueError(
+                f"manifest_loader: {path.name} — impl.kind={kind!r} has "
+                f"no controller-side dispatcher (known: {sorted(_KIND_DISPATCH)}). "
+                f"If this is an mcpd-side kind, move the manifest to "
+                f"src/mcpd/manifests/ and reload mcpd."
+            )
+
         # Kind-specific structural checks (beyond the meta-schema, which
         # only enforces shape). session_op needs a registered op.
         if kind == "session_op":
