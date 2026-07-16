@@ -128,6 +128,72 @@ def test_load_rejects_malformed_yaml(tmp_path: Path) -> None:
         load(manifests_dir=tmp_path)
 
 
+# ─── v6.9 test gap 7 (2026-07-16 CT scan) — adversarial YAML corpus ─
+
+
+def test_load_rejects_yaml_alias_bomb(tmp_path: Path) -> None:
+    """v6.9 test gap 7: billion-laughs alias expansion must not OOM
+    the loader. PyYAML.safe_load DOES expand aliases (unlike
+    serde_yaml), but the meta-schema's additionalProperties: false at
+    the top level catches the extra `a`/`b`/`c` anchor keys BEFORE
+    they get recursively expanded — schema-level defense, not YAML-
+    parser defense."""
+    (tmp_path / "bomb.yaml").write_text(textwrap.dedent("""
+        a: &a ["lol","lol","lol","lol","lol","lol","lol","lol","lol"]
+        b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]
+        c: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b]
+        name: safe.name
+        version: 1
+        description: "test"
+        tier: 0
+        param_schema: {type: object}
+        impl:
+          kind: session_op
+          op: set_cwd
+    """), encoding="utf-8")
+    # Meta-schema rejects a/b/c as additional properties. Message
+    # varies slightly across jsonschema versions; assert either the
+    # generic "additional properties" language or a mention of any of
+    # the anchor keys.
+    with pytest.raises(ValueError) as exc_info:
+        load(manifests_dir=tmp_path)
+    err = str(exc_info.value).lower()
+    assert (
+        "additional" in err
+        or "unexpected" in err
+        or "'a'" in err
+        or "'b'" in err
+        or "'c'" in err
+        or "schema" in err
+    ), f"expected schema-level rejection of alias-bomb keys; got: {err}"
+
+
+def test_load_rejects_oversized_description(tmp_path: Path) -> None:
+    """v6.9 test gap 7: description > 400 chars refused by the meta-
+    schema (maxLength). Prevents unbounded YAML string values from
+    propagating through the loader."""
+    huge = "x" * 1000
+    (tmp_path / "huge.yaml").write_text(textwrap.dedent(f"""
+        name: huge.desc
+        version: 1
+        description: "{huge}"
+        tier: 0
+        param_schema: {{type: object}}
+        impl:
+          kind: session_op
+          op: set_cwd
+    """), encoding="utf-8")
+    with pytest.raises(ValueError) as exc_info:
+        load(manifests_dir=tmp_path)
+    err = str(exc_info.value).lower()
+    assert (
+        "description" in err
+        or "too long" in err
+        or "maxlength" in err
+        or "longer" in err
+    ), f"expected refusal to cite description length; got: {err}"
+
+
 def test_load_missing_dir_returns_empty_registry(tmp_path: Path) -> None:
     reg = load(manifests_dir=tmp_path / "does_not_exist")
     assert reg.names() == []

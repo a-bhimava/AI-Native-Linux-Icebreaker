@@ -573,6 +573,63 @@ impl:
         );
     }
 
+    // ── v6.9 test gap 7 (2026-07-16 CT scan) — adversarial YAML corpus ──
+
+    #[test]
+    fn rejects_yaml_alias_bomb() {
+        // Billion-laughs shape. serde_yaml 0.9 disables recursive
+        // alias expansion by default; the load either returns Err at
+        // the parse step or the meta-schema catches the unknown top-
+        // level keys (a/b/c). Either way: process doesn't OOM/hang.
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "bomb.yaml", r#"
+a: &a ["lol","lol","lol","lol","lol","lol","lol","lol","lol"]
+b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]
+c: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b]
+name: safe.name
+version: 1
+description: "test"
+tier: 0
+param_schema: {type: object}
+impl:
+  kind: fs_read
+  path: /proc/uptime
+"#);
+        // Either serde_yaml refuses the anchors, or the deny_unknown_
+        // fields on Manifest catches a/b/c. Both are acceptable — the
+        // invariant is: never Ok, never OOM.
+        let result = load(tmp.path());
+        assert!(
+            result.is_err(),
+            "billion-laughs YAML must not load Ok; got: {:?}", result.map(|r| r.names())
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_description() {
+        // 1 KB `x` characters as a description. Not a bomb, but a
+        // stress on serde's string allocator + our validate() length
+        // check (description max 400).
+        let tmp = TempDir::new().unwrap();
+        let huge = "x".repeat(1000);
+        let body = format!(r#"
+name: huge.desc
+version: 1
+description: "{}"
+tier: 0
+param_schema: {{type: object}}
+impl:
+  kind: fs_read
+  path: /proc/uptime
+"#, huge);
+        write(tmp.path(), "huge.yaml", &body);
+        let err = format!("{:#}", load(tmp.path()).unwrap_err());
+        assert!(
+            err.contains("description too long"),
+            "expected validate() to reject oversized description; got: {}", err
+        );
+    }
+
     #[test]
     fn rejects_unknown_seccomp_preset() {
         let tmp = TempDir::new().unwrap();
