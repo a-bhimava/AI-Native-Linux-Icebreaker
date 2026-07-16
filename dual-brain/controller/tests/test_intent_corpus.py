@@ -315,37 +315,23 @@ def test_adversarial_rows_do_not_execute(corpus: list[dict]) -> None:
 
 # ─── Sync check: corpus's supported set matches Controller's ───────────────
 
-def test_supported_actions_match_controller_source() -> None:
-    """This local _SUPPORTED_ACTIONS must stay in sync with main.py.
+def test_supported_actions_import_resolves_to_generated_module() -> None:
+    """v6.9 P2-4 (2026-07-16 CT scan): main.py::_SUPPORTED_ACTIONS is now
+    an alias for the auto-generated
+    ``_intent_corpus_supported.SUPPORTED_ACTIONS``. Zero drift possible by
+    construction. This test locks the import path so a future refactor
+    can't silently re-introduce hand-maintenance.
 
-    If someone edits main.py's frozenset without updating this file, the
-    duplicated literal here becomes stale — the offline suite would silently
-    green-light unsupported rows. Import + compare directly.
+    Replaces the pre-v6.9 heavy parity test that used
+    ``importlib.util.spec_from_file_location`` to load main.py and
+    compare the two frozensets — obsolete now that they're the same
+    object.
     """
-    import importlib.util
-    main_path = pathlib.Path(__file__).parent.parent / "main.py"
-    spec = importlib.util.spec_from_file_location("_controller_main", main_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-    except Exception:
-        # main.py has heavy deps (mcpd, backends) that may not be importable in
-        # the smoke-gate context. Fall back to a text scrape — the frozenset
-        # literal is easy to grep out.
-        text = main_path.read_text()
-        start = text.find("_SUPPORTED_ACTIONS = frozenset({")
-        assert start != -1, "could not find _SUPPORTED_ACTIONS in main.py"
-        end = text.find("})", start)
-        block = text[start:end]
-        # Extract quoted action names
-        import re as _re
-        actions = set(_re.findall(r'"([a-z][a-z0-9_.]*)"', block))
-    else:
-        actions = set(module._SUPPORTED_ACTIONS)
-    assert actions == set(_SUPPORTED_ACTIONS), (
-        f"F-35 supported set drift! Controller has {actions ^ set(_SUPPORTED_ACTIONS)!r} "
-        f"different from test corpus set — update both"
+    import controller.main as _main
+    from controller._intent_corpus_supported import SUPPORTED_ACTIONS
+    assert _main._SUPPORTED_ACTIONS is SUPPORTED_ACTIONS, (
+        "main._SUPPORTED_ACTIONS must be the SAME OBJECT as the "
+        "generated frozenset — re-drift would defeat P2-4"
     )
 
 

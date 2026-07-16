@@ -256,31 +256,19 @@ _PATH_REQUIRING_ACTIONS = frozenset({
 })
 
 # F-35: single source of truth for actions QB is allowed to emit.
-# Must stay in sync with src/mcpd/src/tools/mod.rs TOOLS + system.unsupported.
 # If QB emits an action outside this set, the Controller REWRITES the intent
 # into system.unsupported before risk-classification — never silently invokes
 # a bogus tool.
-_SUPPORTED_ACTIONS = frozenset({
-    # Read-only Tier 0
-    "system.status", "system.uptime", "system.cpu", "system.memory", "system.disk",
-    "process.list", "process.inspect",
-    "fs.read", "fs.list", "fs.stat",
-    "service.logs",
-    "network.status", "network.dns.read",
-    "package.query",
-    # Write Tier 1 (home) / Tier 3 (elsewhere)
-    "fs.write",
-    # System changes Tier 2
-    "package.install", "package.remove", "package.upgrade",
-    "service.start", "service.stop", "service.restart",
-    # Destructive Tier 3
-    "fs.delete",
-    # F-35: catalogue landing pad — never a lookalike
-    "system.unsupported",
-    # v6.9 Scope O Layer 2 Part A — manifest-served (controller-side,
-    # dispatched via manifest_loader before mcpd; see manifests/nav.cd.yaml)
-    "nav.cd",
-})
+#
+# v6.9 P2-4 (2026-07-16 CT scan): sourced from the auto-generated
+# `_intent_corpus_supported.SUPPORTED_ACTIONS`, which itself derives
+# from `controller/tool_catalogue.yaml` (see
+# `scripts/export_mcpd_catalogue.py emit`). Import here instead of
+# hand-maintaining a duplicate frozenset — the previous copy drifted
+# invisibly whenever someone added a tool to main.py without
+# regenerating the corpus artifact. Now drift is structurally
+# impossible: main.py and test_intent_corpus.py alias the same object.
+from ._intent_corpus_supported import SUPPORTED_ACTIONS as _SUPPORTED_ACTIONS
 
 
 def _build_qb_input(session: Any, user_input: str) -> str:
