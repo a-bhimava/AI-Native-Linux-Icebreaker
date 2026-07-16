@@ -166,6 +166,31 @@ fn substitute_placeholders(template: &str, params: &Value) -> Result<String> {
                     "fs_read: template references {{{{{}}}}} but params has no string field with that name",
                     name
                 ))?;
+            // v6.9 P1-3 (2026-07-16 CT scan): reject param values that
+            // are safe-for-path in shape but path-traversal or
+            // fuzz-corner-case in bytes. canonicalize() rejects NUL
+            // downstream, but the operator-facing error must name the
+            // actual problem — otherwise it surfaces as an opaque
+            // -32603 "cannot resolve" message.
+            if value.contains('\0') {
+                bail!(
+                    "fs_read: param {:?} value contains NUL byte (rejected before path resolution)",
+                    name
+                );
+            }
+            if value.contains('\\') {
+                bail!(
+                    "fs_read: param {:?} value contains backslash (Windows-style separator, \
+                     rejected — mcpd is Linux-only)",
+                    name
+                );
+            }
+            if value.len() > 4096 {
+                bail!(
+                    "fs_read: param {:?} value is {} bytes; max 4096 (PATH_MAX)",
+                    name, value.len()
+                );
+            }
             if value.contains('/') && !value.starts_with('/') {
                 // Allow absolute substitutions (the schema pattern
                 // gates this), reject relative segments — they'd be
@@ -261,6 +286,42 @@ mod tests {
         let err = dispatch(&m, &json!({"name": "../passwd"}))
             .await.unwrap_err().to_string();
         assert!(err.contains("not absolute"), "unexpected: {}", err);
+    }
+
+    // ── v6.9 P1-3 (2026-07-16 CT scan) — NUL/backslash/oversized rejection ──
+
+    #[tokio::test]
+    async fn refuses_null_byte_substitution() {
+        let m = mk_manifest("/tmp/{{name}}");
+        let err = format!("{:#}", dispatch(&m, &json!({"name": "foo\0bar"}))
+            .await.unwrap_err());
+        assert!(
+            err.contains("NUL byte"),
+            "expected refusal to name NUL byte; got: {}", err
+        );
+    }
+
+    #[tokio::test]
+    async fn refuses_backslash_substitution() {
+        let m = mk_manifest("/tmp/{{name}}");
+        let err = format!("{:#}", dispatch(&m, &json!({"name": "foo\\bar"}))
+            .await.unwrap_err());
+        assert!(
+            err.contains("backslash"),
+            "expected refusal to name backslash; got: {}", err
+        );
+    }
+
+    #[tokio::test]
+    async fn refuses_oversized_substitution() {
+        let m = mk_manifest("/tmp/{{name}}");
+        let huge = "a".repeat(4097);
+        let err = format!("{:#}", dispatch(&m, &json!({"name": huge}))
+            .await.unwrap_err());
+        assert!(
+            err.contains("max 4096"),
+            "expected refusal to cite PATH_MAX; got: {}", err
+        );
     }
 
     #[tokio::test]
