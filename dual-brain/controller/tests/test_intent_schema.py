@@ -127,6 +127,23 @@ def _well_formed_corpus() -> list[dict]:
         _with("params", {"key": "a" * 1024}),  # at maxLength
         _with("params", {"name": "nginx.service", "follow": False}),
     ])
+    # v6.9 Bug D (2026-07-17) — scalar arrays permitted. Bug reproducer:
+    # QB emitted system.unsupported with params.alternative_actions:[...]
+    # and the intent.json wrapper rejected the whole intent with
+    # "'action' is a required property" (misleading — actual cause was
+    # the array value at ['params','alternative_actions']).
+    out.extend([
+        _with("params", {"alternative_actions": ["fs.list", "system.status"]}),
+        _with("params", {"alternative_actions": []}),        # empty array
+        _with("params", {"tags": [1, 2, 3]}),                # numeric array
+        _with("params", {"flags": [True, False]}),           # boolean array
+        _with("params", {"names": ["a", "b", "c", "d", "e"]}),
+        # v6.9 Bug D (2026-07-17) additional relaxation: params string
+        # values may contain backticks. The `xdg-open` suggestion text
+        # QB emits for GUI-unsupported intents was blocked pre-fix.
+        # Target field still rejects backticks (execute-context).
+        _with("params", {"suggestion": "try `xdg-open` in the shell"}),
+    ])
     # With optional schema_version + timestamp
     out.extend([
         _with("schema_version", "1.0.0"),
@@ -244,18 +261,28 @@ def _malformed_corpus() -> list[tuple[str, Any]]:
         ("underscored name", {**_base(), "_internal": "x"}),
     ])
 
-    # (11) params: value must be string/number/bool/null — nested rejections — 10
+    # (11) params: value must be string/number/bool/null OR flat array of scalars
+    # (v6.9 Bug D 2026-07-17 relaxation). Deep rejections — 10
     items.extend([
         ("params nested object", _with("params", {"nested": {"deep": 1}})),
-        ("params nested array", _with("params", {"items": [1, 2, 3]})),
         ("params with metachar string", _with("params", {"v": "rm -rf /; echo;"})),
         ("params null-byte string", _with("params", {"v": "abc\x00def"})),
         ("params string too long", _with("params", {"v": "a" * 1025})),
-        ("params nested array of strings", _with("params", {"v": ["a", "b"]})),
         ("params nested dict in dict", _with("params", {"outer": {"inner": "x"}})),
-        ("params value backtick", _with("params", {"v": "`ls`"})),
+        # v6.9 Bug D: `params value backtick` moved to _valid_intents.
+        # Rationale: backticks are only dangerous in shell interpolation,
+        # and mcpd tool params are NEVER passed to a shell. The v6.9 UTM
+        # sweep hit this on the QB-generated suggestion field for
+        # system.unsupported (contained `xdg-open` verbatim as display
+        # text). `target` field pattern still rejects backtick.
         ("params value semicolon", _with("params", {"v": "a;b"})),
         ("params value pipe", _with("params", {"v": "a|b"})),
+        # v6.9 Bug D new rejections — arrays of non-scalars still refused.
+        ("params array of arrays", _with("params", {"v": [[1, 2], [3, 4]]})),
+        ("params array with metachar", _with("params", {"v": ["ok", "rm -rf /;"]})),
+        ("params array of objects", _with("params", {"v": [{"k": "v"}]})),
+        ("params array with null-byte string", _with("params", {"v": ["a\x00b"]})),
+        ("params array with pipe", _with("params", {"v": ["a", "b|c"]})),
     ])
 
     # (12) schema_version pattern miss (optional but if present must match) — 5
@@ -293,15 +320,16 @@ def _malformed_corpus() -> list[tuple[str, Any]]:
         ("intent_id urn-prefix", _with("intent_id", "urn:uuid:550e8400-e29b-41d4-a716-446655440000")),
     ])
 
-    # (16) params-level abuse — 8
+    # (16) params-level abuse — 6
+    # v6.9 Bug D removals: "params value list" [1,2,3] and "params nested
+    # empty list" [] are now VALID (added to _valid_intents). Scalar arrays
+    # are permitted; nested arrays and object items still rejected above.
     items.extend([
         ("params with extra control chars value", _with("params", {"v": "abc\x01def"})),
         ("params with high-ASCII control 0x1f", _with("params", {"v": "a\x1fb"})),
         ("params value escape backslash dollar", _with("params", {"v": "$X"})),
-        ("params value list", _with("params", {"v": [1, 2, 3]})),
         ("params with null-byte key value", _with("params", {"v": "\x00"})),
         ("params nested empty dict", _with("params", {"v": {}})),
-        ("params nested empty list", _with("params", {"v": []})),
         ("params value mix-metachar", _with("params", {"v": "ok|then"})),
     ])
 
