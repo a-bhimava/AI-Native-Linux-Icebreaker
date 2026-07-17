@@ -88,10 +88,20 @@ TOOL_CATEGORIES: dict[str, str] = {
     "package.install":   "system_write",
     "package.remove":    "system_write",
     "package.upgrade":   "system_write",
+
+    # ── Manifest-served (v6.9 Scope O Layer 2A) (1) ─────────────────────
+    # nav.cd is dispatched by controller/manifest_loader before mcpd
+    # sees the intent (see manifests/nav.cd.yaml + impl_kinds/
+    # session_op.py). Included in TOOL_CATEGORIES so the risk classifier
+    # + tier 0 fast path recognize it. Without this the classifier hits
+    # BP-5 escalate-only and slaps Tier 3 on every nav.cd — Bug B in
+    # the 2026-07-17 UTM sweep, F-# entry in GROUND_TRUTH § 7.
+    "nav.cd":            "tier0",
 }
 
-# Expected total — guards against silent merges that change the count
-EXPECTED_TOOL_COUNT = 22
+# Expected total — guards against silent merges that change the count.
+# v6.9 (2026-07-17): 22 mcpd + 1 manifest (nav.cd) = 23.
+EXPECTED_TOOL_COUNT = 23
 
 
 # ── mcpd interaction ────────────────────────────────────────────────────────
@@ -215,21 +225,35 @@ def _load_catalogue_yaml() -> list[dict]:
 
 
 def _yaml_vs_tool_categories_drift(entries: list[dict]) -> tuple[set[str], set[str], set[str]]:
-    """Returns (mcpd_missing_in_categories, categories_missing_in_yaml, tier_mismatches).
+    """Returns (dispatchable_missing_in_categories, categories_missing_in_yaml, tier_mismatches).
 
-    mcpd_missing_in_categories: names in YAML with provided_by=mcpd that are
-                                NOT in TOOL_CATEGORIES.
+    dispatchable_missing_in_categories: names in YAML with provided_by ∈
+                                        {mcpd, manifest} that are NOT in
+                                        TOOL_CATEGORIES. The risk classifier
+                                        reads TOOL_CATEGORIES for every tool
+                                        it might dispatch (mcpd calls +
+                                        manifest-served controller-side
+                                        tools like nav.cd); a tool missing
+                                        here hits BP-5 escalate-only default
+                                        Tier 3.
     categories_missing_in_yaml: names in TOOL_CATEGORIES that are NOT in YAML.
     tier_mismatches: names where the YAML tier_hint disagrees with
                      TOOL_CATEGORIES for the same tool.
+
+    v6.9 (2026-07-17, Bug B): previously filtered on provided_by="mcpd"
+    only, which let nav.cd (provided_by="manifest") slip past the drift
+    check. Extended to catch every dispatchable tool.
     """
-    yaml_mcpd = {e["name"]: e["tier_hint"] for e in entries
-                 if e.get("provided_by") == "mcpd"}
+    yaml_dispatchable = {
+        e["name"]: e["tier_hint"]
+        for e in entries
+        if e.get("provided_by") in {"mcpd", "manifest"}
+    }
     cat_names = set(TOOL_CATEGORIES.keys())
-    yaml_names = set(yaml_mcpd.keys())
+    yaml_names = set(yaml_dispatchable.keys())
     tier_mismatches = {
         name for name in yaml_names & cat_names
-        if yaml_mcpd[name] != TOOL_CATEGORIES[name]
+        if yaml_dispatchable[name] != TOOL_CATEGORIES[name]
     }
     return (
         yaml_names - cat_names,
