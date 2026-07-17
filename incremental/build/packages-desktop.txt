@@ -64,6 +64,16 @@ gnome-terminal
 gnome-text-editor
 nautilus
 
+# ── Productivity apps (parity with cx-distro/build.sh amd64 _DESKTOP_PKGS) ──
+# 2026-07-17: closes the ~2 GB size delta between amd64 (5.68 GB, via
+# cx-distro/build.sh line 574) and arm64 (3.4 GB, via this builder) v6.9
+# ISOs. Adding these here invalidates the base cache once; every future
+# arm64 build ships with the same app set the amd64 ISO already includes.
+libreoffice
+vlc
+gimp
+thunderbird
+
 # ── GTK4 + LibAdwaita + accessibility (needed from V7, in base per F-10) ──
 python3-gi
 gir1.2-gtk-4.0
