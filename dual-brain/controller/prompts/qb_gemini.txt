@@ -53,6 +53,10 @@ Context fields:
   `hostname`         machine hostname
   `recent_commands`  most recent shell commands (oldest first, up to 5)
   `active_window`    focused GUI window title (may be empty)
+  `recent_turns`     v6.9: last N (query, result) pairs from THIS conversation.
+                     Newest is `T-1`. Each entry is `T-K query: ...` +
+                     `result: ...`. This is your primary source for
+                     pronoun and back-reference resolution.
 
 Resolution rules (apply BEFORE emitting `target`):
   `here`, `this folder`, `this directory`, `current dir` → `target = cwd`
@@ -60,6 +64,9 @@ Resolution rules (apply BEFORE emitting `target`):
   bare filename or relative path (`notes.txt`)           → `target = cwd + "/" + name`
   `the file I was editing`                               → scan `recent_commands` for the newest editor invocation (`vim/nano/gedit/code/emacs`) and use the last file arg (relative names resolve against `cwd`)
   `the previous command`, `what I just ran`              → LAST entry of `recent_commands`
+  `it`, `that`, `the result`, `the answer`               → the result payload of `T-1` under `recent_turns`. If the query is "save it to X", inline the concrete value from `T-1 result` into `content` — do NOT emit a placeholder or reference back to the prior turn. QB has the value; the executor does not.
+  `the previous file`, `the file we made`                → parse `T-1 result` for a path; use as `target`.
+  `undo that`, `remove what we just did`                 → invert the T-1 action (e.g. T-1 was fs.write X → emit fs.delete X).
 
 `target` MUST be a concrete absolute path when the query implies one. NEVER emit `""`, `"/"`, `"-"`, `"TBD"`, `"current"`, or any placeholder in `target` for a path-requiring action (F-32).
 
@@ -113,6 +120,7 @@ Each step is an Intent-like object. Rules:
 3. Markers are ONLY substituted in `target` and `content`. Do NOT put a marker in `action`, `params` values, or `pb_hint`.
 4. Max 10 steps per plan. If you can't decompose in 10 steps, respond with `system.unsupported`.
 5. For SINGLE-step queries emit the bare Intent (unchanged from before) — do NOT wrap a single intent in a plan.
+6. **CROSS-TURN OVERRIDE (v6.9 Task #149)**: if the query contains a pronoun ("it", "that", "the result", "the answer") AND `recent_turns` contains a `T-1 result` with the concrete value, extract that value and emit a **BARE Intent** with the value inlined into `content` or `target`. **Do NOT emit a plan wrapper** — the fetch step already ran last turn. Example: after Turn 1 `network.status` returns "192.168.64.31", Turn 2 "save it to /tmp/ip.txt" MUST emit `{"action":"fs.write","target":"/tmp/ip.txt","content":"192.168.64.31","pb_hint":"put content into params.content","reason":"user_requested","risk_level":"low"}` — one bare intent, no plan. Rule 6 dominates rule 5 and the "compound query → plan" heuristic; if T-1 result satisfies the pronoun, the query is effectively single-step.
 
 # NAVIGATION PHRASES (v6.9 nav.cd)
 
@@ -402,7 +410,9 @@ Output:
 {"action":"system.unsupported","target":"","params":{"requested_intent":"open firefox","suggestion":"I can't launch GUI applications. Try `xdg-open` in the shell pane, or the desktop launcher.","alternative_actions":[]},"reason":"user_requested","risk_level":"low"}
 ```
 
-## Compound intent — get IP and save it
+## Compound intent — get IP and save it (BOTH steps in ONE query, no prior turn)
+
+Use plan ONLY when the fetch step has NOT already run in a prior turn. If `recent_turns.T-1` already contains the value, follow the "cross-turn follow-up" example below instead.
 
 Input:
 ```
@@ -418,6 +428,34 @@ get my IP and save it to /tmp/ip.txt
 Output:
 ```
 {"plan":[{"action":"network.status","target":"","params":{},"reason":"user_requested","risk_level":"low"},{"action":"fs.write","target":"/tmp/ip.txt","content":"$STEP_0_STDOUT","reason":"user_requested","risk_level":"medium"}]}
+```
+
+## Cross-turn follow-up — reference value from PRIOR turn (v6.9 Task #149)
+
+When `recent_turns.T-1 result` already contains the concrete value the user is asking about, extract the value and emit a BARE Intent — NEVER a plan wrapper. The fetch step is done.
+
+Input:
+```
+<context>
+cwd: /home/icebreaker
+user: icebreaker
+recent_turns:
+  T-1 query: what is my IP address
+       result: Your IP is 192.168.64.31 via interface enp0s1.
+</context>
+<query>
+save it to /home/icebreaker/ip.txt
+</query>
+```
+
+Output (bare intent, IP extracted from T-1 and inlined into content):
+```
+{"action":"fs.write","target":"/home/icebreaker/ip.txt","content":"192.168.64.31\n","pb_hint":"put the content into params.content unchanged","reason":"user_requested","risk_level":"low"}
+```
+
+Not this (WRONG — would re-fetch even though T-1 already has the value):
+```
+{"plan":[{"action":"network.status",...},{"action":"fs.write","content":"$STEP_0_STDOUT",...}]}
 ```
 
 ## Compound intent — check disk then list a directory

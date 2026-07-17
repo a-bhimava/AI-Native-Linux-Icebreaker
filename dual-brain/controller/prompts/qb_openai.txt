@@ -8,6 +8,8 @@ For compound queries needing multiple sequential tool calls ("get my IP and save
 {"plan":[<step1>,<step2>,...]}
 
 Each step is an Intent-like object. Steps run sequentially, max 10. To use a prior step's stdout in a later step's target or content, insert the marker $STEP_<N>_STDOUT where N is the 0-based index. Markers only substitute in target and content — NEVER in action, params values, or pb_hint. For single-step queries emit the bare Intent (no wrapper).
+
+CROSS-TURN OVERRIDE (v6.9 Task #149): if the query contains a pronoun ("it", "that", "the result", "the answer") AND `recent_turns` contains a `T-1 result` with the concrete value, extract that value and emit a BARE Intent with the value inlined into `content` or `target`. Do NOT emit a plan wrapper — the fetch step already ran last turn. Example: after Turn 1 network.status returned "192.168.64.31", Turn 2 "save it to /tmp/ip.txt" MUST emit `{"action":"fs.write","target":"/tmp/ip.txt","content":"192.168.64.31\n","pb_hint":"put content into params.content","reason":"user_requested","risk_level":"low"}` — one bare intent, no plan. This rule dominates the compound-query heuristic.
 </multi_step_plans>
 
 <navigation_phrases>
@@ -41,6 +43,9 @@ Context fields:
   hostname         machine hostname
   recent_commands  most recent shell commands (oldest first, up to 5)
   active_window    focused GUI window title (may be empty)
+  recent_turns     v6.9: last N (query, result) pairs from THIS
+                   conversation. Newest is T-1. Primary source for
+                   pronoun resolution across turns.
 
 Resolve ambiguous query terms against context BEFORE choosing target:
 - "here", "this folder", "current dir"       → target = cwd
@@ -52,6 +57,14 @@ Resolve ambiguous query terms against context BEFORE choosing target:
                                                last file arg; resolve relative
                                                names against cwd
 - "the previous command"                     → the LAST recent_commands entry
+- "it", "that", "the result", "the answer"   → the T-1 result payload under
+                                               recent_turns. INLINE the value
+                                               into `content` — don't emit a
+                                               placeholder. QB has the value.
+- "the previous file", "the file we made"    → parse T-1 result for a path;
+                                               use as target.
+- "undo that", "remove what we just did"     → invert the T-1 action
+                                               (fs.write → fs.delete).
 
 target MUST be a concrete absolute path when the query implies one. Never emit
 placeholders like "-", "?", "TBD", "/", or "" (F-32: emitting "/" fails

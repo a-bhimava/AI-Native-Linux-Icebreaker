@@ -305,6 +305,39 @@ def _build_qb_input(session: Any, user_input: str) -> str:
                 render_kwargs["max_chars"] = max_chars
             if isinstance(max_recent, int):
                 render_kwargs["max_recent"] = max_recent
+        # v6.9 Task #149 shipping-scope (2026-07-17) — surface prior
+        # turn (query, result) pairs so QB can resolve pronouns like
+        # "it" / "that" / "the previous result". User's exact ask
+        # 2026-07-17: "run the second part of the command after seeing
+        # the output of the first" — cross-turn instead of one-shot
+        # compound (Plan mode, Task #148). Feed comes from
+        # SessionState._qb_messages populated by add_user_message +
+        # add_tool_result_summary at main.py:541/1497/1570/2017.
+        recent_turns_block = ""
+        rrt = getattr(session, "render_recent_turns", None)
+        if callable(rrt):
+            try:
+                # Bounded per-daemon defaults (3 turns, 800 chars). Tunable
+                # via cfg.session — see SessionConfig for the knobs.
+                _max_turns = 3
+                _max_ctx_chars = 800
+                if session_cfg is not None:
+                    _max_turns = int(
+                        getattr(session_cfg, "recent_turns_count", 3) or 0
+                    )
+                    _max_ctx_chars = int(
+                        getattr(session_cfg, "recent_turns_max_chars", 800) or 0
+                    )
+                if _max_turns > 0:
+                    recent_turns_block = rrt(
+                        max_turns=_max_turns, max_chars=_max_ctx_chars,
+                    ) or ""
+            except Exception:  # noqa: BLE001
+                # Render failure must never break the turn — degrade to
+                # bare context. F-53 pattern.
+                recent_turns_block = ""
+        if recent_turns_block:
+            render_kwargs["recent_turns_block"] = recent_turns_block
         try:
             preamble = render(**render_kwargs) or ""
         except Exception:  # noqa: BLE001

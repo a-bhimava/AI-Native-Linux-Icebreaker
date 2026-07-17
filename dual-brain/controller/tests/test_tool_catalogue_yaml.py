@@ -113,19 +113,32 @@ def test_meta_entries_are_controller_provided(entries: list[dict]) -> None:
 # ─── Drift vs the three generated artifacts ───────────────────────────────
 
 def test_generated_mcpd_tools_agrees_with_yaml(entries: list[dict]) -> None:
-    """_mcpd_tools.py ALL_TOOLS must equal the mcpd-provided YAML entries."""
+    """_mcpd_tools.py ALL_TOOLS must equal every dispatchable tool the
+    classifier is expected to route — mcpd tools + manifest tools.
+
+    v6.9 Bug B (2026-07-17): expanded from ``provided_by == "mcpd"`` to
+    ``provided_by in {"mcpd","manifest"}`` because nav.cd (manifest) now
+    lives in ALL_TOOLS so the risk classifier finds it and doesn't
+    escalate to Tier 3 via BP-5. Prior narrower drift check let nav.cd
+    slip past the classifier — that was the exact Bug B failure mode.
+    """
     assert _MCPD_TOOLS_PY.exists(), (
         f"{_MCPD_TOOLS_PY} missing — run "
         "`python scripts/export_mcpd_catalogue.py emit --from-categories`"
     )
     from controller._mcpd_tools import ALL_TOOLS
 
-    yaml_mcpd = {e["name"] for e in entries if e["provided_by"] == "mcpd"}
-    if set(ALL_TOOLS) != yaml_mcpd:
-        diff = set(ALL_TOOLS) ^ yaml_mcpd
+    yaml_dispatchable = {
+        e["name"]
+        for e in entries
+        if e["provided_by"] in {"mcpd", "manifest"}
+    }
+    if set(ALL_TOOLS) != yaml_dispatchable:
+        diff = set(ALL_TOOLS) ^ yaml_dispatchable
         pytest.fail(
-            f"DRIFT: _mcpd_tools.py ALL_TOOLS != YAML mcpd entries. "
-            f"Symmetric diff: {sorted(diff)}. Regenerate with "
+            f"DRIFT: _mcpd_tools.py ALL_TOOLS != YAML dispatchable "
+            f"(mcpd + manifest) entries. Symmetric diff: {sorted(diff)}. "
+            "Regenerate with "
             "`python scripts/export_mcpd_catalogue.py emit --from-categories`."
         )
 

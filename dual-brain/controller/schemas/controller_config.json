@@ -169,6 +169,16 @@
           "type": "integer", "minimum": 1, "maximum": 50,
           "description": "Number of most-recent shell commands included in the <context> preamble. QB uses these to resolve references like 'the file I was editing'.",
           "x-reload": "hot"
+        },
+        "recent_turns_count": {
+          "type": "integer", "minimum": 0, "maximum": 10,
+          "description": "v6.9 Task #149: number of prior (user query, tool result summary) pairs shown to QB so pronouns like 'it' or 'that' resolve against earlier turns. 0 disables the feature. Bounded low to control prompt cost.",
+          "x-reload": "hot"
+        },
+        "recent_turns_max_chars": {
+          "type": "integer", "minimum": 0, "maximum": 4000,
+          "description": "v6.9 Task #149: cap the total rendered recent_turns block. Per-line values are already capped at 200 chars via the _clean() sanitizer; this bounds the section as a whole.",
+          "x-reload": "hot"
         }
       }
     },

@@ -94,11 +94,22 @@ params       ::= "{" ws "}"
 params-pair  ::= "\"" param-key "\"" ws ":" ws param-value
 param-key    ::= [a-z] [a-z0-9_]*
 
-# oneOf in intent.json:31 → grammar branches:
-param-value  ::= safe-string | number | "true" | "false" | "null"
+# oneOf in intent.json:31 → grammar branches.
+# v6.9 Bug D (2026-07-17): added flat-scalar-array branch. QB emits
+# `params.alternative_actions:["fs.list","system.status"]` and similar
+# short array payloads (e.g. `params.tags:[1,2,3]`) that the JSON schema
+# now permits — grammar must mirror or the parity test fails.
+param-value  ::= safe-string | number | "true" | "false" | "null" | scalar-array
 
 # String values inside params: same metachar denylist as target.
 safe-string  ::= "\"" target-char* "\""
+
+# Flat scalar array: string | number | boolean (no null, no nesting).
+# Matches intent.json:additionalProperties.oneOf[4] shape. Nested arrays
+# and object items are still refused (both by grammar and schema).
+scalar-array ::= "[" ws "]"
+              |  "[" ws array-scalar (ws "," ws array-scalar)* ws "]"
+array-scalar ::= safe-string | number | "true" | "false"
 
 
 # ─── reason : enum, verbatim ─────────────────────────────────────────────

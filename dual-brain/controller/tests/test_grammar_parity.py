@@ -74,7 +74,15 @@ _SAFE_STRING = _TARGET
 
 _PARAM_KEY = r"[a-z][a-z0-9_]*"
 _NUMBER = r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?"
-_PARAM_VALUE = rf"(?:{_SAFE_STRING}|{_NUMBER}|true|false|null)"
+# v6.9 Bug D (2026-07-17): mirror GBNF `scalar-array` branch — flat
+# array of string | number | boolean (no null, no nesting). Keep in sync
+# with qb_intent.gbnf::scalar-array + intent.json params oneOf array item.
+_ARRAY_SCALAR = rf"(?:{_SAFE_STRING}|{_NUMBER}|true|false)"
+_SCALAR_ARRAY = (
+    rf"\[\s*\]|"
+    rf"\[\s*{_ARRAY_SCALAR}(?:\s*,\s*{_ARRAY_SCALAR})*\s*\]"
+)
+_PARAM_VALUE = rf"(?:{_SAFE_STRING}|{_NUMBER}|true|false|null|(?:{_SCALAR_ARRAY}))"
 _PARAMS_PAIR = rf'"{_PARAM_KEY}"\s*:\s*{_PARAM_VALUE}'
 _PARAMS = (
     rf"\{{\s*\}}|"
@@ -236,8 +244,14 @@ MALFORMED_CORPUS = [
     '{"intent_id":"not-a-uuid","action":"system.disk","target":"","params":{},"reason":"user_requested","risk_level":"read_only"}',
     # params has nested object
     _valid_intent_json(params='{"x":{"nested":1}}'),
-    # params has array
-    _valid_intent_json(params='{"x":[1,2,3]}'),
+    # v6.9 Bug D (2026-07-17): flat scalar arrays MOVED to VALID corpus.
+    # Both grammar (param-value gains scalar-array branch) and schema
+    # (intent.json params.additionalProperties.oneOf gains array) accept
+    # them. Nested arrays and array-of-objects still rejected below.
+    # params has array of arrays (nested)
+    _valid_intent_json(params='{"x":[[1,2],[3,4]]}'),
+    # params has array of objects
+    _valid_intent_json(params='{"x":[{"k":"v"}]}'),
 ]
 
 
@@ -366,6 +380,11 @@ def test_reason_enum_rejects_others(r):
         '{"f":false}',
         '{"z":null}',
         '{"a":1,"b":2,"c":"three"}',
+        # v6.9 Bug D (2026-07-17): flat scalar arrays accepted by both.
+        '{"alternative_actions":["fs.list","system.status"]}',
+        '{"tags":[1,2,3]}',
+        '{"flags":[true,false]}',
+        '{"empty":[]}',
     ],
 )
 def test_params_value_types_accepted(params_json):
@@ -378,7 +397,10 @@ def test_params_value_types_accepted(params_json):
     "params_json",
     [
         '{"k":{"nested":1}}',
-        '{"k":[1,2]}',
+        # v6.9 Bug D: flat scalar arrays moved to accepted; nested arrays
+        # and array-of-object still refused.
+        '{"k":[[1,2]]}',
+        '{"k":[{"nested":"v"}]}',
     ],
 )
 def test_params_nested_types_rejected(params_json):

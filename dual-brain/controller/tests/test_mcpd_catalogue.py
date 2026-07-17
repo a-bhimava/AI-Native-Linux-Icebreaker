@@ -16,7 +16,11 @@ from controller._mcpd_tools import (
 )
 
 
-EXPECTED_TOOL_COUNT = 22
+# v6.9 Bug B (2026-07-17): bumped 22 → 23. ALL_TOOLS now includes the
+# manifest tool nav.cd alongside the 22 mcpd tools so the risk classifier
+# resolves nav.cd as Tier 0 instead of BP-5 escalating to Tier 3. Matches
+# EXPECTED_TOOL_COUNT in export_mcpd_catalogue.py.
+EXPECTED_TOOL_COUNT = 23
 
 # Names that the pre-M2.0 risk_classifier referenced but mcpd does NOT ship.
 # Asserted absent so a future regression can't silently reintroduce them.

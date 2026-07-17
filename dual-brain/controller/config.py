@@ -216,6 +216,13 @@ class SessionConfig:
     # eligible: change takes effect on next turn without daemon restart.
     max_shell_context_chars: int = 512
     max_recent_commands: int = 5
+    # v6.9 Task #149 shipping-scope (2026-07-17): cross-turn context.
+    # QB sees the last N (query, tool_result_summary) pairs so pronouns
+    # like "it" / "that" resolve against prior turns. Set count=0 to
+    # disable (BP-2 backward compat). max_chars caps the block to bound
+    # prompt cost.
+    recent_turns_count: int = 3           # 0 disables; 10 is the tested ceiling
+    recent_turns_max_chars: int = 800     # block length cap; per-line cap fixed at 200
 
 
 @dataclass(frozen=True)
@@ -657,6 +664,9 @@ def _build_session_config(raw: dict) -> SessionConfig:
         # Phase 6 Scope B new fields.
         max_shell_context_chars=section.get("max_shell_context_chars", 512),
         max_recent_commands=section.get("max_recent_commands", 5),
+        # v6.9 Task #149 shipping-scope.
+        recent_turns_count=int(section.get("recent_turns_count", 3) or 0),
+        recent_turns_max_chars=int(section.get("recent_turns_max_chars", 800) or 0),
     )
 
 

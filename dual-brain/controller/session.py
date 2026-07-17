@@ -70,6 +70,7 @@ class ShellContext:
         *,
         max_chars: int = _MAX_CONTEXT_LEN,
         max_recent: int = _MAX_RECENT,
+        recent_turns_block: str = "",
     ) -> str:
         """Return the XML preamble string. Empty when no fields are populated.
 
@@ -77,6 +78,12 @@ class ShellContext:
         ``cfg.session.max_shell_context_chars`` /
         ``cfg.session.max_recent_commands`` (Phase 6 Scope B). Defaults
         preserve pre-Scope-B behavior for callers that don't pass them.
+
+        ``recent_turns_block`` (v6.9 Task #149 shipping-scope 2026-07-17):
+        pre-rendered multi-line string with prior-turn user queries +
+        tool result summaries. Caller (main.py::_build_qb_input) computes
+        it from ``SessionState.render_recent_turns()``. Empty string
+        disables it — old behavior preserved.
         """
         parts = ["<context>"]
         any_field = False
@@ -100,6 +107,10 @@ class ShellContext:
                 any_field = True
         if self.active_window:
             parts.append(f"active_window: {_clean(self.active_window, max_chars)}")
+            any_field = True
+        if recent_turns_block.strip():
+            # Insert as-is — caller has already sanitized + capped.
+            parts.append(recent_turns_block.rstrip())
             any_field = True
         parts.append("</context>")
         return "\n".join(parts) if any_field else ""
@@ -219,6 +230,58 @@ class SessionState:
 
     def get_qb_history(self) -> list:
         return [dict(msg) for msg in self._qb_messages]
+
+    def render_recent_turns(self, max_turns: int = 3, max_chars: int = 800) -> str:
+        """v6.9 Task #149 shipping-scope (2026-07-17) — render prior turns
+        as a `recent_turns:` block for the QB <context> preamble.
+
+        Pairs each user query with its immediately-following tool result
+        summary (recorded via ``add_tool_result_summary``). Skips the
+        synthetic assistant messages that just carry raw intent JSON —
+        those are noise for QB when it's trying to resolve pronouns like
+        "it" or "the previous result".
+
+        Format:
+            recent_turns:
+              T-1 query: what is my IP address
+                   result: Your IP is 192.168.64.31
+              T-2 query: show my cpu
+                   result: The CPU usage is 0.0%
+
+        Ordering: most-recent turn is T-1 (closest to the current query).
+        Total block trimmed to ``max_chars`` to bound prompt cost. Empty
+        string when no complete (query, result) pair is available yet."""
+        if max_turns <= 0 or not self._qb_messages:
+            return ""
+        # Walk backward pairing user queries with the next tool summary.
+        # Only complete pairs (query + result) are useful for pronoun
+        # resolution — a half-turn (query without result) tells QB
+        # nothing new about what "it" refers to.
+        pairs: list[tuple[str, str]] = []
+        current_query: Optional[str] = None
+        for msg in self._qb_messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "user" and content.startswith("[Tool output summary]:"):
+                if current_query is not None:
+                    summary = content[len("[Tool output summary]:"):].lstrip()
+                    pairs.append((current_query, summary))
+                    current_query = None
+            elif role == "user":
+                current_query = content
+            # assistant messages (raw intent JSON) — skip
+        if not pairs:
+            return ""
+        # Keep the last max_turns pairs, render T-1 = most recent.
+        pairs = pairs[-max_turns:]
+        parts = ["recent_turns:"]
+        for offset, (query, result) in enumerate(reversed(pairs), start=1):
+            parts.append(f"  T-{offset} query: {_clean(query, 200)}")
+            parts.append(f"       result: {_clean(result, 200)}")
+        block = "\n".join(parts)
+        if len(block) > max_chars:
+            block = block[: max_chars - 1] + "…"
+        return block
 
     def build_pb_user_turn(
         self,
