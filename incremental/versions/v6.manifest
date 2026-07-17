@@ -23,7 +23,11 @@ VERSION_PACKAGES="wmctrl"
 # amd64+AVX2, arm64+NEON, and everything in between). No per-arch
 # variants needed.
 _V6_MODEL="run7_cot_q4km.gguf"
-_V6_MODEL_SRC="/home/aditya/models/run7_cot_q4km.gguf"
+# Repo-relative: the GGUF ships in-tree at models/. Prior hardcoded
+# /home/aditya/models/ path assumed a specific developer's Mac and
+# broke every build host (GCP VM, CI, other developers). Matches
+# _V6_LLAMA_STATIC below which already uses ${REPO_ROOT}.
+_V6_MODEL_SRC="${REPO_ROOT}/models/${_V6_MODEL}"
 
 # V6.6: llama-server binary is per-arch. LLAMA_BUILD_DIR comes from
 # config/archs/${ARCH}.conf (sourced by build-iso.sh before evaluating
