@@ -65,12 +65,24 @@ def main() -> int:
     sock_path = sys.argv[2] if len(sys.argv) > 2 else "/run/icebreaker/controller.sock"
     context = _collect_context()
 
+    # v6.9 Bug A (2026-07-17): the plain shell client can auto-render
+    # Tier-0 answers and audit Tier ≥ 1 HITL denials, but has no way to
+    # RESPOND to an HITL prompt (no interactive presenter). Cap at 45s —
+    # long enough for a slow Tier-0 execution or a daemon-side HITL
+    # timeout (33s default) with slack. On timeout, surface a targeted
+    # message pointing at the AI Terminal instead of dumping a raw
+    # TimeoutError. Real F-61 fix (interactive HITL through this shell
+    # path) tracked as Task #152.
+    _SHELL_TURN_TIMEOUT = 45.0
+
     try:
         from controller.client import DaemonClient
         client = DaemonClient(sock_path)
         client.connect()
         try:
-            resp = client.run_turn(query, context=context or None)
+            resp = client.run_turn(
+                query, context=context or None, timeout=_SHELL_TURN_TIMEOUT,
+            )
         finally:
             client.close()
         if "result" in resp:
@@ -85,6 +97,25 @@ def main() -> int:
               file=sys.stderr)
         print(_c("1;33", "[icebreaker]") + " Check: systemctl status icebreaker-controller",
               file=sys.stderr)
+        return 1
+    except TimeoutError:
+        print(
+            _c("1;33", "[icebreaker]")
+            + f" No response within {_SHELL_TURN_TIMEOUT:.0f}s.",
+            file=sys.stderr,
+        )
+        print(
+            _c("1;33", "[icebreaker]")
+            + " Likely cause: this Tier ≥ 1 intent needs interactive"
+            + " HITL approval, and the plain shell can't render the prompt.",
+            file=sys.stderr,
+        )
+        print(
+            _c("1;33", "[icebreaker]")
+            + " Use the Icebreaker AI Terminal (Activities → Terminal)"
+            + " for Tier ≥ 1 intents. Read-only intents work fine here.",
+            file=sys.stderr,
+        )
         return 1
     except Exception as exc:
         print(_c("1;31", "[icebreaker]") + f" {type(exc).__name__}: {exc}", file=sys.stderr)

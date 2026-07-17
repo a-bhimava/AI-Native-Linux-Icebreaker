@@ -126,7 +126,12 @@ class DaemonClient:
 
     # ── Public API ──────────────────────────────────────────────────────
 
-    def run_turn(self, user_input: str, context: dict | None = None) -> dict:
+    def run_turn(
+        self,
+        user_input: str,
+        context: dict | None = None,
+        timeout: float | None = None,
+    ) -> dict:
         # F-25: 600 s so a single turn under emulated x86 (Rosetta 2) has
         # room. Native x86-64 / arm64 completes in seconds; harmless slack.
         # V6B Stage 2: optional context (cwd, recent_commands, active_window)
@@ -135,11 +140,17 @@ class DaemonClient:
         # so QB can resolve ambiguous references like "here" or "this folder".
         # Phase 6 Scope B: was a hardcoded 600.0. Now driven by
         # cfg.run.turn_timeout_seconds, passed at construction.
+        # v6.9 Bug A (2026-07-17): optional per-call timeout override so
+        # the plain shell client (ib_run.py) can use a shorter deadline
+        # than the interactive TUI. None → cfg default. Explicit wins.
         params: dict = {"input": user_input}
         if context is not None:
             params["context"] = context
+        effective_timeout = (
+            timeout if timeout is not None else self._turn_timeout_seconds
+        )
         return self.send_request(
-            "turn.run", params, timeout=self._turn_timeout_seconds,
+            "turn.run", params, timeout=effective_timeout,
         )
 
     def new_session(self, backend: str | None = None) -> dict:
