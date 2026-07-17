@@ -211,7 +211,12 @@ def test_prune_returns_zero_when_conn_closed():
 
 def test_agent_graph_config_defaults():
     c = AgentGraphConfig()
-    assert c.enabled is False  # BP-2: off until Task #147 flips it on
+    # v6.9 (2026-07-17): remains False. Live UTM sweep discovered
+    # responder_node is still a stub (Task #151 not landed) so a live
+    # flip returns TurnResult(output=""). The plumbing lands in-tree
+    # (per-backend prompt, permissive planner schema, session_store
+    # registration) but the flag stays off until Task #151.
+    assert c.enabled is False
     assert c.checkpointer_path == "~/.local/state/icebreaker/agent_checkpoints.db"
     assert c.checkpointer_retention_days == 30
     assert c.strict_msgpack is True

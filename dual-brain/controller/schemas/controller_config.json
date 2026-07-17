@@ -254,12 +254,12 @@
     "agent_graph": {
       "type": "object",
       "additionalProperties": false,
-      "description": "v6.8 Task #146: LangGraph runtime orchestration. Off by default (BP-2); Task #147 flips it on after the migration passes UTM sweep.",
+      "description": "v6.8 Task #146: LangGraph runtime orchestration. OFF by default in v6.9 — responder_node stub (Task #151 pending) returns empty TurnResult.output. Flip on once Task #151 wires token streaming + summarization.",
       "properties": {
         "enabled": {
           "type": "boolean",
           "x-reload": "restart",
-          "description": "Route run_turn_streaming through AgentGraph.run() instead of the monolithic pipeline. Default false; Task #147 flips it on."
+          "description": "Route run_turn_streaming through AgentGraph.run() instead of the monolithic pipeline. Default false. Flip after Task #151 wires responder output — otherwise TurnResult.output is empty."
         },
         "checkpointer_path": {
           "type": "string",

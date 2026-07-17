@@ -266,10 +266,14 @@ class VerifierConfig:
 class AgentGraphConfig:
     """v6.8 Task #146 (2026-07-13) — LangGraph runtime orchestration.
 
-    BP-2: `enabled=False` by default. Task #147 flips it on after the
-    migration lands and passes the live UTM sweep. Setting it True
-    routes `run_turn_streaming` through `AgentGraph.run()` instead of
-    the monolithic pipeline in main.py.
+    v6.9 UTM sweep 2026-07-17 discovery: enabling this on v6.9 makes
+    compound intents route through AgentGraph but the responder_node
+    is still a stub (Task #151 not landed) — AgentGraph completes then
+    returns TurnResult(output="") so users see nothing rendered.
+    Reverted enabled=False; the accompanying fixes (per-backend prompt
+    resolution, permissive planner schema, session_store registration,
+    max_tokens bump) stay in tree so the future flip is safe.
+    Compound-intent support tracked as v6.10 work (Tasks #149 + #151).
     """
 
     enabled: bool = False
@@ -733,8 +737,8 @@ def _build_debug_config(raw: dict) -> DebugConfig:
 
 def _build_agent_graph_config(raw: dict) -> AgentGraphConfig:
     """v6.8 Task #146 — build the [agent_graph] section. Off by default
-    (BP-2); Task #147 flips it on after the LangGraph adapter migration
-    passes UTM sweep."""
+    in v6.9 (see AgentGraphConfig docstring): responder_node is a stub
+    (Task #151) so a live flip returns empty TurnResult.output."""
     section = raw.get("agent_graph", {}) if isinstance(raw.get("agent_graph"), dict) else {}
     return AgentGraphConfig(
         enabled=bool(section.get("enabled", False)),

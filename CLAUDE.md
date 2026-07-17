@@ -317,6 +317,30 @@ test**. Every trust boundary gets an **adversarial corpus**. New security behavi
 gate to `ci.sh` and, for security-critical files, a regression guard. Live integration catches
 what mocks cannot — add a smoke test against the real binary/provider before declaring done.
 
+### BP-13: No Repeat Regressions
+An error is acceptable the first time — it surfaces something we didn't know. The **same** error
+surfacing in a subsequent build is a process failure, not just a code failure. Two prior
+month-long sprints on this project failed because bugs kept resurfacing across rebuilds; the
+whole reason we build in small increments (v6.6 → v6.61 → v6.62 → v6.63 → v6.7 → v6.8 → v6.9)
+with harvest gates + F-51 markers + intent corpus + rule R5 failure log is to **compound
+learning across ISO cuts** — a lesson learned on Vn must be in code, tests, and gates before
+Vn+1 ships.
+
+Before landing a fix for a bug found via UTM boot / live guest testing, mandatory:
+1. **Regression test.** Add a test that fails against the pre-fix code and passes after. If the
+   bug lives in a build script or manifest, the "test" is a marker check or CI gate (F-51,
+   R8/R15 harvest, G23/G24/G25) that would have caught it pre-build.
+2. **Failure log entry.** Add a dated row to `incremental/GROUND_TRUTH.md § 7 Failure Log`:
+   symptom → root cause → fix → version → **regression guard** (name of the test/marker/gate
+   that now protects it).
+3. **Reproducer verification.** Re-run the exact symptom that surfaced the bug (the failing
+   query, the failing manifest, the failing boot sequence) — not just the test suite — before
+   declaring the fix done.
+
+A bug that gets fixed without steps 1-3 is a bug we will find again. That is the definition of
+the failure mode this project exists to kill. Rule R5 ("Log every failure") is the log; BP-13
+is the discipline that makes the log meaningful.
+
 ---
 
 ## Agent Workflow Rules

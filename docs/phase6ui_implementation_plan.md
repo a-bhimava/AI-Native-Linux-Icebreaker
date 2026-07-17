@@ -1,5 +1,4 @@
 # Phase 6UI — Desktop GUI: Implementation Plan
-
 > GTK4 + LibAdwaita desktop GUI layer for the Icebreaker AI-Native OS.
 > Six components: Settings Panel, Main Chatbot, System Tray, First-Boot Wizard,
 > HITL Dialog upgrade, Audit Log Viewer.

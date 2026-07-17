@@ -272,6 +272,18 @@ def run_via_agent_graph(
     t0 = time.monotonic()
     session_id = getattr(session, "session_id", "unknown-session")
 
+    # v6.9 Bug G (2026-07-17): AgentGraph holds its own SessionStore
+    # (main.py:422 creates a fresh one) but daemon sessions live in a
+    # separate registry. Executor node looks up session by session_id
+    # and gets None → 'session lookup miss' for any tool that needs
+    # PB (fs.write, package.install, etc.). Register the current
+    # session before invocation. Idempotent + thread-safe: SessionStore
+    # holds its own RLock; register() overwrites any stale mirror.
+    try:
+        agent_graph._session_store.register(session)
+    except (AttributeError, TypeError):
+        pass
+
     outcome_iter = agent_graph.run(user_input, session_id)
     outcome = _first(outcome_iter)
 

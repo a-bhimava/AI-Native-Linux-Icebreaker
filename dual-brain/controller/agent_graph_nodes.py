@@ -39,6 +39,32 @@ from .tier0_fast_path import try_fast_path
 from .verifier import should_skip_verifier
 
 
+# v6.9 Bug F (2026-07-17): permissive schema for the QB planner call.
+# QB may emit either a bare Intent (v6.7 backward compat) OR a plan
+# wrapper (v6.8 Task #148 multi-step). Gemini's response_schema
+# doesn't support anyOf/oneOf, and the strict intent.json requires
+# intent_id (server-injected — QB is prompted NOT to emit it). Both
+# shapes are legal top-level objects with no required fields; we let
+# `normalize_planner_output()` below check the actual shape after the
+# backend returns. `additionalProperties: true` keeps Gemini happy on
+# fields the schema doesn't declare (e.g. rare "reason" / "risk_level"
+# on plan wrappers).
+_PLANNER_PERMISSIVE_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "plan": {"type": "array"},
+        "action": {"type": "string"},
+        "target": {"type": "string"},
+        "params": {"type": "object"},
+        "content": {"type": "string"},
+        "pb_hint": {"type": "string"},
+        "reason": {"type": "string"},
+        "risk_level": {"type": "string"},
+    },
+    "additionalProperties": True,
+}
+
+
 # ── Collaborator kit ──────────────────────────────────────────────────
 
 
@@ -128,11 +154,21 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
 
     def _run(state: GraphState) -> dict:
         try:
-            qb_system = collab["prompts"].get("qb")
+            # v6.9 Bug E (2026-07-17): monolithic path uses per-backend
+            # prompt names (qb_gemini, qb_anthropic, qb_openai, qb_local);
+            # this path was calling `.get("qb")` which doesn't exist —
+            # broke every AgentGraph invocation the moment Bug C flipped
+            # the flag on. Read backend from cfg (one QB backend per
+            # daemon) to stay in lock-step with main.py:533.
+            _backend = getattr(getattr(collab["cfg"], "qb", None), "backend", "gemini")
+            qb_system = collab["prompts"].get(f"qb_{_backend}")
+            # v6.9 Bug F (2026-07-17): use the permissive planner
+            # schema (no required fields, both shapes legal). See the
+            # module-level _PLANNER_PERMISSIVE_SCHEMA docstring.
             resp = collab["qb"].complete(
                 system=qb_system,
                 user=state["query"],
-                schema=collab["intent_schema"],
+                schema=_PLANNER_PERMISSIVE_SCHEMA,
                 max_retries=1,
             )
             raw = resp.content_json

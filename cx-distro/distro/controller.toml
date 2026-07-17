@@ -16,13 +16,14 @@ backend = "gemini"
 # users tuning for long-running workflows aren't blocked.
 model           = "gemini-2.5-flash"
 api_key_env     = "GEMINI_API_KEY"
-# F-53 v6.65 (2026-07-10): 512 truncated verifier responses; 2048 fixed
-# the specific bug but was still a hard-coded workaround. 8192 gives
-# comfortable headroom for verbose intent extraction (writing long
-# content into fs.write), verifier rubric responses, and rich
-# summarisation. Raise higher via Control Center → Models if a
-# specific workflow needs it (ceiling is 1M tokens).
-max_tokens      = 8192
+# v6.9 (2026-07-17, Bug H, Task #155): 8192 → 50000. Gemini 2.5 Flash's
+# built-in reasoning ("thinking") counts against max_output_tokens.
+# For multi-step Plan mode (Task #148) with 2-4 steps, thinking often
+# uses 6-8k tokens leaving <1k for the actual output — response
+# truncates mid-JSON → BrainTruncationError. 50000 is the same value
+# commit 870231d used for live tests. Ceiling is 1M via Control Center.
+# F-53 v6.65 history: 512 → 2048 → 8192 → 50000.
+max_tokens      = 50000
 timeout_seconds = 60
 
 # Alternate backends — uncomment + fill in to switch:
@@ -107,3 +108,13 @@ max_connections = 4
 # drop. Both take effect only on daemon (client) restart.
 reader_recv_timeout_seconds  = 1.0
 max_reconnect_delay_seconds  = 30.0
+
+# v6.9 (2026-07-17): AgentGraph pipeline (v6.8 Tasks #146-#150) — off
+# in v6.9 because responder_node is a stub (Task #151 not landed) →
+# TurnResult.output would be empty even when the graph completes
+# successfully. Compound intents (Plan mode from Task #148) tracked as
+# v6.10 work. The plumbing lives in-tree (per-backend prompt lookup +
+# permissive planner schema + session_store registration + max_tokens
+# bump) so the flip is one-line safe once Task #151 lands.
+[agent_graph]
+enabled = false
