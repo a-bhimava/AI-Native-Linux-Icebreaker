@@ -220,3 +220,77 @@ Screen.-no-color .cot-card.s-done {
 Screen.-no-color .cot-card.s-failed {
     border-left: tall #999999;
 }
+
+/* ── HITL modal (v6.10 Task #152 / F-61 fix) ──────────────────────── */
+
+HitlModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.7);
+}
+
+HitlModal #hitl-modal-root {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 80%;
+    background: #111111;
+    border: heavy #e78952;
+    padding: 1 2;
+}
+
+HitlModal #hitl-header {
+    color: #c0c0c0;
+    text-style: bold;
+    padding-bottom: 1;
+    border-bottom: solid #222222;
+    margin-bottom: 1;
+}
+
+HitlModal #hitl-target,
+HitlModal #hitl-risk,
+HitlModal #hitl-reason,
+HitlModal #hitl-blocked {
+    color: #c0c0c0;
+    padding: 0;
+    margin-bottom: 0;
+}
+
+HitlModal #hitl-cow-scroll {
+    max-height: 15;
+    border: round #222222;
+    padding: 0 1;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+HitlModal #hitl-cow-label {
+    color: #faca97;
+    padding-bottom: 0;
+}
+
+HitlModal #hitl-cow-body {
+    color: #888888;
+}
+
+HitlModal #hitl-countdown {
+    padding-top: 1;
+    padding-bottom: 0;
+    text-style: bold;
+    content-align: center middle;
+}
+
+HitlModal #hitl-keys {
+    padding-top: 1;
+    border-top: solid #222222;
+    content-align: center middle;
+    color: #888888;
+}
+
+/* Accessibility fallback (NO_COLOR / -no-color class) */
+Screen.-no-color HitlModal {
+    background: #000000;
+}
+Screen.-no-color HitlModal #hitl-modal-root {
+    border: heavy #ffffff;
+    background: #000000;
+}

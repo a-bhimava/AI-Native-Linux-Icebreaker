@@ -164,6 +164,13 @@ class AiTerminalApp(App):
         client.on("gui", self._on_gui_event)
         client.on("rpa", self._on_rpa_event)
         client.on("info", self._on_info_event)
+        # v6.10 Task #152 (F-61 fix): wire HITL prompt + lockout so the
+        # daemon-forwarded prompts actually render an overlay instead
+        # of silently dropping the event. Prior versions had the client
+        # firing the event but no listener attached — Tier ≥ 1 intents
+        # timed out after 30s with no user-visible prompt.
+        client.on("hitl_prompt", self._on_hitl_prompt)
+        client.on("hitl_lockout", self._on_hitl_lockout)
 
     def _on_cot_event(self, params: dict) -> None:
         try:
@@ -233,6 +240,75 @@ class AiTerminalApp(App):
             # F-53 Scope A.P2: info banner dropped. Debug-log surface.
             log.debug("tui.event.info dropped: %s: %s",
                       type(exc).__name__, exc)
+
+    # ── HITL (v6.10 Task #152 / F-61 fix) ──────────────────────────────
+
+    def _on_hitl_prompt(self, params: dict) -> None:
+        """Daemon-forwarded HITL prompt → open the modal on the UI
+        thread. Called from the DaemonClient reader thread; must
+        marshal via ``call_from_thread`` so Textual widgets stay
+        touched only from the app's event loop.
+
+        The daemon side (ForwardingPresenter) is blocked on an
+        Event.wait() with a per-turn timeout; if the user does nothing
+        here the daemon times out on its own. That means we don't need
+        to invent a client-side timeout — pushing the modal is enough."""
+        from .hitl_modal import HitlModal
+
+        # Copy params — the modal keeps a snapshot.
+        snapshot = dict(params or {})
+
+        def _open() -> None:
+            try:
+                self.push_screen(HitlModal(snapshot), self._handle_hitl_decision)
+            except Exception as exc:  # noqa: BLE001 F-53
+                log.warning("hitl.modal push failed: %s: %s",
+                            type(exc).__name__, exc)
+
+        try:
+            self.call_from_thread(_open)
+        except Exception as exc:  # noqa: BLE001 F-53
+            # Fall through — daemon will time out and audit will record
+            # the hitl_timeout. Log so operators can diagnose the wire.
+            log.warning("hitl.prompt marshal failed: %s: %s",
+                        type(exc).__name__, exc)
+
+    def _on_hitl_lockout(self, params: dict) -> None:
+        """Daemon acknowledged the lockout window. No-op on the client:
+        the modal computes its own lockout deadline on construction
+        from ``lockout_seconds`` so the countdown stays accurate even
+        if this notification arrives after the modal opens. Kept as a
+        listener so the event isn't silently dropped."""
+        try:
+            log.debug("hitl.lockout received: %s", params)
+        except Exception:  # noqa: BLE001 — logger swallow
+            pass
+
+    def _handle_hitl_decision(self, decision: str | None) -> None:
+        """Dispatched when the HitlModal.dismiss() fires. Sends the
+        decision back to the daemon via ``client.respond_hitl()`` on a
+        worker thread — the RPC call is blocking (JSON-RPC request)
+        and MUST NOT run on the UI thread."""
+        if not decision:
+            return
+        client = self._daemon_client
+        if client is None:
+            return
+
+        def _send() -> None:
+            try:
+                client.respond_hitl(decision)
+            except Exception as exc:  # noqa: BLE001 F-53
+                # Daemon may have already timed out or the socket
+                # dropped. Surface the failure to journal + debug log.
+                log.warning("hitl.respond failed: %s: %s",
+                            type(exc).__name__, exc)
+
+        try:
+            self.run_worker(_send, thread=True)
+        except Exception as exc:  # noqa: BLE001 F-53
+            log.warning("hitl.respond dispatch failed: %s: %s",
+                        type(exc).__name__, exc)
 
     def on_resize(self) -> None:
         self._check_companion_width()
