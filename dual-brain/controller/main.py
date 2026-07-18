@@ -1424,8 +1424,15 @@ class Controller:
                             tokens_in=total_tokens_in, tokens_out=total_tokens_out,
                             cost_estimate_usd=total_cost,
                         ))
+                        # v6.10 F-64: prefer the friendly, hint-carrying
+                        # translation of common mcpd rejections over the
+                        # raw anyhow string. Falls through to the raw
+                        # form if no mapping matches, so a mcpd wording
+                        # change never silently swallows a diagnostic.
+                        _friendly = self._friendly_tool_error(exc)
+                        _output = _friendly if _friendly else f"Tool error: {exc}"
                         yield ResultEvent(result=TurnResult(
-                            success=False, output=f"Tool error: {exc}",
+                            success=False, output=_output,
                             outcome=Outcome.TOOL_ERROR, tier=int(cls_result.tier),
                             backend=session.backend, duration_ms=duration,
                             cost_usd=total_cost if total_cost > 0 else None,
@@ -2022,8 +2029,12 @@ class Controller:
                         tokens_in=total_tokens_in, tokens_out=total_tokens_out,
                         cost_estimate_usd=total_cost,
                     ))
+                    # v6.10 F-64: friendly translation of common mcpd
+                    # rejections. Falls through to raw form if unmapped.
+                    _friendly = self._friendly_tool_error(exc)
+                    _output = _friendly if _friendly else f"Tool error: {exc}"
                     return TurnResult(
-                        success=False, output=f"Tool error: {exc}",
+                        success=False, output=_output,
                         outcome=Outcome.TOOL_ERROR, tier=int(cls_result.tier),
                         backend=session.backend, duration_ms=duration,
                         cost_usd=total_cost if total_cost > 0 else None,
@@ -2088,6 +2099,91 @@ class Controller:
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _friendly_tool_error(self, exc: Exception) -> str:
+        """v6.10 F-64 (2026-07-18): translate mcpd's raw anyhow-flavored
+        tool errors into user-facing messages that name the cause + a
+        remediation hint.
+
+        Pre-Track-N users saw output like
+            ``Tool error: Internal error: '/etc/os-release' is not under any whitelisted root``
+        and had no idea whether the daemon was broken, the path was
+        wrong, or the sandbox was denying legitimately. This helper
+        pattern-matches the stable substrings mcpd emits and replaces
+        the prefix with a friendly explanation.
+
+        The mapping is intentionally conservative — anything not
+        matched falls through to the raw ``Tool error: {exc}`` shape
+        the caller already emits, so a mcpd wording change never
+        silently swallows a diagnostic. Anti-hide test in
+        test_friendly_tool_error.py pins the mapping table."""
+        text = str(exc)
+
+        # Path-outside-root — most common F-64 case (fs.list/read/stat
+        # on /etc, /var, /usr, etc.). anyhow emits:
+        #   "'{}' is not under any whitelisted root"
+        # sometimes wrapped by JSON-RPC as "Internal error: ..." prefix.
+        if "is not under any whitelisted root" in text:
+            # Extract the offending path — the first quoted string is
+            # the user-supplied path.
+            import re
+            m = re.search(r"'([^']+)' is not under any whitelisted root", text)
+            offender = m.group(1) if m else "(unknown path)"
+            return (
+                f"Cannot access '{offender}' — the daemon's filesystem "
+                "sandbox restricts reads to configured roots (default: "
+                "your home directory). Ask an admin to widen "
+                "[mcpd.fs] read_roots in /etc/icebreaker/controller.toml "
+                "if you need broader access. Widening this weakens "
+                "INV-4 sandbox scoping, so use sparingly."
+            )
+
+        # Absolute-path requirement — user asked for a relative path.
+        if "path must be absolute" in text:
+            return (
+                "Please use an absolute path (starting with '/'). "
+                "Relative paths cannot be resolved reliably from the "
+                "daemon's context."
+            )
+
+        # Percent-encoded / backslash chars — mcpd rejects these to
+        # thwart path-traversal attempts.
+        if "percent-encoded characters not allowed" in text:
+            return (
+                "Path contains percent-encoded characters (like '%20') "
+                "which the daemon's sandbox rejects for path-traversal "
+                "safety. Rewrite the request without URL encoding."
+            )
+        if "backslash characters not allowed" in text:
+            return (
+                "Path contains backslash characters which the daemon's "
+                "sandbox rejects for path-traversal safety. Use forward "
+                "slashes only."
+            )
+
+        # File-size / directory guardrails.
+        if "file too large" in text:
+            return (
+                "That file is too large for a single read. The daemon "
+                "caps reads at ~1 MB to prevent memory blowups; use "
+                "'read the first 100 lines of ...' or split the file."
+            )
+        if "path is a directory; use fs.list instead" in text:
+            return (
+                "That path is a directory. Try 'list files in <path>' "
+                "instead of 'read <path>' — the daemon uses fs.list for "
+                "directories and fs.read for files."
+            )
+
+        # UTF-8 failure on binary reads — shipped as Phase 5 limitation.
+        if "not valid UTF-8" in text:
+            return (
+                "That file isn't UTF-8 text (binary content). The current "
+                "sandbox only handles text; binary reads land in Phase 5."
+            )
+
+        # Unmatched — return None so caller falls back to raw form.
+        return ""
 
     def _try_manifest_dispatch(self, tool_call: dict, session: Any) -> Any:
         """v6.9 Scope O Layer 2 Part A — dispatch to a controller-side
