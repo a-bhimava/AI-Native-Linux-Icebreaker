@@ -166,19 +166,53 @@ def test_generated_supported_actions_agrees_with_yaml(entries: list[dict]) -> No
 
 
 def test_generated_catalogue_block_contains_every_qb_emittable_tool(entries: list[dict]) -> None:
-    """prompts/_catalogue_block.txt must mention every mcpd/controller
-    entry. GUI + RPA are excluded — QB doesn't emit them directly."""
+    """prompts/_catalogue_block.txt must mention EVERY dispatchable entry
+    the controller knows how to route: mcpd + controller meta + Layer 2
+    manifest + gui_agent + rpa_bridge.
+
+    v6.10 F-68 (2026-07-18): widened from `{mcpd, controller, manifest}`.
+    Legacy comment "GUI + RPA are excluded — QB doesn't emit them
+    directly" was stale; main.py:1078-1086 has been dispatching gui.*
+    to GuiAgent and rpa.* to _execute_rpa_workflow for the full Phase 6T
+    era. The prompt block filter was the only thing keeping QB blind —
+    every "take a screenshot" / "click login" query landed in
+    system.unsupported because QB never saw those tools. This test is
+    the regression guard: if a future refactor re-hides them, it fails
+    with a clear name."""
     assert _CATALOGUE_BLOCK.exists(), (
         f"{_CATALOGUE_BLOCK} missing — run the emit script"
     )
     block_text = _CATALOGUE_BLOCK.read_text(encoding="utf-8")
     for e in entries:
-        if e.get("provided_by") not in {"mcpd", "controller", "manifest"}:
+        if e.get("provided_by") not in {
+            "mcpd", "controller", "manifest", "gui_agent", "rpa_bridge",
+        }:
             continue
         assert e["name"] in block_text, (
             f"catalogue block does not mention {e['name']!r} — "
             "regenerate via `emit --from-categories`"
         )
+
+
+def test_catalogue_block_has_gui_and_rpa_sections(entries: list[dict]) -> None:
+    """v6.10 F-68 regression pin — the block MUST include the GUI + RPA
+    sections. If the export script's tier-hint routing drops them or a
+    future refactor filters `gui_agent`/`rpa_bridge` provided_by, this
+    test fails loudly (instead of silently regressing to invisible
+    GUI/RPA tools like v6.9 shipped)."""
+    block_text = _CATALOGUE_BLOCK.read_text(encoding="utf-8")
+    yaml_names = {e["name"] for e in entries}
+    for prefix, label in (("gui.", "GUI"), ("rpa.", "RPA")):
+        expected = {n for n in yaml_names if n.startswith(prefix)}
+        if not expected:
+            continue  # None shipped for this prefix; nothing to guard.
+        for tool in expected:
+            assert tool in block_text, (
+                f"F-68 regression: {label} tool {tool!r} is in the yaml "
+                f"but missing from _catalogue_block.txt. QB will emit "
+                f"system.unsupported for every {label} query if this "
+                f"drift lands. Regenerate via `emit --from-categories`."
+            )
 
 
 def test_generated_catalogue_block_has_f35_wording(entries: list[dict]) -> None:

@@ -70,7 +70,7 @@ target MUST be a concrete absolute path when the query implies one. Never emit
 placeholders like "-", "?", "TBD", "/", or "" (F-32: emitting "/" fails
 downstream with a whitelist error). The fs.list=cwd fallback is ONLY for
 genuine browse intents ("what's around", "what's here"). For a different
-action class entirely (navigation "cd"/"take me to", GUI operations "open X",
+action class entirely (compound multi-step requests,
 compound requests, or anything not in the catalogue) → output
 action=system.unsupported (see below).
 
@@ -84,7 +84,7 @@ F-35: When the user's request has no matching tool, output:
 
 Common unsupported classes:
 - Navigation ("cd", "take me to", "go to", "open X folder"): suggest running `cd &lt;path&gt;` in the shell pane, or fs.list on the target.
-- GUI ops ("open Firefox", "make this window bigger"): name xdg-open or a shell command.
+- GUI ops that don't fit the shipped gui.* / rpa.* tools ("make this window bigger", "resize to 50%"): suggest an alternate approach.
 - Compound requests ("install and start"): suggest breaking into steps.
 - Out-of-catalogue ("email", "sync", "run a Python script"): plain refusal + adjacent hint.
 

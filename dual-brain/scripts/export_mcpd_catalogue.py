@@ -274,12 +274,21 @@ def _emit_catalogue_block(entries: list[dict], out_path: Path) -> None:
     """
     groups: dict[str, list[str]] = {
         "tier0": [], "conditional": [], "system_write": [], "destructive": [], "meta": [],
+        "gui_readonly": [], "gui_write": [],
+        "rpa_readonly": [], "rpa_write": [],
     }
-    # Only QB-emittable entries: mcpd + controller meta + Layer 2
-    # manifest-served. GUI + RPA are dispatched by the controller from
-    # higher-level intents; listing them here would mislead the planner.
+    # v6.10 F-68 (2026-07-18): un-hide GUI + RPA from the QB prompt.
+    # PRIOR filter excluded provided_by ∈ {gui_agent, rpa_bridge} on the
+    # rationale that "GUI + RPA are dispatched from higher-level
+    # intents" — but main.py:1078-1086 explicitly dispatches
+    # tool_name.startswith("gui.") to GuiAgent and startswith("rpa.")
+    # to _execute_rpa_workflow. The wire was alive; QB was blindfolded.
+    # Every "open Firefox" / "take a screenshot" query landed in
+    # system.unsupported because QB literally couldn't see those tools.
     for e in entries:
-        if e.get("provided_by") not in {"mcpd", "controller", "manifest"}:
+        if e.get("provided_by") not in {
+            "mcpd", "controller", "manifest", "gui_agent", "rpa_bridge",
+        }:
             continue
         groups.setdefault(e["tier_hint"], []).append(e["name"])
     for v in groups.values():
@@ -311,6 +320,30 @@ def _emit_catalogue_block(entries: list[dict], out_path: Path) -> None:
             d.append("fs.write (outside $HOME)")
         lines.append(
             f"destructive / outside home → risk_level=critical: {', '.join(sorted(d))}"
+        )
+    # v6.10 F-68: GUI + RPA lines. GUI = accessibility (AT-SPI) —
+    # readonly = query the tree / screenshot; write = click/type/select.
+    # RPA = Robot Framework — readonly = ping/find/list; write = run a
+    # workflow (Tier 3 because arbitrary uinput synthesis).
+    if groups["gui_readonly"]:
+        lines.append(
+            f"GUI read-only (AT-SPI query) → risk_level=low: "
+            f"{', '.join(groups['gui_readonly'])}"
+        )
+    if groups["gui_write"]:
+        lines.append(
+            f"GUI writes (AT-SPI action) → risk_level=medium: "
+            f"{', '.join(groups['gui_write'])}"
+        )
+    if groups["rpa_readonly"]:
+        lines.append(
+            f"RPA read-only (Robot query) → risk_level=low: "
+            f"{', '.join(groups['rpa_readonly'])}"
+        )
+    if groups["rpa_write"]:
+        lines.append(
+            f"RPA writes (Robot workflow, uinput) → risk_level=high: "
+            f"{', '.join(groups['rpa_write'])}"
         )
     if groups["meta"]:
         # F-35 wording preserved verbatim — this is load-bearing for QB behavior.
