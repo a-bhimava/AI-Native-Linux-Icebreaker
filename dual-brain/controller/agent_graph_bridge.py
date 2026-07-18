@@ -63,9 +63,14 @@ def _outcome_to_result(outcome: dict, duration_ms: float, backend: str) -> Any:
 
     kind = outcome.get("outcome", "error")
     if kind == "executed":
+        # v6.10 Track A (2026-07-17): read the responder-populated
+        # output. Previously hardcoded "" — the AgentGraph flag flip
+        # blocker (Bug C symptom). Full token streaming remains
+        # Task #151's scope (astream_events), but the terminal
+        # summarizer now produces a complete NL string.
         return TurnResult(
             success=True,
-            output="",  # populated when Task #151 wires token streaming
+            output=str(outcome.get("output", "") or ""),
             outcome=Outcome.EXECUTED,
             tier=int(outcome.get("tier", 0) or 0),
             backend=backend,

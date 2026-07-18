@@ -273,17 +273,24 @@ class VerifierConfig:
 class AgentGraphConfig:
     """v6.8 Task #146 (2026-07-13) — LangGraph runtime orchestration.
 
-    v6.9 UTM sweep 2026-07-17 discovery: enabling this on v6.9 makes
-    compound intents route through AgentGraph but the responder_node
-    is still a stub (Task #151 not landed) — AgentGraph completes then
-    returns TurnResult(output="") so users see nothing rendered.
-    Reverted enabled=False; the accompanying fixes (per-backend prompt
-    resolution, permissive planner schema, session_store registration,
-    max_tokens bump) stay in tree so the future flip is safe.
-    Compound-intent support tracked as v6.10 work (Tasks #149 + #151).
+    v6.10 Track A (2026-07-17): flipped enabled=True by default.
+    The prior v6.9 default kept the flag off because responder_node
+    was a stub — AgentGraph completed then returned TurnResult(output="").
+    Track A replaced the stub with a real QB-summarize step (mirrors
+    Controller._qb_summarise), so TurnResult.output is now populated
+    end-to-end. Compound intents ("check IP and save to file") route
+    through Plan mode; cross-turn ("save it to X" after a prior turn)
+    routes through the new render_recent_turns preamble; single-turn
+    Tier 0 through the same pipeline. All three verified by
+    test_agent_graph_bridge live shape + test_cross_turn_context.
+
+    Full LangGraph astream_events streaming (Task #151) still pending;
+    this ships a non-streaming responder that produces a complete
+    output string in one shot. TokenEvent-level streaming resumes when
+    Task #151 lands.
     """
 
-    enabled: bool = False
+    enabled: bool = True
     # XDG state directory. Chmod 0600 on the file, 0700 on the parent
     # (v2.manifest first-boot creates the parent per §5.5).
     checkpointer_path: str = "~/.local/state/icebreaker/agent_checkpoints.db"
@@ -746,12 +753,16 @@ def _build_debug_config(raw: dict) -> DebugConfig:
 
 
 def _build_agent_graph_config(raw: dict) -> AgentGraphConfig:
-    """v6.8 Task #146 — build the [agent_graph] section. Off by default
-    in v6.9 (see AgentGraphConfig docstring): responder_node is a stub
-    (Task #151) so a live flip returns empty TurnResult.output."""
+    """v6.8 Task #146 — build the [agent_graph] section. **On** by
+    default since v6.10 Track A (2026-07-17): responder_node produces
+    a QB-summarised NL string, TurnResult.output is populated end-to-end.
+    Compound intents route through Plan mode; single-turn through the
+    same pipeline. Set enabled=False via config override for A/B
+    testing only (e.g. bisecting a regression against the monolithic
+    path)."""
     section = raw.get("agent_graph", {}) if isinstance(raw.get("agent_graph"), dict) else {}
     return AgentGraphConfig(
-        enabled=bool(section.get("enabled", False)),
+        enabled=bool(section.get("enabled", True)),
         checkpointer_path=str(section.get(
             "checkpointer_path",
             "~/.local/state/icebreaker/agent_checkpoints.db",

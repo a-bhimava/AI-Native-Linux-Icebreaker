@@ -155,6 +155,37 @@ def test_translate_outcome_emits_progress_cot_and_result_for_executed():
     assert result_event.result.outcome == Outcome.EXECUTED
 
 
+def test_executed_outcome_carries_output_into_turnresult():
+    """v6.10 Track A regression lock — the responder-populated
+    `output` in the outcome dict flows through to TurnResult.output.
+
+    Prior to Track A the bridge hardcoded `output=""` (Bug C symptom
+    — AgentGraph completed but users saw nothing). The unit test guards
+    that regression: any future refactor that drops the propagation
+    fails here loudly instead of at UTM sweep time.
+    """
+    outcome = {
+        **_executed_outcome(tier=0),
+        "output": "The system CPU usage is 0.0%.",
+    }
+    events = translate_outcome_to_events(outcome, time.monotonic(), "gemini")
+    result_event = next(e for e in events if isinstance(e, ResultEvent))
+    assert result_event.result.success is True
+    assert result_event.result.outcome == Outcome.EXECUTED
+    assert result_event.result.output == "The system CPU usage is 0.0%."
+
+
+def test_executed_outcome_missing_output_falls_back_to_empty_string():
+    """Defensive: an old outcome dict without the `output` key (e.g.
+    checkpoint replay from a v6.9 daemon) must not raise; falls back
+    to empty string like the pre-Track-A default. F-53 pattern."""
+    outcome = _executed_outcome(tier=0)  # no "output" key
+    events = translate_outcome_to_events(outcome, time.monotonic(), "gemini")
+    result_event = next(e for e in events if isinstance(e, ResultEvent))
+    assert result_event.result.success is True
+    assert result_event.result.output == ""
+
+
 def test_translate_outcome_emits_error_event_and_failed_cot_on_planner_error():
     events = translate_outcome_to_events(_error_outcome("planner", "gemini rate-limited"),
                                           time.monotonic(), "gemini")

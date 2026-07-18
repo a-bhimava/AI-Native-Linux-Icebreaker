@@ -35,6 +35,7 @@ from controller.agent_graph_nodes import (
 )
 from controller.agent_graph_state import make_initial_state
 from controller.backends.base import BrainProviderError
+from controller.mcpd_client import ToolResult
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -272,6 +273,70 @@ def test_responder_marks_completed():
     collab = _kit()
     result = responder_node(collab)(_state())
     assert result["completed"] is True
+
+
+def test_responder_populates_output_from_qb_summarise():
+    """v6.10 Track A — responder calls QB to summarise the last step's
+    result and writes it to state["output"]. Non-empty output is the
+    thing that unblocks the AgentGraph flag flip."""
+    collab = _kit()
+    collab["intent_store"].get.return_value = {
+        "action": "system.cpu", "target": ""
+    }
+    collab["qb"].complete.return_value = SimpleNamespace(
+        content_json={"summary": "The CPU usage is 0.0%."}
+    )
+    # mcpd_dispatcher_node stashes results at f"{plan_id}:{idx}:result".
+    # Track A responder reads at (step_index - 1).
+    collab["turn_content"]["p1:0:result"] = ToolResult(
+        result={"stdout": "cpu_percent: 0.0", "ok": True},
+        request_id=1,
+    )
+    state = _state(
+        plan_id="p1", step_index=1, intent_id="iid",
+    )
+    result = responder_node(collab)(state)
+    assert result["completed"] is True
+    assert result["output"] == "The CPU usage is 0.0%."
+
+
+def test_responder_falls_back_when_qb_fails():
+    """F-53 pattern — QB summarize can fail (rate limit, schema
+    reject). Responder must still populate state["output"] with a
+    diagnostic-prefixed fallback so TurnResult.output is never
+    empty."""
+    from controller.backends.base import BrainProviderError
+    collab = _kit()
+    collab["intent_store"].get.return_value = {
+        "action": "system.cpu", "target": ""
+    }
+    collab["qb"].complete.side_effect = BrainProviderError("rate limited")
+    collab["turn_content"]["p1:0:result"] = ToolResult(
+        result={"stdout": "cpu_percent: 0.0", "ok": True},
+        request_id=1,
+    )
+    state = _state(plan_id="p1", step_index=1, intent_id="iid")
+    result = responder_node(collab)(state)
+    assert result["completed"] is True
+    assert result["output"].startswith("[summary generation failed:")
+    assert "cpu_percent" in result["output"]
+
+
+def test_responder_synthesises_confirmation_when_no_output_at_all():
+    """Defence in depth: if there's no raw output AND QB fails to
+    produce anything, responder still emits a positive confirmation
+    like 'system.cpu completed.' instead of returning an empty string
+    (which would recreate the Bug C symptom)."""
+    collab = _kit()
+    collab["intent_store"].get.return_value = {"action": "system.status"}
+    collab["qb"].complete.return_value = SimpleNamespace(
+        content_json={"summary": ""}
+    )
+    # No turn_content result stashed at all.
+    state = _state(plan_id="p1", step_index=1, intent_id="iid")
+    result = responder_node(collab)(state)
+    assert result["completed"] is True
+    assert result["output"] == "system.status completed."
 
 
 # ── Edge routing ──────────────────────────────────────────────────────

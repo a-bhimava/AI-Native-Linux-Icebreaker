@@ -211,12 +211,13 @@ def test_prune_returns_zero_when_conn_closed():
 
 def test_agent_graph_config_defaults():
     c = AgentGraphConfig()
-    # v6.9 (2026-07-17): remains False. Live UTM sweep discovered
-    # responder_node is still a stub (Task #151 not landed) so a live
-    # flip returns TurnResult(output=""). The plumbing lands in-tree
-    # (per-backend prompt, permissive planner schema, session_store
-    # registration) but the flag stays off until Task #151.
-    assert c.enabled is False
+    # v6.10 Track A (2026-07-17): flipped True. responder_node now
+    # QB-summarises the last step's tool output (mirrors
+    # Controller._qb_summarise) so TurnResult.output is populated
+    # end-to-end. Prior v6.9 blocker was the stub returning empty
+    # output — that stub is gone. Full LangGraph astream_events
+    # streaming still lands under Task #151 as a separate refinement.
+    assert c.enabled is True
     assert c.checkpointer_path == "~/.local/state/icebreaker/agent_checkpoints.db"
     assert c.checkpointer_retention_days == 30
     assert c.strict_msgpack is True

@@ -547,15 +547,119 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
     return _run
 
 
-def responder_node(collab: dict) -> Callable[[GraphState], dict]:
-    """Terminal node — marks completed=True.
+_SUMMARISE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["summary"],
+    "properties": {"summary": {"type": "string", "maxLength": 2000}},
+}
 
-    Task #146 skeleton: no summarization call yet (Task #151 wires it).
-    Just close the state so terminal downstream knows we're done.
+
+def responder_node(collab: dict) -> Callable[[GraphState], dict]:
+    """Terminal node — QB-summarize the last step's tool output.
+
+    v6.10 Track A (2026-07-17): replaced the Task #146 stub with a
+    working non-streaming summarizer so ``agent_graph.enabled=True``
+    produces non-empty ``TurnResult.output``. Mirrors the monolithic
+    ``Controller._qb_summarise`` at ``main.py:2109`` — same prompt,
+    same schema, same F-53 exception surface pattern. Full LangGraph
+    ``astream_events`` streaming is still Task #151 and deferred.
+
+    Reads:
+    - ``state["plan_id"]``, ``state["step_index"]`` — final step index
+    - ``collab["turn_content"][f"{plan_id}:{step_index-1}:result"]``
+      — the ToolResult stashed by ``mcpd_dispatcher_node``
+    - ``state["intent_id"]`` → ``collab["intent_store"].get(iid)``
+      for the summarize prompt's action + target context
+
+    Writes:
+    - ``state["output"]`` — NL summary string (non-empty on success;
+      degraded-but-non-empty on QB failure per F-53 pattern)
+    - ``state["completed"]`` = True
     """
 
     def _run(state: GraphState) -> dict:
-        return {"completed": True}
+        # Locate the last step's result. mcpd_dispatcher_node increments
+        # step_index AFTER storing, so the final result key is at
+        # (step_index - 1). Plan mode + single-intent both flow this way
+        # because a bare intent becomes a 1-step plan (Task #148).
+        plan_id = str(state.get("plan_id", "") or "")
+        step_index = int(state.get("step_index", 0) or 0)
+        final_idx = max(0, step_index - 1)
+        result_key = f"{plan_id}:{final_idx}:result"
+        tool_result = collab.get("turn_content", {}).get(result_key)
+
+        # Extract a raw output string. ToolResult.result is a dict from
+        # mcpd_client; manifest branch (P0-3) also produces ToolResult
+        # with `stdout` inside .result. Fall back to str() for shapes
+        # we don't recognise so we always populate something.
+        raw = ""
+        if isinstance(tool_result, ToolResult):
+            payload = tool_result.result or {}
+            if isinstance(payload, dict):
+                raw = str(payload.get("stdout", "")) or json.dumps(payload)[:2000]
+            else:
+                raw = str(payload)[:2000]
+        elif tool_result is not None:
+            raw = str(tool_result)[:2000]
+
+        # Pull intent for the summarise prompt's context (action + target).
+        intent = {}
+        intent_id = str(state.get("intent_id", "") or "")
+        intent_store = collab.get("intent_store")
+        if intent_id and intent_store is not None:
+            got = intent_store.get(intent_id)
+            if isinstance(got, dict):
+                intent = got
+
+        # Call QB summarize — mirrors main.py::_qb_summarise. F-53
+        # pattern: catch any brain failure, surface the exception class
+        # + prefix, still populate output so the user sees SOMETHING
+        # instead of a silent empty response.
+        summarise_system = (
+            "Summarise the following tool output in 1-3 plain sentences "
+            "for the user. Be concise and factual. Output only JSON: "
+            '{"summary": "<text>"}'
+        )
+        user_msg = json.dumps(
+            {
+                "tool_output": raw,
+                "action": intent.get("action", ""),
+                "target": intent.get("target", ""),
+            },
+            separators=(",", ":"),
+        )
+        qb = collab.get("qb")
+        summary = raw[:200] if raw else ""
+        if qb is not None:
+            try:
+                resp = qb.complete(
+                    system=summarise_system,
+                    user=user_msg,
+                    schema=_SUMMARISE_SCHEMA,
+                    max_retries=1,
+                )
+                got_summary = (resp.content_json or {}).get("summary", "")
+                if got_summary:
+                    summary = got_summary
+            except (BrainError, BrainProviderError, Exception) as exc:  # noqa: BLE001 F-53
+                # Prefix so the user sees WHY they're looking at raw
+                # bytes instead of a summary. Same shape monolithic
+                # main.py uses.
+                summary = (
+                    f"[summary generation failed: {type(exc).__name__}] "
+                    + (raw[:200] if raw else "(no tool output)")
+                )
+
+        # If everything else failed and we have literally no raw output
+        # (e.g. tool returned an empty dict), synthesise a minimal
+        # positive confirmation so TurnResult.output is never empty
+        # (which would recreate the Bug C symptom users saw).
+        if not summary:
+            action = intent.get("action", "action")
+            summary = f"{action} completed."
+
+        return {"completed": True, "output": summary}
 
     return _run
 

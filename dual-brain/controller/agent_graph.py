@@ -366,6 +366,12 @@ class AgentGraph:
             "mcpd_result_hash": state.get("mcpd_result_hash", ""),
             "error_kind": state.get("error_kind"),
             "error_reason": state.get("error_reason"),
+            # v6.10 Track A (2026-07-17): responder_node writes
+            # state["output"] with a QB-summarised NL string. Threading
+            # it into the outcome dict here + reading it in the bridge's
+            # _outcome_to_result unblocks the AgentGraph flag flip.
+            # Prior default was empty; TurnResult.output stayed "".
+            "output": state.get("output", ""),
         }
         if outcome != "paused":
             self._reset_turn()
