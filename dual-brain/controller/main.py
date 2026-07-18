@@ -1560,6 +1560,17 @@ class Controller:
         except GeneratorExit:
             duration = (time.monotonic() - t0) * 1000
             try:
+                # v6.10 F-67 (2026-07-18): every Outcome.CANCELLED audit
+                # row MUST carry a cancel_reason so operators diagnosing
+                # "why did this turn silently disappear?" get a clear
+                # answer instead of a generic "cancelled". Today the only
+                # emission path is GeneratorExit — a client disconnected
+                # mid-stream (common in test runners that rapid-fire
+                # close(); also fires when a user Ctrl+C's the AI Terminal
+                # or the socket drops). Future paths (cost limit, rate
+                # limit, admin abort) must populate their own reason
+                # string via _audit_cancel() below — anti-hide guard in
+                # test_cancelled_reason.py pins the discipline.
                 self._audit.write_fields(AuditFields(
                     session_id=session.session_id, turn_index=session.turn_index,
                     intent_id="", action="", target="", tier=0,
@@ -1568,7 +1579,10 @@ class Controller:
                     backend=session.backend,
                     model=getattr(self._cfg.qb, "model", ""),
                     tokens_in=0, tokens_out=0, cost_estimate_usd=0.0,
-                    extra={"cancelled_at_step": current_step},
+                    extra={
+                        "cancelled_at_step": current_step,
+                        "cancel_reason": "client_disconnect_during_streaming",
+                    },
                 ))
             except Exception as audit_exc:
                 # F-53 v6.65: audit failure during cancellation isn't user-

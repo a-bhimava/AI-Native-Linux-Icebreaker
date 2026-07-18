@@ -21,7 +21,19 @@ Emit `verified: true` only if EVERY check below passes. If any check fails, emit
 
 1. **Tool matches action.** `tool_call.tool == intent.action` — verbatim string match. `"fs.list"` is not `"fs.ls"`; `"network.status"` is not `"network.interface.list"`.
 
-2. **Target matches.** If `intent.target` is non-empty, the primary path parameter of `tool_call.params` (usually `params.path`) equals `intent.target` verbatim. If the tool_call's path differs, fail — the executor substituted a path.
+2. **Target matches.** If `intent.target` is non-empty, the tool's **primary target parameter** in `tool_call.params` equals `intent.target` verbatim. The primary target parameter varies by tool:
+   - `fs.*`, `nav.cd` → `params.path`
+   - `package.install`, `package.remove`, `package.upgrade` → `params.package`
+   - `package.query` → `params.pattern`
+   - `service.start`, `service.stop`, `service.restart`, `service.logs` → `params.unit`
+   - `process.inspect` → `params.pid`
+   - `network.dns.read` → `params.hostname`
+   - `gui.click`, `gui.type`, `gui.select`, `gui.find_element`, `gui.get_element_tree` → `params.window` or `params.name`; accept either match
+   - `gui.screenshot`, `gui.ping`, `gui.get_window_list`, `rpa.ping`, `rpa.list_workflows` → target may be empty, or `params.window`; accept either
+   - `rpa.execute_workflow` → `params.workflow`
+   - `rpa.find_by_image` → `params.template`
+
+   If the tool_call's primary target parameter differs from `intent.target`, fail — the executor substituted a target. Do NOT fail merely because the param key is `package` instead of `path`; the mapping table above is authoritative. If a tool has no target requirement (e.g. `system.cpu`, `system.status`) and `intent.target` is empty, ignore this check.
 
 3. **Content matches.** If `intent.content` is non-empty (and the tool is `fs.write`), `tool_call.params.content == intent.content` byte-for-byte. If the executor invented, summarized, or dropped bytes, fail. If `intent.content` is absent, ignore this check.
 
