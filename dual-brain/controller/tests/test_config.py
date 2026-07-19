@@ -645,3 +645,37 @@ def test_rpa_builder_default_enabled_matches_dataclass():
         "all rpa.* tools. Keep the builder default in lockstep with the "
         "RpaConfig dataclass default."
     )
+
+
+# ── v6.11 — RPA screenshot_policy + auto_wait_seconds knobs ──────────────────
+
+def test_rpa_new_knobs_defaults():
+    """BP-2: new knobs default to current behavior — capture all, no waits."""
+    from controller.config import _build_rpa_config
+    cfg = _build_rpa_config({})
+    assert cfg.screenshot_policy == "all"
+    assert cfg.auto_wait_seconds == 0.0
+
+
+def test_rpa_new_knobs_parsed():
+    from controller.config import _build_rpa_config
+    cfg = _build_rpa_config({"rpa": {
+        "screenshot_policy": "none",
+        "auto_wait_seconds": 7.5,
+    }})
+    assert cfg.screenshot_policy == "none"
+    assert cfg.auto_wait_seconds == 7.5
+
+
+def test_rpa_legacy_screenshot_every_step_maps_to_policy():
+    """Backward compat: screenshot_every_step=false (pre-v6.11 knob) maps
+    to policy "state_changing" unless screenshot_policy is set explicitly."""
+    from controller.config import _build_rpa_config
+    legacy = _build_rpa_config({"rpa": {"screenshot_every_step": False}})
+    assert legacy.screenshot_policy == "state_changing"
+
+    explicit_wins = _build_rpa_config({"rpa": {
+        "screenshot_every_step": False,
+        "screenshot_policy": "none",
+    }})
+    assert explicit_wins.screenshot_policy == "none"

@@ -527,7 +527,16 @@
         },
         "screenshot_every_step": {
           "type": "boolean",
-          "description": "Capture screenshot after every keyword."
+          "description": "Deprecated — use screenshot_policy. false maps to policy state_changing."
+        },
+        "screenshot_policy": {
+          "type": "string",
+          "enum": ["all", "state_changing", "none"],
+          "description": "Per-keyword screenshot capture: all (default), state_changing (skip read-only keywords), none."
+        },
+        "auto_wait_seconds": {
+          "type": "number", "minimum": 0.0, "maximum": 30.0,
+          "description": "Seconds for auto-inserted visibility waits before locator interactions. 0 disables (default)."
         }
       }
     }

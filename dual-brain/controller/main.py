@@ -2357,14 +2357,24 @@ class Controller:
 
         from .turn_events import RpaEvent
 
+        rpa_params: dict = {
+            "workflow_name": workflow_name,
+            "keywords": keywords,
+        }
+        rpa_cfg = getattr(self._cfg, "rpa", None)
+        if rpa_cfg is not None:
+            policy = getattr(rpa_cfg, "screenshot_policy", "all")
+            if policy != "all":
+                rpa_params["screenshot_policy"] = policy
+            auto_wait = float(getattr(rpa_cfg, "auto_wait_seconds", 0.0))
+            if auto_wait > 0:
+                rpa_params["auto_wait_seconds"] = auto_wait
+
         rpa_request = {
             "jsonrpc": "2.0",
             "method": "rpa.execute_workflow",
             "id": 1,
-            "params": {
-                "workflow_name": workflow_name,
-                "keywords": keywords,
-            },
+            "params": rpa_params,
         }
 
         effective_timeout = timeout_seconds + 5
