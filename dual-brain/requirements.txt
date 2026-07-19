@@ -24,6 +24,8 @@ requests>=2.31
 # Test runner
 pytest>=7.4
 pytest-timeout>=2.2
+# Async TUI tests (terminal/tests/test_tui.py uses @pytest.mark.asyncio)
+pytest-asyncio>=0.23
 
 # Brain backends (M2.6, M2.7)
 # Floor versions chosen so native JSON output APIs (Anthropic
@@ -48,3 +50,13 @@ tomli>=2.0; python_version < "3.11"
 
 # TOML round-trip serialization (settings window — preserves nested tables)
 tomlkit>=0.12
+
+# TOML writer for the preset verification cache (save_cache silently skips
+# writes without it — pyproject declares it; keep this file in lockstep)
+tomli-w>=1.0
+
+# Agent graph runtime (v6.8 Tasks #146/#147) — core deps in pyproject.toml;
+# listed here too so the VM deploy path (pip install -r requirements.txt)
+# doesn't ship without them.
+langgraph>=1.2,<2.0
+langgraph-checkpoint-sqlite>=2.0
