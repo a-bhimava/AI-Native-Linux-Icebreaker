@@ -78,6 +78,11 @@ class KeywordResult:
     elapsed_ms: float
     screenshot_hash: str
     error: str = ""
+    # R2 advisory action-effect verification: "changed" = post-step screen
+    # hash differs from previous step, "none" = a state-changing keyword
+    # passed but the screen hash did not change, "unknown" = read-only
+    # keyword / failed step / no hashes to compare. Never affects success.
+    effect: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -131,6 +136,9 @@ class RpaBridge:
         self._image_matcher = ImageMatcher()
         self._screenshot_manager: Any = None
         self._timed_out = False
+        # R2: previous step's screenshot hash, for effect verification.
+        # Reset at the start of every workflow.
+        self._prev_step_hash = ""
         # F-53 Scope A.P1: expose the last screenshot capture failure so
         # audit/debug tooling can see WHY a step's screenshot_hash is
         # empty. Set on each _capture_step_screenshot() call — populated
@@ -216,6 +224,7 @@ class RpaBridge:
         start_time = time.monotonic()
         total = len(validated)
         self._timed_out = False
+        self._prev_step_hash = ""
 
         def _sigalrm_handler(signum: int, frame: Any) -> None:
             self._timed_out = True
@@ -264,6 +273,7 @@ class RpaBridge:
                     "elapsed_ms": kr.elapsed_ms,
                     "screenshot_hash": kr.screenshot_hash,
                     "error": kr.error,
+                    "effect": kr.effect,
                 }
                 for kr in keyword_results
             ],
@@ -363,8 +373,8 @@ class RpaBridge:
         """Per-keyword no-op loop for hosts without Robot Framework.
 
         Keeps dev/macOS behavior identical to before: keywords "pass"
-        without doing anything, telemetry (screenshots, progress) still
-        flows so unit tests exercise the full recording path.
+        without doing anything, telemetry (screenshots, progress, effect)
+        still flows so unit tests exercise the full recording path.
         """
         for i, (name, _args) in enumerate(validated):
             kw_start = time.monotonic()
@@ -391,7 +401,7 @@ class RpaBridge:
         total: int,
         screenshot_policy: str,
     ) -> None:
-        """Record one keyword's telemetry: screenshot + progress."""
+        """Record one keyword's telemetry: screenshot, effect, progress."""
         elapsed_ms = (time.monotonic() - kw_start) * 1000
 
         capture = screenshot_policy == "all" or (
@@ -399,12 +409,17 @@ class RpaBridge:
             and name not in READ_ONLY_KEYWORDS
         )
         screenshot_hash = self._capture_step_screenshot() if capture else ""
+        effect = self._classify_effect(
+            name=name, status=status,
+            screenshot_hash=screenshot_hash, keyword_index=index,
+        )
 
         keyword_results.append(KeywordResult(
             index=index, name=name, status=status,
             elapsed_ms=elapsed_ms,
             screenshot_hash=screenshot_hash,
             error=error,
+            effect=effect,
         ))
 
         remaining = max(0, (timeout_seconds - (time.monotonic() - start_time)) * 1000)
@@ -416,7 +431,43 @@ class RpaBridge:
             elapsed_ms=elapsed_ms,
             screenshot_hash=screenshot_hash,
             timeout_remaining_ms=remaining,
+            effect=effect,
         )
+
+    def _classify_effect(
+        self,
+        *,
+        name: str,
+        status: str,
+        screenshot_hash: str,
+        keyword_index: int,
+    ) -> str:
+        """R2 advisory action-effect verification.
+
+        Compares the post-step screen hash against the previous step's.
+        A state-changing keyword that "passed" while the screen stayed
+        byte-identical is flagged ``"none"`` and surfaced via an
+        ``rpa.no_effect`` notification — the top GUI-automation failure
+        mode (blind actions) per the Phase 8 M8.2 design. Advisory only:
+        never alters ``success``.
+        """
+        prev_hash = self._prev_step_hash
+        if screenshot_hash:
+            self._prev_step_hash = screenshot_hash
+
+        if status != "pass" or name in READ_ONLY_KEYWORDS:
+            return "unknown"
+        if not screenshot_hash or not prev_hash:
+            return "unknown"
+        if screenshot_hash != prev_hash:
+            return "changed"
+
+        self._emit_notification("rpa.no_effect", {
+            "keyword_index": keyword_index,
+            "keyword_name": name,
+            "screenshot_hash": screenshot_hash,
+        })
+        return "none"
 
     def _capture_step_screenshot(self) -> str:
         """Capture a screenshot after a keyword step, return SHA-256 hash.
@@ -458,10 +509,14 @@ class RpaBridge:
 
     def _emit_progress(self, **kwargs: Any) -> None:
         """Emit a JSON-RPC notification for per-keyword progress."""
+        self._emit_notification("rpa.keyword_progress", kwargs)
+
+    def _emit_notification(self, method: str, params: dict[str, Any]) -> None:
+        """Emit a JSON-RPC notification on stdout."""
         notification = {
             "jsonrpc": "2.0",
-            "method": "rpa.keyword_progress",
-            "params": kwargs,
+            "method": method,
+            "params": params,
         }
         sys.stdout.write(json.dumps(notification, separators=(",", ":")) + "\n")
         sys.stdout.flush()
