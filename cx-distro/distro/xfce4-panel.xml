@@ -12,6 +12,8 @@
         <value type="int" value="2"/>
         <value type="int" value="3"/>
         <value type="int" value="4"/>
+        <value type="int" value="9"/>
+        <value type="int" value="10"/>
         <value type="int" value="5"/>
         <value type="int" value="6"/>
         <value type="int" value="7"/>
@@ -44,5 +46,18 @@
     </property>
     <property name="plugin-7" type="string" value="systray"/>
     <property name="plugin-8" type="string" value="clock"/>
+    <!-- v6.10 P4 (F-70): Control Center + Audit Viewer launchers. Both
+         .desktop files were shipped in Phase 5 but never wired here,
+         so users could not launch either from the panel. -->
+    <property name="plugin-9" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="icebreaker-control.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-10" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="icebreaker-audit.desktop"/>
+      </property>
+    </property>
   </property>
 </channel>
