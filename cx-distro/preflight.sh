@@ -246,6 +246,21 @@ if [ "$(hostname 2>/dev/null)" = "$VM_NAME" ]; then
     else
         fail "tmux missing" "apt install tmux"
     fi
+    # isolinux + syslinux-common — build-iso.sh Step 5 (amd64 hybrid
+    # BIOS+UEFI ISO) needs /usr/lib/ISOLINUX/isolinux.bin and the
+    # syslinux modules under /usr/lib/syslinux/modules/bios/. Missing
+    # either dies at the final xorriso pack (2026-07-19 v10 build got
+    # 90% of the way then hit "isolinux.bin not found").
+    if [ -f /usr/lib/ISOLINUX/isolinux.bin ]; then
+        pass "isolinux installed (BIOS boot stage 1)"
+    else
+        fail "isolinux missing" "sudo apt install -y isolinux"
+    fi
+    if [ -f /usr/lib/syslinux/modules/bios/ldlinux.c32 ]; then
+        pass "syslinux-common installed (BIOS modules)"
+    else
+        fail "syslinux-common missing" "sudo apt install -y syslinux-common"
+    fi
     # Model — accept $HOME/models/ OR the in-tree ${REPO_ROOT}/models/
     # so the build can be run from any user account.
     if [ -f "$HOME/models/run7_cot_q4km.gguf" ]; then
