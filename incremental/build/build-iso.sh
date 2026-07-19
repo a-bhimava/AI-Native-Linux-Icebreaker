@@ -156,7 +156,12 @@ OUT_DIR="${BUILD_DIR}/out"
 # `^v[7-9]` was v7+ only — v6.7 fell through to unsuffixed amd64,
 # breaking the multi-arch naming convention. `v6.7` matches
 # `^v6\.[6-9]|^v[7-9]` which covers v6.6, v6.7...v6.9 AND v7+.
-if [[ "$LABEL" =~ ^v6\.[6-9] ]] || [[ "$LABEL" =~ ^v[7-9] ]] || [ "$ARCH" != "amd64" ]; then
+# v6.10 rebuild-round-2 fix (2026-07-19): `[6-9]` is a single-digit
+# character class — v6.10 fell through to unsuffixed amd64 again,
+# rebuild-v67.sh Step 5 then FATAL'd on missing `v6.10-amd64.iso`.
+# Widened the second alternation to cover `v6.<multi-digit-minor>`
+# (v6.10, v6.11, v6.99...) so all v6.6+ get the arch suffix.
+if [[ "$LABEL" =~ ^v6\.[6-9]$ ]] || [[ "$LABEL" =~ ^v6\.[1-9][0-9]+$ ]] || [[ "$LABEL" =~ ^v[7-9] ]] || [ "$ARCH" != "amd64" ]; then
     ISO_FILE="${OUT_DIR}/${LABEL}-${ARCH}.iso"
 else
     ISO_FILE="${OUT_DIR}/${LABEL}.iso"
