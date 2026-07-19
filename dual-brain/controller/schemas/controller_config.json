@@ -511,7 +511,7 @@
     "rpa": {
       "type": "object",
       "additionalProperties": false,
-      "description": "RPA Bridge configuration (Phase 6T). Off by default (BP-2).",
+      "description": "RPA Bridge configuration (Phase 6T). Enabled by default (v6.10 P2 / F-69) — sandbox is safe-by-design.",
       "properties": {
         "enabled": {
           "type": "boolean",

@@ -605,3 +605,27 @@ def test_load_raw_toml_rejects_forbidden_keys(tmp_path):
     )
     with pytest.raises(BrainConfigError, match="forbidden"):
         _load_raw_toml(p)
+
+
+# ── v6.10 P2 / F-69 — RpaConfig.enabled default anti-hide guard ──────────────
+
+def test_rpa_config_default_enabled():
+    """v6.10 P2 (F-69) anti-hide guard: default RpaConfig() must have
+    enabled=True. Prior to v6.10 this was False, which meant every
+    fresh install shipped Phase 6T RPA dark — all 4 rpa.* calls returned
+    "disabled" even after QB emitted them correctly. The sandbox
+    (rpa_bridge/sandbox.py) is the most permissive in the system by
+    design (Landlock + seccomp + /dev/uinput), precisely so RPA can be
+    safe-by-default. If someone flips this back to False, this test
+    fails loudly with the F-69 reference so the reviewer sees the
+    history and asks 'why?' before shipping."""
+    from controller.config import RpaConfig
+    assert RpaConfig().enabled is True, (
+        "F-69 regression: RpaConfig.enabled default flipped back to "
+        "False. This hides all 4 rpa.* tools on fresh installs — the "
+        "exact bug the CT scan surfaced 2026-07-18. The sandbox is "
+        "safe-by-design; flipping this off is not a security win, it's "
+        "just a hidden feature. If you truly need this off in a "
+        "deployment, set it in /etc/icebreaker/config.toml instead of "
+        "changing the codebase default."
+    )

@@ -340,7 +340,13 @@ class GuiConfig:
 
 @dataclass(frozen=True)
 class RpaConfig:
-    enabled: bool = False
+    # v6.10 P2 (F-69): default enabled. The RPA sandbox
+    # (rpa_bridge/sandbox.py) is the most permissive in the system by
+    # design — Landlock + seccomp + /dev/uinput — precisely so RPA is
+    # safe-by-default. Shipping enabled=False left every rpa.* call
+    # returning "disabled" on fresh installs, hiding the entire
+    # Phase 6T RPA milestone from users.
+    enabled: bool = True
     timeout_seconds: int = 30
     max_keywords_per_workflow: int = 20
     screenshot_every_step: bool = True
