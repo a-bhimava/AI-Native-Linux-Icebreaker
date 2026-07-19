@@ -22,11 +22,11 @@
 set -Eeuo pipefail
 
 # ── config ───────────────────────────────────────────────────────────────
-REPO="/home/aditya/Icebreaker"
+REPO="${REPO:-/home/aditya/Icebreaker}"
 LABEL="${LABEL:-v6.7}"
 VN="${VN:-6}"
 V67_INCLUDE_ARM64="${V67_INCLUDE_ARM64:-1}"
-V67_LOG="${V67_LOG:-/home/aditya/v67-build.log}"
+V67_LOG="${V67_LOG:-${HOME}/v67-build.log}"
 DOCKER_TAG="icebreaker-build:${LABEL}"
 
 # fail-fast trap
