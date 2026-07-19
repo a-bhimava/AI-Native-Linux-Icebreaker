@@ -135,6 +135,87 @@ DENIED_KEYWORDS: frozenset[str] = frozenset({
     "Set Library Search Order",
 })
 
+# Keywords that only observe UI state — they never mutate it. Used by the
+# screenshot policy ("state_changing" skips captures after these) and by
+# effect verification (no screen change is expected after them). Every
+# entry MUST also be in ALLOWED_KEYWORDS (regression-guarded in tests).
+READ_ONLY_KEYWORDS: frozenset[str] = frozenset({
+    "Get Text", "Get Element Attribute", "Get Value",
+    "Element Should Be Visible", "Element Should Be Enabled",
+    "Element Should Contain", "Page Should Contain Element",
+    "Page Should Contain",
+    "Wait Until Element Is Visible", "Wait Until Element Is Enabled",
+    "Wait Until Page Contains Element", "Wait Until Page Contains",
+    "Sleep", "Capture Page Screenshot",
+})
+
+# Interaction keywords whose FIRST argument is an element locator.
+# ``insert_auto_waits`` prepends a bounded visibility wait before each of
+# these. Deliberately excludes keywords whose first argument is not a
+# locator (Press Keys, Select Radio Button, Click Element At Coordinates).
+AUTO_WAIT_LOCATOR_KEYWORDS: frozenset[str] = frozenset({
+    "Click Element", "Double Click Element", "Right Click Element",
+    "Input Text", "Input Password", "Clear Element Text",
+    "Select From List By Value", "Select From List By Label",
+    "Select From List By Index",
+    "Select Checkbox", "Unselect Checkbox",
+    "Scroll Element Into View", "Set Focus To Element",
+})
+
+# Wait keywords whose first argument is a locator — used to detect that a
+# workflow already waits on an element before interacting with it.
+_LOCATOR_WAIT_KEYWORDS: frozenset[str] = frozenset({
+    "Wait Until Element Is Visible", "Wait Until Element Is Enabled",
+    "Wait Until Page Contains Element",
+})
+
+_AUTO_WAIT_KEYWORD = "Wait Until Element Is Visible"
+
+
+def insert_auto_waits(
+    validated: list[tuple[str, list[str]]], wait_seconds: float,
+) -> list[tuple[str, list[str]]]:
+    """Prepend a bounded visibility wait before each locator interaction.
+
+    Takes an already-validated keyword list (output of
+    ``WorkflowGenerator.validate_keywords``) and returns a new list where
+    every keyword in ``AUTO_WAIT_LOCATOR_KEYWORDS`` is preceded by
+    ``Wait Until Element Is Visible  <locator>  <wait_seconds>s`` — unless
+    the immediately preceding keyword already waits on that locator.
+
+    Security properties (this runs AFTER allowlist validation):
+      - Only inserts ``_AUTO_WAIT_KEYWORD``, a read-only allowlisted keyword.
+      - Never removes, reorders, or rewrites the caller's keywords.
+      - Output length is bounded by 2 * len(validated) <= 2 * MAX_KEYWORDS.
+    """
+    if wait_seconds <= 0:
+        return [(name, list(args)) for name, args in validated]
+
+    if _AUTO_WAIT_KEYWORD not in ALLOWED_KEYWORDS or (
+        _AUTO_WAIT_KEYWORD not in READ_ONLY_KEYWORDS
+    ):
+        raise WorkflowError(
+            "auto-wait keyword is not allowlisted read-only — refusing to insert",
+            keyword_name=_AUTO_WAIT_KEYWORD,
+            reason="disallowed_keyword",
+        )
+
+    out: list[tuple[str, list[str]]] = []
+    for name, args in validated:
+        if name in AUTO_WAIT_LOCATOR_KEYWORDS and args:
+            locator = args[0]
+            prev = out[-1] if out else None
+            already_waited = (
+                prev is not None
+                and prev[0] in _LOCATOR_WAIT_KEYWORDS
+                and prev[1]
+                and prev[1][0] == locator
+            )
+            if not already_waited:
+                out.append((_AUTO_WAIT_KEYWORD, [locator, f"{wait_seconds:g}s"]))
+        out.append((name, list(args)))
+    return out
+
 
 def _parse_sleep_seconds(value: str) -> float:
     """Parse a Robot Framework time string into seconds."""
@@ -242,18 +323,34 @@ class WorkflowGenerator:
         return suite
 
     def generate_robot_file(
-        self, workflow_name: str, keywords: list[dict[str, Any]],
+        self,
+        workflow_name: str,
+        keywords: list[dict[str, Any]],
+        *,
+        validated: list[tuple[str, list[str]]] | None = None,
+        note: str = "",
     ) -> Path:
         """Write a ``.robot`` file to scratch dir for audit/inspection.
 
         This is a secondary artifact. Execution uses ``generate_suite()``
         directly. The file gets 0o600 permissions.
+
+        ``validated`` lets the caller pass the exact keyword list that will
+        execute (e.g. after ``insert_auto_waits``) so the audit artifact
+        matches execution; ``note`` adds a comment header explaining any
+        transformation. When ``validated`` is omitted, ``keywords`` is
+        validated here as before.
         """
-        validated = self.validate_keywords(keywords)
+        if validated is None:
+            validated = self.validate_keywords(keywords)
         safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", workflow_name or "workflow")
         path = self._scratch / f"{safe_name}.robot"
 
-        lines = [
+        lines = []
+        if note:
+            safe_note = re.sub(r"[\r\n\x00-\x1f]", " ", note)
+            lines.append(f"# {safe_note}")
+        lines += [
             "*** Settings ***",
             "Library    SeleniumLibrary",
             "",

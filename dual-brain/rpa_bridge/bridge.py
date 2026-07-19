@@ -46,7 +46,11 @@ from .protocol import (
     RPA_LIST_WORKFLOWS,
     validate_rpa_params,
 )
-from .workflow_gen import WorkflowGenerator, WorkflowError
+from .workflow_gen import (
+    WorkflowGenerator,
+    WorkflowError,
+    insert_auto_waits,
+)
 from .image_match import ImageMatcher, ImageMatchError
 
 
@@ -168,6 +172,7 @@ class RpaBridge:
         keywords = params["keywords"]
         workflow_name = params.get("workflow_name", "workflow")
         timeout_seconds = params.get("timeout_seconds", _DEFAULT_TIMEOUT)
+        auto_wait_seconds = float(params.get("auto_wait_seconds", 0.0))
 
         try:
             validated = self._workflow_gen.validate_keywords(keywords)
@@ -179,7 +184,23 @@ class RpaBridge:
                 "keyword_name": exc.keyword_name,
             }
 
-        self._workflow_gen.generate_robot_file(workflow_name, keywords)
+        note = ""
+        if auto_wait_seconds > 0:
+            expanded = insert_auto_waits(validated, auto_wait_seconds)
+            inserted = len(expanded) - len(validated)
+            if inserted:
+                note = (
+                    f"auto-wait: inserted {inserted} 'Wait Until Element Is "
+                    f"Visible' step(s) at {auto_wait_seconds:g}s before "
+                    "locator interactions"
+                )
+            validated = expanded
+
+        # Audit artifact reflects the exact keyword list that executes
+        # (including auto-inserted waits), with the transformation noted.
+        self._workflow_gen.generate_robot_file(
+            workflow_name, keywords, validated=validated, note=note,
+        )
 
         keyword_results: list[KeywordResult] = []
         start_time = time.monotonic()
