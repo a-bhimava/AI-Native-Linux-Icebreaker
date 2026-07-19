@@ -792,7 +792,10 @@ def _build_gui_config(raw: dict) -> GuiConfig:
 def _build_rpa_config(raw: dict) -> RpaConfig:
     section = raw.get("rpa", {})
     return RpaConfig(
-        enabled=section.get("enabled", False),
+        # v6.10 P2 (F-69): must match the dataclass default (True). This
+        # builder previously defaulted to False, which silently re-disabled
+        # RPA for every config loaded from disk — the exact F-69 symptom.
+        enabled=section.get("enabled", True),
         timeout_seconds=section.get("timeout_seconds", 30),
         max_keywords_per_workflow=section.get("max_keywords_per_workflow", 20),
         screenshot_every_step=section.get("screenshot_every_step", True),

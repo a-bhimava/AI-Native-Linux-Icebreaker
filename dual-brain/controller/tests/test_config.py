@@ -629,3 +629,19 @@ def test_rpa_config_default_enabled():
         "deployment, set it in /etc/icebreaker/config.toml instead of "
         "changing the codebase default."
     )
+
+
+def test_rpa_builder_default_enabled_matches_dataclass():
+    """F-69 builder-side guard (v6.11): _build_rpa_config previously
+    defaulted enabled to False even after the dataclass default was
+    flipped to True — every config loaded from disk silently re-disabled
+    RPA, the exact F-69 symptom. Builder and dataclass defaults must
+    agree."""
+    from controller.config import RpaConfig, _build_rpa_config
+    built = _build_rpa_config({})
+    assert built.enabled is RpaConfig().enabled is True, (
+        "F-69 regression (builder path): _build_rpa_config({}) produced "
+        "enabled=False. Any config file without an [rpa] section hides "
+        "all rpa.* tools. Keep the builder default in lockstep with the "
+        "RpaConfig dataclass default."
+    )
