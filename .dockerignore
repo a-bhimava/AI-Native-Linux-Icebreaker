@@ -1,0 +1,57 @@
+# Exclude build outputs from the Docker build context. Without this,
+# `docker build .` copies every prior ISO + chroot into the daemon,
+# which trivially exceeds disk (Jul 19: v10 build ENOSPC'd on the
+# 20G incremental/.build + 12G cx-distro/.build + 14G of old ISOs
+# being pushed into the container context).
+#
+# Keep the Docker context lean — only source, manifests, and script
+# files that Dockerfile.build actually needs. Docker cache still
+# lives on the VM disk (unaffected by this ignore).
+
+# Build outputs (regenerated every build)
+incremental/.build/
+cx-distro/.build/
+cx-distro/rebuild/.build/
+
+# ISOs (~5 GB each; several stack up across builds)
+*.iso
+ISO/
+Testing_Reports/
+
+# Model weights — NEVER go into Docker context (940 MB × N, embedded
+# LATER by v6.manifest which runs on the host post-Docker). If a model
+# reaches the container by accident it inflates every layer.
+models/*.gguf
+
+# Python caches
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Rust caches (live in $HOME/.cargo, not repo — belt-and-braces)
+**/target/
+
+# Node caches
+node_modules/
+
+# Editor + OS junk
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Git internals (Docker doesn't need the history)
+.git/
+.gitignore
+
+# Local dev scratch
+.agents/
+teamwork_projects/
+icebreaker-claude-state/
+generate_book.py
+Wallpaper*.png
+test.sh
