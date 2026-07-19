@@ -9,7 +9,7 @@ Lifecycle:
   3. Child enters JSON-RPC request loop on stdin/stdout
   4. On stdin EOF, child exits cleanly
 
-Hard timeout (default 30s) enforced via ``signal.alarm`` + SIGALRM.
+Hard timeout (default 30s) enforced via ``signal.setitimer`` + SIGALRM.
 If a workflow exceeds the deadline, SIGALRM raises ``_WorkflowTimeout``,
 partial results are collected and returned. The Controller's SIGKILL
 watchdog (PR #29) provides a defense-in-depth second layer.
@@ -191,7 +191,9 @@ class RpaBridge:
             raise _WorkflowTimeout("workflow exceeded timeout")
 
         old_handler = signal.signal(signal.SIGALRM, _sigalrm_handler)
-        signal.alarm(int(timeout_seconds))
+        # setitimer (not alarm) so fractional timeouts like 2.5s are honored
+        # instead of being truncated to whole seconds.
+        signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
 
         try:
             for i, (name, args) in enumerate(validated):
@@ -243,7 +245,7 @@ class RpaBridge:
         except _WorkflowTimeout:
             self._timed_out = True
         finally:
-            signal.alarm(0)
+            signal.setitimer(signal.ITIMER_REAL, 0.0)
             signal.signal(signal.SIGALRM, old_handler)
 
         total_elapsed = (time.monotonic() - start_time) * 1000
