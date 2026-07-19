@@ -222,6 +222,24 @@
     - "go to <path>"
     - "chdir <path>"
 
+# v6.10 P3 (F-71): demo.uptime — Layer 2 Part B pilot manifest. Reads
+# /proc/uptime as raw bytes to prove the mcpd-side manifest loader
+# path (parse → validate → register → dispatch through impl_kinds::fs_read).
+# Shipped in src/mcpd/manifests/demo.uptime.yaml but was invisible to QB
+# because it was never listed in the controller catalogue — QB routed
+# "what's the uptime" to system.uptime instead, bypassing the Layer 2B
+# demonstration entirely.
+- name: demo.uptime
+  provided_by: manifest
+  tier_hint: tier0
+  risk_level_default: low
+  one_line: "Read /proc/uptime raw (Layer 2B manifest pilot; system.uptime is the parsed form)."
+  param_schema_ref: src/mcpd/manifests/demo.uptime.yaml
+  natural_phrases:
+    - "raw uptime"
+    - "read /proc/uptime"
+    - "layer 2 uptime"
+
 # ── GUI Agent tools (dual-brain/gui_agent/, dispatched via AT-SPI) ───────
 # Not in mcpd's tools/list — the controller dispatches these directly to
 # gui_agent through the Landlock-sandboxed subprocess. Risk classifier

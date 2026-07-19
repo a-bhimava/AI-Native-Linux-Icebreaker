@@ -3,6 +3,7 @@
 # Regenerate with: python scripts/export_mcpd_catalogue.py emit --from-categories
 
 SUPPORTED_ACTIONS = frozenset({
+    "demo.uptime",
     "fs.delete",
     "fs.list",
     "fs.read",

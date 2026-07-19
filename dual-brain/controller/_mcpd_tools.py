@@ -9,8 +9,9 @@
 
 MCPD_SCHEMA_VERSION = "from-categories"
 
-# All 23 tools mcpd advertises
+# All 24 tools mcpd advertises
 ALL_TOOLS = frozenset({
+    "demo.uptime",
     "fs.delete",
     "fs.list",
     "fs.read",
@@ -36,8 +37,9 @@ ALL_TOOLS = frozenset({
     "system.uptime",
 })
 
-# Tier 0 — read-only; auto-execute; no prompt (15 tools)
+# Tier 0 — read-only; auto-execute; no prompt (16 tools)
 TIER0_TOOLS = frozenset({
+    "demo.uptime",
     "fs.list",
     "fs.read",
     "fs.stat",

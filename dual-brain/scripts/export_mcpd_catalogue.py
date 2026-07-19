@@ -97,11 +97,19 @@ TOOL_CATEGORIES: dict[str, str] = {
     # BP-5 escalate-only and slaps Tier 3 on every nav.cd — Bug B in
     # the 2026-07-17 UTM sweep, F-# entry in GROUND_TRUTH § 7.
     "nav.cd":            "tier0",
+
+    # ── Manifest-served (v6.10 P3 / F-71) — Layer 2B pilot ──────────────
+    # demo.uptime is dispatched by mcpd's manifest_loader → fs_read
+    # (see src/mcpd/manifests/demo.uptime.yaml). Included here so the
+    # risk classifier + tier 0 fast path recognize it. Without this the
+    # classifier hits BP-5 escalate-only and slaps Tier 3 on every
+    # demo.uptime — same failure mode as Bug B / nav.cd above.
+    "demo.uptime":       "tier0",
 }
 
 # Expected total — guards against silent merges that change the count.
-# v6.9 (2026-07-17): 22 mcpd + 1 manifest (nav.cd) = 23.
-EXPECTED_TOOL_COUNT = 23
+# v6.10 (2026-07-18): 22 mcpd + 2 manifest (nav.cd, demo.uptime) = 24.
+EXPECTED_TOOL_COUNT = 24
 
 
 # ── mcpd interaction ────────────────────────────────────────────────────────

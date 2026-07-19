@@ -221,6 +221,30 @@ def test_catalogue_block_has_gui_and_rpa_sections(entries: list[dict]) -> None:
             )
 
 
+def test_demo_uptime_in_supported_actions(entries: list[dict]) -> None:
+    """v6.10 P3 / F-71 anti-hide guard: demo.uptime is the Layer 2B pilot
+    manifest (mcpd-side manifest loader + fs_read impl kind). It shipped
+    in src/mcpd/manifests/demo.uptime.yaml but was invisible to QB —
+    "read /proc/uptime" routed to system.uptime instead, bypassing the
+    Layer 2B demonstration entirely. This test pins the fix: the
+    tool_catalogue.yaml row + TOOL_CATEGORIES entry + auto-generated
+    frozenset must all agree. If a future refactor drops it from any
+    of the three, this fails loudly with the F-71 reference."""
+    yaml_names = {e["name"] for e in entries}
+    assert "demo.uptime" in yaml_names, (
+        "F-71 regression: demo.uptime missing from tool_catalogue.yaml. "
+        "The Layer 2B pilot manifest ships in src/mcpd/manifests/ but "
+        "QB cannot emit it without the controller catalogue row."
+    )
+    from controller._intent_corpus_supported import SUPPORTED_ACTIONS
+    assert "demo.uptime" in SUPPORTED_ACTIONS, (
+        "F-71 regression: demo.uptime missing from SUPPORTED_ACTIONS. "
+        "Regenerate via `python3 scripts/export_mcpd_catalogue.py "
+        "emit --from-categories` and ensure TOOL_CATEGORIES has the "
+        "'demo.uptime': 'tier0' entry."
+    )
+
+
 def test_supported_actions_includes_gui_and_rpa(entries: list[dict]) -> None:
     """v6.10 Track P1 — F-68 closure: SUPPORTED_ACTIONS is the F-35 floor
     read by ``main.py`` before dispatch. If gui_agent / rpa_bridge get
