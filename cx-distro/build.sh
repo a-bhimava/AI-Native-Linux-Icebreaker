@@ -416,6 +416,19 @@ if [ "$SKIP_TO" -le 4 ]; then
         "${CHROOT}/usr/bin/ib_debug.py"
     # convenience symlink: 'ib-debug snapshot' instead of 'python3 /usr/bin/ib_debug.py snapshot'
     ln -sf /usr/bin/ib_debug.py "${CHROOT}/usr/bin/ib-debug" 2>/dev/null || true
+    # v6.10 P5 (F-72): v6.8 sprint debug/corpus helpers. All three were
+    # written for the AgentGraph migration and left out of every ISO cut
+    # since. In-guest debugging of a broken pipeline required manually
+    # scp'ing them from the host every time.
+    install -Dm755 "${REPO_ROOT}/dual-brain/scripts/ib_debug_v68.py" \
+        "${CHROOT}/usr/bin/ib_debug_v68.py"
+    ln -sf /usr/bin/ib_debug_v68.py "${CHROOT}/usr/bin/ib-debug-v68" 2>/dev/null || true
+    install -Dm755 "${REPO_ROOT}/dual-brain/scripts/ib_run_v68.py" \
+        "${CHROOT}/usr/bin/ib_run_v68.py"
+    ln -sf /usr/bin/ib_run_v68.py "${CHROOT}/usr/bin/ib-run-v68" 2>/dev/null || true
+    install -Dm755 "${REPO_ROOT}/dual-brain/scripts/ib_run_corpus.py" \
+        "${CHROOT}/usr/bin/ib_run_corpus.py"
+    ln -sf /usr/bin/ib_run_corpus.py "${CHROOT}/usr/bin/ib-run-corpus" 2>/dev/null || true
     # ib_bundle.py — diagnostic bundle collector (Scope G.5, 2026-07-12).
     # Collects logs, journals, harvest output, boot-report, models, markers,
     # config (redacted) into ~/icebreaker-bundle-<ts>-<arch>.tar.zst.
