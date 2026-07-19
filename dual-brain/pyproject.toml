@@ -57,6 +57,7 @@ rpa = [
     "robotframework>=7.0",
     "rpaframework>=28.0",
     "Pillow>=10.0",
+    "numpy>=1.26",
 ]
 # v6.8 Task #146: LangSmith tracing available in DEV builds only. Release
 # ISOs are shipped WITHOUT this extra so `import langsmith` fails cleanly

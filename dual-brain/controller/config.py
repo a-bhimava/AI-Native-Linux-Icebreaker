@@ -349,7 +349,17 @@ class RpaConfig:
     enabled: bool = True
     timeout_seconds: int = 30
     max_keywords_per_workflow: int = 20
+    # Deprecated in favor of screenshot_policy; kept so older configs load
+    # (BP-2 backward compat). False maps to policy "state_changing".
     screenshot_every_step: bool = True
+    # Per-keyword screenshot capture: "all" (default, current behavior),
+    # "state_changing" (skip read-only keywords), "none".
+    screenshot_policy: str = "all"
+    # v6.11 R3: seconds for auto-inserted "Wait Until Element Is Visible"
+    # before locator interactions. 0.0 disables insertion (BP-2 default =
+    # current behavior). Only allowlisted read-only wait keywords are ever
+    # inserted (rpa_bridge.workflow_gen.insert_auto_waits).
+    auto_wait_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -791,11 +801,21 @@ def _build_gui_config(raw: dict) -> GuiConfig:
 
 def _build_rpa_config(raw: dict) -> RpaConfig:
     section = raw.get("rpa", {})
+    every_step = section.get("screenshot_every_step", True)
+    # Legacy mapping: screenshot_every_step=False predates screenshot_policy
+    # and meant "don't capture after every keyword" — honor it as
+    # "state_changing" unless the new knob is set explicitly.
+    default_policy = "all" if every_step else "state_changing"
     return RpaConfig(
-        enabled=section.get("enabled", False),
+        # v6.10 P2 (F-69): must match the dataclass default (True). This
+        # builder previously defaulted to False, which silently re-disabled
+        # RPA for every config loaded from disk — the exact F-69 symptom.
+        enabled=section.get("enabled", True),
         timeout_seconds=section.get("timeout_seconds", 30),
         max_keywords_per_workflow=section.get("max_keywords_per_workflow", 20),
-        screenshot_every_step=section.get("screenshot_every_step", True),
+        screenshot_every_step=every_step,
+        screenshot_policy=section.get("screenshot_policy", default_policy),
+        auto_wait_seconds=float(section.get("auto_wait_seconds", 0.0)),
     )
 
 

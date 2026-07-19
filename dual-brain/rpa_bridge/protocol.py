@@ -78,6 +78,21 @@ _PARAM_SCHEMAS: dict[str, dict] = {
                 "minimum": 5,
                 "maximum": 120,
             },
+            # Reliability: insert "Wait Until Element Is Visible <locator> <N>s"
+            # before locator interactions (workflow_gen.insert_auto_waits).
+            # 0 (the default) disables insertion — BP-2 safe/current path.
+            "auto_wait_seconds": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 30.0,
+            },
+            # Screenshot capture policy per keyword step. "all" (default,
+            # current behavior) captures after every keyword;
+            # "state_changing" skips READ_ONLY_KEYWORDS; "none" disables.
+            "screenshot_policy": {
+                "type": "string",
+                "enum": ["all", "state_changing", "none"],
+            },
         },
     },
     RPA_FIND_BY_IMAGE: {

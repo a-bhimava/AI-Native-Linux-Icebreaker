@@ -629,3 +629,85 @@ def test_rpa_config_default_enabled():
         "deployment, set it in /etc/icebreaker/config.toml instead of "
         "changing the codebase default."
     )
+
+
+def test_rpa_builder_default_enabled_matches_dataclass():
+    """F-69 builder-side guard (v6.11): _build_rpa_config previously
+    defaulted enabled to False even after the dataclass default was
+    flipped to True — every config loaded from disk silently re-disabled
+    RPA, the exact F-69 symptom. Builder and dataclass defaults must
+    agree."""
+    from controller.config import RpaConfig, _build_rpa_config
+    built = _build_rpa_config({})
+    assert built.enabled is RpaConfig().enabled is True, (
+        "F-69 regression (builder path): _build_rpa_config({}) produced "
+        "enabled=False. Any config file without an [rpa] section hides "
+        "all rpa.* tools. Keep the builder default in lockstep with the "
+        "RpaConfig dataclass default."
+    )
+
+
+def test_rpa_builder_all_defaults_match_dataclass():
+    """F-69 BP-13 lockstep guard, generalized (PR #34 follow-up).
+
+    The single-field ``test_rpa_builder_default_enabled_matches_dataclass``
+    catches the historical enabled=True/False regression, but a future
+    field added to RpaConfig without a matching ``_build_rpa_config``
+    fallback would re-open the same class of bug on a different field
+    (v6.11 already ships ``screenshot_policy`` + ``auto_wait_seconds``
+    which lacked their own guards).
+
+    Iterating over ``dataclasses.fields(RpaConfig)`` makes the guard
+    grow automatically with the dataclass so drift on ANY field is
+    caught loudly at test time — the discipline PR #34's F-69 fix was
+    reaching for."""
+    import dataclasses
+    from controller.config import RpaConfig, _build_rpa_config
+
+    built = _build_rpa_config({})
+    default = RpaConfig()
+    for field in dataclasses.fields(RpaConfig):
+        assert getattr(built, field.name) == getattr(default, field.name), (
+            f"F-69 lockstep failure on RpaConfig.{field.name}: builder "
+            f"produced {getattr(built, field.name)!r} but dataclass default "
+            f"is {getattr(default, field.name)!r}. When adding a new "
+            "RpaConfig field OR changing an existing default, update BOTH "
+            "the dataclass and _build_rpa_config's fallback so configs "
+            "loaded from disk without that key don't silently regress "
+            "(the F-69 pattern). Same rule applies to main.py's "
+            "_execute_rpa_workflow if it reads the field directly."
+        )
+
+
+# ── v6.11 — RPA screenshot_policy + auto_wait_seconds knobs ──────────────────
+
+def test_rpa_new_knobs_defaults():
+    """BP-2: new knobs default to current behavior — capture all, no waits."""
+    from controller.config import _build_rpa_config
+    cfg = _build_rpa_config({})
+    assert cfg.screenshot_policy == "all"
+    assert cfg.auto_wait_seconds == 0.0
+
+
+def test_rpa_new_knobs_parsed():
+    from controller.config import _build_rpa_config
+    cfg = _build_rpa_config({"rpa": {
+        "screenshot_policy": "none",
+        "auto_wait_seconds": 7.5,
+    }})
+    assert cfg.screenshot_policy == "none"
+    assert cfg.auto_wait_seconds == 7.5
+
+
+def test_rpa_legacy_screenshot_every_step_maps_to_policy():
+    """Backward compat: screenshot_every_step=false (pre-v6.11 knob) maps
+    to policy "state_changing" unless screenshot_policy is set explicitly."""
+    from controller.config import _build_rpa_config
+    legacy = _build_rpa_config({"rpa": {"screenshot_every_step": False}})
+    assert legacy.screenshot_policy == "state_changing"
+
+    explicit_wins = _build_rpa_config({"rpa": {
+        "screenshot_every_step": False,
+        "screenshot_policy": "none",
+    }})
+    assert explicit_wins.screenshot_policy == "none"

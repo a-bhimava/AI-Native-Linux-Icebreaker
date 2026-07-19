@@ -34,9 +34,16 @@ class TestGuiReadonlyTier0:
 
 class TestGuiWriteTier:
     @pytest.mark.parametrize("action", ["gui.click", "gui.type", "gui.select"])
-    def test_gui_write_user_home_is_tier1(self, action):
-        home = os.path.expanduser("~")
-        result = classify({"action": action, "target": f"{home}/doc.txt", "risk_level": "low"})
+    def test_gui_write_user_home_is_tier1(self, action, monkeypatch):
+        # Pin HOME: under root, expanduser("~") is /root — a protected
+        # path the classifier correctly tiers HIGH. Hermetic tests must
+        # not depend on the invoking user.
+        monkeypatch.setenv("HOME", "/home/testuser")
+        result = classify({
+            "action": action,
+            "target": "/home/testuser/doc.txt",
+            "risk_level": "low",
+        })
         assert result.tier == Tier.LOW
 
     @pytest.mark.parametrize("action", ["gui.click", "gui.type", "gui.select"])

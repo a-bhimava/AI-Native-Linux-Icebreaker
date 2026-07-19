@@ -1,6 +1,13 @@
-"""Template image matching via Pillow (no OpenCV dependency).
+"""Template image matching via NumPy fast-NCC, with a Pillow fallback.
 
-Uses Normalized Cross-Correlation (NCC) with a coarse-to-fine strategy:
+Preferred backend ("numpy"): exact Normalized Cross-Correlation over the
+full image in one pass, using FFT cross-correlation for the numerator and
+integral images for the per-window normalization (Lewis' fast NCC). This
+is orders of magnitude faster than the sliding-window Python loop and
+searches every position, so it cannot miss a match the way a downsampled
+coarse pass can.
+
+Fallback backend ("pillow"): the original pure-Python coarse-to-fine NCC:
   1. Downsample source and template by 4x
   2. Slide template over downsampled source, compute NCC at each position
   3. If best NCC ≥ confidence, refine at full resolution in a small neighborhood
@@ -32,16 +39,60 @@ class MatchResult:
 _DOWNSAMPLE_FACTOR = 4
 _REFINEMENT_RADIUS = 8
 
+_BACKENDS = ("auto", "numpy", "pillow")
+
+
+def _numpy_available() -> bool:
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _next_fast_len(n: int) -> int:
+    """Smallest 5-smooth number >= n (numpy's FFT is fast only for radix 2/3/5;
+    a prime-sized axis — e.g. 2039 for a 1920px screenshot — is orders of
+    magnitude slower)."""
+    while True:
+        m = n
+        for p in (2, 3, 5):
+            while m % p == 0:
+                m //= p
+        if m == 1:
+            return n
+        n += 1
+
 
 class ImageMatcher:
-    """Pillow-based template matcher with configurable confidence threshold."""
+    """NCC template matcher with configurable confidence threshold and backend."""
 
     DEFAULT_CONFIDENCE = 0.85
 
-    def __init__(self, confidence: float = DEFAULT_CONFIDENCE) -> None:
+    def __init__(
+        self,
+        confidence: float = DEFAULT_CONFIDENCE,
+        *,
+        backend: str = "auto",
+    ) -> None:
         if not 0.0 <= confidence <= 1.0:
             raise ValueError(f"confidence must be 0.0–1.0, got {confidence}")
+        if backend not in _BACKENDS:
+            raise ValueError(f"backend must be one of {_BACKENDS}, got {backend!r}")
+        if backend == "numpy" and not _numpy_available():
+            raise ImageMatchError(
+                "NumPy backend requested but numpy is not installed. "
+                "Install with: pip install numpy"
+            )
         self._confidence = confidence
+        self._backend = backend
+
+    @property
+    def active_backend(self) -> str:
+        """The backend that ``match()`` will actually use."""
+        if self._backend == "auto":
+            return "numpy" if _numpy_available() else "pillow"
+        return self._backend
 
     def match(
         self,
@@ -93,12 +144,17 @@ class ImageMatcher:
         src_gray = source.convert("L")
         tmpl_gray = template.convert("L")
 
-        cx, cy, coarse_ncc = self._coarse_search(src_gray, tmpl_gray)
+        if self.active_backend == "numpy":
+            fx, fy, fine_ncc = self._search_numpy(src_gray, tmpl_gray)
+        else:
+            cx, cy, coarse_ncc = self._coarse_search(src_gray, tmpl_gray)
 
-        if coarse_ncc < self._confidence * 0.8:
-            return MatchResult(found=False, confidence=coarse_ncc, bbox=(0, 0, 0, 0), center=(0, 0))
+            if coarse_ncc < self._confidence * 0.8:
+                return MatchResult(
+                    found=False, confidence=coarse_ncc, bbox=(0, 0, 0, 0), center=(0, 0),
+                )
 
-        fx, fy, fine_ncc = self._fine_search(src_gray, tmpl_gray, cx, cy)
+            fx, fy, fine_ncc = self._fine_search(src_gray, tmpl_gray, cx, cy)
 
         abs_x = fx + rx
         abs_y = fy + ry
@@ -112,6 +168,59 @@ class ImageMatcher:
             bbox=(abs_x, abs_y, tmpl_w, tmpl_h),
             center=(center_x, center_y),
         )
+
+    def _search_numpy(
+        self, src_gray: "Image.Image", tmpl_gray: "Image.Image",
+    ) -> tuple[int, int, float]:
+        """Exact full-image NCC via FFT + integral images (Lewis' fast NCC).
+
+        Returns (best_x, best_y, best_ncc) at full resolution. Unlike the
+        Pillow coarse-to-fine path this evaluates every window position,
+        so the returned NCC is the true global maximum.
+        """
+        import numpy as np
+
+        src = np.asarray(src_gray, dtype=np.float64)
+        tmpl = np.asarray(tmpl_gray, dtype=np.float64)
+        sh, sw = src.shape
+        th, tw = tmpl.shape
+
+        tmpl_centered = tmpl - tmpl.mean()
+        tmpl_norm_sq = float((tmpl_centered * tmpl_centered).sum())
+        if tmpl_norm_sq < 1e-9:
+            return (0, 0, 0.0)
+
+        out_h = sh - th + 1
+        out_w = sw - tw + 1
+
+        # Numerator: sum over each window of src * (tmpl - mean(tmpl)).
+        # Because sum(tmpl_centered) == 0, subtracting the window mean from
+        # src changes nothing — this IS the centered cross-correlation.
+        fshape = (_next_fast_len(sh + th - 1), _next_fast_len(sw + tw - 1))
+        fsrc = np.fft.rfft2(src, fshape)
+        ftmpl = np.fft.rfft2(tmpl_centered[::-1, ::-1], fshape)
+        corr_full = np.fft.irfft2(fsrc * ftmpl, fshape)
+        corr = corr_full[th - 1:th - 1 + out_h, tw - 1:tw - 1 + out_w]
+
+        # Denominator: per-window variance via integral images.
+        n = float(th * tw)
+        padded = np.pad(src, ((1, 0), (1, 0)))
+        padded_sq = np.pad(src * src, ((1, 0), (1, 0)))
+        ii = padded.cumsum(axis=0).cumsum(axis=1)
+        ii2 = padded_sq.cumsum(axis=0).cumsum(axis=1)
+        win_sum = ii[th:, tw:] - ii[:-th, tw:] - ii[th:, :-tw] + ii[:-th, :-tw]
+        win_sum_sq = ii2[th:, tw:] - ii2[:-th, tw:] - ii2[th:, :-tw] + ii2[:-th, :-tw]
+        win_var = win_sum_sq - (win_sum * win_sum) / n
+        np.maximum(win_var, 0.0, out=win_var)
+
+        denom = np.sqrt(win_var * tmpl_norm_sq)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ncc = np.where(denom > 1e-9, corr / np.maximum(denom, 1e-12), -1.0)
+
+        flat_idx = int(np.argmax(ncc))
+        best_y, best_x = divmod(flat_idx, out_w)
+        best_ncc = float(min(1.0, max(-1.0, ncc[best_y, best_x])))
+        return (int(best_x), int(best_y), best_ncc)
 
     def _coarse_search(
         self, src_gray: "Image.Image", tmpl_gray: "Image.Image",

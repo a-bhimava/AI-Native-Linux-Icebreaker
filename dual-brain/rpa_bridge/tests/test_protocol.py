@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jsonschema
 import pytest
 
 from rpa_bridge.protocol import (
@@ -75,3 +76,28 @@ class TestValidParams:
     def test_unknown_method_raises(self):
         with pytest.raises(ValueError, match="unknown RPA method"):
             validate_rpa_params("rpa.nonexistent", {})
+
+
+class TestNewWorkflowParams:
+    """Schema coverage for auto_wait_seconds + screenshot_policy (v6.11)."""
+
+    def test_auto_wait_and_policy_accepted(self):
+        validate_rpa_params(RPA_EXECUTE_WORKFLOW, {
+            "keywords": [{"name": "Click Element", "args": ["id=x"]}],
+            "auto_wait_seconds": 7.5,
+            "screenshot_policy": "state_changing",
+        })
+
+    def test_invalid_screenshot_policy_rejected(self):
+        with pytest.raises(jsonschema.ValidationError):
+            validate_rpa_params(RPA_EXECUTE_WORKFLOW, {
+                "keywords": [{"name": "Click Element", "args": ["id=x"]}],
+                "screenshot_policy": "sometimes",
+            })
+
+    def test_auto_wait_out_of_range_rejected(self):
+        with pytest.raises(jsonschema.ValidationError):
+            validate_rpa_params(RPA_EXECUTE_WORKFLOW, {
+                "keywords": [{"name": "Click Element", "args": ["id=x"]}],
+                "auto_wait_seconds": 31.0,
+            })
