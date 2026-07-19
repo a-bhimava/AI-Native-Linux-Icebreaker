@@ -2363,12 +2363,20 @@ class Controller:
         }
         rpa_cfg = getattr(self._cfg, "rpa", None)
         if rpa_cfg is not None:
-            policy = getattr(rpa_cfg, "screenshot_policy", "all")
-            if policy != "all":
-                rpa_params["screenshot_policy"] = policy
-            auto_wait = float(getattr(rpa_cfg, "auto_wait_seconds", 0.0))
-            if auto_wait > 0:
-                rpa_params["auto_wait_seconds"] = auto_wait
+            # PR #34 M2 (F-69 chain): read fields directly instead of
+            # getattr(..., "<hard-coded-default>"). The hard-coded
+            # fallback string was a silent F-69-shape drift risk — if
+            # RpaConfig ever changed screenshot_policy's default without
+            # updating this line, the fallback would ship stale under
+            # `getattr` while `rpa_cfg.screenshot_policy` would honor
+            # the dataclass default. The generalized
+            # test_rpa_builder_all_defaults_match_dataclass guard now
+            # keeps the dataclass ↔ _build_rpa_config in lockstep;
+            # direct access here removes the third silent drift point.
+            if rpa_cfg.screenshot_policy != "all":
+                rpa_params["screenshot_policy"] = rpa_cfg.screenshot_policy
+            if rpa_cfg.auto_wait_seconds > 0:
+                rpa_params["auto_wait_seconds"] = float(rpa_cfg.auto_wait_seconds)
 
         rpa_request = {
             "jsonrpc": "2.0",

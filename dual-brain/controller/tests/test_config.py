@@ -647,6 +647,38 @@ def test_rpa_builder_default_enabled_matches_dataclass():
     )
 
 
+def test_rpa_builder_all_defaults_match_dataclass():
+    """F-69 BP-13 lockstep guard, generalized (PR #34 follow-up).
+
+    The single-field ``test_rpa_builder_default_enabled_matches_dataclass``
+    catches the historical enabled=True/False regression, but a future
+    field added to RpaConfig without a matching ``_build_rpa_config``
+    fallback would re-open the same class of bug on a different field
+    (v6.11 already ships ``screenshot_policy`` + ``auto_wait_seconds``
+    which lacked their own guards).
+
+    Iterating over ``dataclasses.fields(RpaConfig)`` makes the guard
+    grow automatically with the dataclass so drift on ANY field is
+    caught loudly at test time — the discipline PR #34's F-69 fix was
+    reaching for."""
+    import dataclasses
+    from controller.config import RpaConfig, _build_rpa_config
+
+    built = _build_rpa_config({})
+    default = RpaConfig()
+    for field in dataclasses.fields(RpaConfig):
+        assert getattr(built, field.name) == getattr(default, field.name), (
+            f"F-69 lockstep failure on RpaConfig.{field.name}: builder "
+            f"produced {getattr(built, field.name)!r} but dataclass default "
+            f"is {getattr(default, field.name)!r}. When adding a new "
+            "RpaConfig field OR changing an existing default, update BOTH "
+            "the dataclass and _build_rpa_config's fallback so configs "
+            "loaded from disk without that key don't silently regress "
+            "(the F-69 pattern). Same rule applies to main.py's "
+            "_execute_rpa_workflow if it reads the field directly."
+        )
+
+
 # ── v6.11 — RPA screenshot_policy + auto_wait_seconds knobs ──────────────────
 
 def test_rpa_new_knobs_defaults():
