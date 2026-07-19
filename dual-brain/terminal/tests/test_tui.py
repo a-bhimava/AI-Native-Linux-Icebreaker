@@ -241,6 +241,7 @@ def test_terminal_flag_accepted():
             command=None, repl=False, config=None,
             check_isolation=False, daemon=False,
             connect=None, safe_mode=False, terminal=True,
+            chatbot=False, settings=False, wizard=False, audit=False,
         )
         with patch("controller.__main__._run_terminal", return_value=0) as mock_run:
             result = main([])
