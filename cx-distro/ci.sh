@@ -149,6 +149,29 @@ if [ -f "${CX_DIR}/tests/test_first_boot.sh" ]; then
     fi
 fi
 
+# v6.10 P4/P5 anti-hide guards. These test the ISO artifacts (panel XML
+# + build.sh install lines) that F-51 markers cannot cover — F-51 only
+# guards the venv. Wire them here so a future refactor that drops a
+# panel launcher (F-70) or a scripts/ install line (F-72) fails the
+# gate pre-ISO instead of after boot.
+if [ -f "${CX_DIR}/tests/test_panel_launchers.sh" ]; then
+    if bash "${CX_DIR}/tests/test_panel_launchers.sh" 2>&1; then
+        :
+    else
+        echo "    test_panel_launchers.sh failed (F-70 anti-hide guard)"
+        G14_FAIL=1
+    fi
+fi
+
+if [ -f "${CX_DIR}/tests/test_installed_binaries.sh" ]; then
+    if bash "${CX_DIR}/tests/test_installed_binaries.sh" 2>&1; then
+        :
+    else
+        echo "    test_installed_binaries.sh failed (F-72 anti-hide guard)"
+        G14_FAIL=1
+    fi
+fi
+
 if [ "$G14_FAIL" -eq 0 ]; then
     pass 14 "static checks passed"
 else

@@ -248,6 +248,38 @@ version_overlay() {
         "LayerO-L2A-manifest:manifests/nav.cd.yaml:set_cwd"
         "LayerO-L2A-dispatch:main.py:_try_manifest_dispatch"
         "LayerO-L2A-cwd:session.py:session_cwd"
+        # v6.10 Track P (2026-07-18) — un-hide round 2 (6 CT-scan blocked
+        # features). If any marker below disappears from the installed
+        # venv, a cache reseed silently reverted the fix and the shipped
+        # ISO hides the feature all over again.
+        #
+        # F-68 (P1): GUI + RPA admitted into F-35 SUPPORTED_ACTIONS floor.
+        # Without this, main.py rewrites every gui.click / rpa.execute_workflow
+        # emission to system.unsupported before dispatch — same failure as
+        # v6.9 shipped for weeks.
+        "F68-floor:_intent_corpus_supported.py:gui.click"
+        "F68-rpa:_intent_corpus_supported.py:rpa.execute_workflow"
+        # F-69 (P2): RpaConfig.enabled default flipped to True. Marker
+        # anchors on the comment naming the fix so a partial revert that
+        # keeps enabled=True elsewhere but flips RpaConfig back to False
+        # still gets caught (the comment is the anchor for the RpaConfig
+        # block specifically).
+        "F69-rpa-on:config.py:v6.10 P2 (F-69)"
+        # F-71 (P3): demo.uptime registered in tool_catalogue.yaml +
+        # TOOL_CATEGORIES + regenerated auto-artifacts. If the yaml row
+        # disappears, so does the frozenset entry — this catches both.
+        "F71-demo:_intent_corpus_supported.py:demo.uptime"
+        "F71-yaml:tool_catalogue.yaml:name: demo.uptime"
+        # F-73 (P6): full GuiConfig threading into GuiAgent + retention
+        # keyword into ScreenshotManager. Two markers because the fix
+        # touches two files — either revert re-hides a subset of the knobs.
+        "F73-thread:../gui_agent/agent.py:self._a11y_timeout_ms"
+        "F73-retention:../gui_agent/screenshots.py:retention: int = _MAX_RETAINED"
+        # F-70 (P4) + F-72 (P5) are ISO-artifact fixes (xfce4-panel.xml +
+        # build.sh install lines), not venv fixes. Their anti-hide guards
+        # (cx-distro/tests/test_panel_launchers.sh + test_installed_binaries.sh)
+        # run at build time via ci.sh — not through the F-51 venv marker
+        # loop. See ci.sh G14 for the pre-ISO check.
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do
