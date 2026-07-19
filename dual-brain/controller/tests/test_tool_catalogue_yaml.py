@@ -145,9 +145,13 @@ def test_generated_mcpd_tools_agrees_with_yaml(entries: list[dict]) -> None:
 
 def test_generated_supported_actions_agrees_with_yaml(entries: list[dict]) -> None:
     """_intent_corpus_supported.SUPPORTED_ACTIONS must equal YAML entries
-    whose provided_by is mcpd, controller, or manifest. GUI + RPA entries
-    are excluded because QB doesn't emit them directly (see generator
-    docstring + main.py::_SUPPORTED_ACTIONS parity)."""
+    whose provided_by is one of the QB-emittable providers: mcpd,
+    controller (meta), manifest (Layer 2A), gui_agent, or rpa_bridge.
+
+    v6.10 Track P1 (F-68 closure): GUI + RPA were previously excluded
+    on the stale assumption that QB never emitted them directly. Track K
+    un-hid them in the QB catalogue block; this drift check now
+    enforces the F-35 floor mirrors that admission."""
     assert _SUPPORTED_PY.exists(), (
         f"{_SUPPORTED_PY} missing — run the emit script"
     )
@@ -155,7 +159,9 @@ def test_generated_supported_actions_agrees_with_yaml(entries: list[dict]) -> No
 
     yaml_qb_emittable = {
         e["name"] for e in entries
-        if e.get("provided_by") in {"mcpd", "controller", "manifest"}
+        if e.get("provided_by") in {
+            "mcpd", "controller", "manifest", "gui_agent", "rpa_bridge",
+        }
     }
     if set(SUPPORTED_ACTIONS) != yaml_qb_emittable:
         diff = set(SUPPORTED_ACTIONS) ^ yaml_qb_emittable
@@ -213,6 +219,36 @@ def test_catalogue_block_has_gui_and_rpa_sections(entries: list[dict]) -> None:
                 f"system.unsupported for every {label} query if this "
                 f"drift lands. Regenerate via `emit --from-categories`."
             )
+
+
+def test_supported_actions_includes_gui_and_rpa(entries: list[dict]) -> None:
+    """v6.10 Track P1 — F-68 closure: SUPPORTED_ACTIONS is the F-35 floor
+    read by ``main.py`` before dispatch. If gui_agent / rpa_bridge get
+    filtered out here, every legitimate ``gui.click`` / ``rpa.execute_workflow``
+    emission gets rewritten to ``system.unsupported`` before the dispatcher
+    sees it — Track K's user-visible prompt work becomes a dead end.
+
+    Sister guard to ``test_catalogue_block_has_gui_and_rpa_sections``:
+    prompt-side visibility without floor-side admission is exactly the
+    F-68 half-fix state we shipped in v6.9. Both must pass for a working
+    GUI/RPA path."""
+    from controller._intent_corpus_supported import SUPPORTED_ACTIONS
+
+    yaml_gui_rpa = {
+        e["name"] for e in entries
+        if e.get("provided_by") in {"gui_agent", "rpa_bridge"}
+    }
+    for tool in yaml_gui_rpa:
+        assert tool in SUPPORTED_ACTIONS, (
+            f"F-68 regression at F-35 floor: {tool!r} is registered in "
+            "tool_catalogue.yaml but missing from SUPPORTED_ACTIONS. "
+            "This means main.py will rewrite every QB emission of "
+            f"{tool!r} to system.unsupported before dispatch — the "
+            "dispatcher (which is alive since Phase 6T) never fires. "
+            "Regenerate via `python3 scripts/export_mcpd_catalogue.py "
+            "emit --from-categories` and ensure _emit_supported_actions() "
+            "includes gui_agent + rpa_bridge in its provided_by filter."
+        )
 
 
 def test_generated_catalogue_block_has_f35_wording(entries: list[dict]) -> None:
