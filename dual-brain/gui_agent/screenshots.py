@@ -47,9 +47,25 @@ class ScreenshotManager:
     Uses lazy GObject import so tests run without D-Bus.
     """
 
-    def __init__(self, scratch_dir: str | Path) -> None:
+    # Class-level default so callers that construct via
+    # ``ScreenshotManager.__new__`` (some unit tests bypass __init__)
+    # still get a sensible retention cap.
+    _retention: int = _MAX_RETAINED
+
+    def __init__(
+        self,
+        scratch_dir: str | Path,
+        *,
+        retention: int = _MAX_RETAINED,
+    ) -> None:
+        # v6.10 P6 (F-73): accept configurable retention so the TOML
+        # knob `gui.screenshot_retention` actually reaches the eviction
+        # loop. Prior to this the constant _MAX_RETAINED (50) was the
+        # only cap; setting `gui.screenshot_retention = 10` in
+        # config.toml did nothing.
         self._scratch = Path(scratch_dir)
         self._scratch.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self._retention = max(1, int(retention))
         self._dbus_available = False
         self._bus = None
         self._portal_proxy = None
@@ -251,7 +267,7 @@ class ScreenshotManager:
             + list(self._scratch.glob("screenshot_*.jpg")),
             key=lambda f: f.stat().st_mtime,
         )
-        while len(files) >= _MAX_RETAINED:
+        while len(files) >= self._retention:
             oldest = files.pop(0)
             try:
                 oldest.unlink()

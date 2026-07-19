@@ -98,10 +98,34 @@ class GuiAgent:
         scratch_dir: str | Path = _DEFAULT_SCRATCH_DIR,
         *,
         prefer_app_api: bool = True,
+        config: Any = None,
     ) -> None:
+        # v6.10 P6 (F-73): accept the whole GuiConfig so timeouts +
+        # retention + prefer_app_api are honored from user config. Prior
+        # to this the Controller only threaded ``scratch_dir``; TOML
+        # knobs `gui.a11y_timeout_ms`, `gui.screenshot_retention`, and
+        # even `gui.prefer_app_api` were dead — the Agent constructor
+        # never saw them. When ``config`` is provided, its fields
+        # override the legacy positional/keyword args. When absent, the
+        # legacy defaults kick in (backward compat for tests + callers
+        # that don't have a GuiConfig handy).
+        if config is not None:
+            scratch_dir = getattr(config, "screenshot_dir", scratch_dir)
+            prefer_app_api = getattr(config, "prefer_app_api", prefer_app_api)
+            self._screenshot_retention = int(
+                getattr(config, "screenshot_retention", 50)
+            )
+            self._a11y_timeout_ms = int(
+                getattr(config, "a11y_timeout_ms", 5000)
+            )
+        else:
+            self._screenshot_retention = 50
+            self._a11y_timeout_ms = 5000
         self._scratch = Path(scratch_dir)
         self._atspi = AtSpiClient()
-        self._screenshots = ScreenshotManager(self._scratch)
+        self._screenshots = ScreenshotManager(
+            self._scratch, retention=self._screenshot_retention,
+        )
         self._prefer_app_api = prefer_app_api
 
     def handle_request(self, method: str, params: dict) -> dict:

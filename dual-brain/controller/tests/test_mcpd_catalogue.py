@@ -20,7 +20,7 @@ from controller._mcpd_tools import (
 # manifest tool nav.cd alongside the 22 mcpd tools so the risk classifier
 # resolves nav.cd as Tier 0 instead of BP-5 escalating to Tier 3. Matches
 # EXPECTED_TOOL_COUNT in export_mcpd_catalogue.py.
-EXPECTED_TOOL_COUNT = 23
+EXPECTED_TOOL_COUNT = 24  # v6.10 P3: +demo.uptime (Layer 2B pilot).
 
 # Names that the pre-M2.0 risk_classifier referenced but mcpd does NOT ship.
 # Asserted absent so a future regression can't silently reintroduce them.

@@ -1077,9 +1077,12 @@ class Controller:
 
                 try:
                     from gui_agent.agent import GuiAgent
-                    gui = GuiAgent(scratch_dir=getattr(
-                        gui_cfg, "screenshot_dir", "/tmp/icebreaker-gui"
-                    ) if gui_cfg else "/tmp/icebreaker-gui")
+                    # v6.10 P6 (F-73): pass the whole GuiConfig so
+                    # retention + prefer_app_api + a11y_timeout_ms
+                    # actually reach the Agent (they were dead knobs
+                    # before). Backward compat: legacy scratch_dir path
+                    # still works when gui_cfg is None.
+                    gui = GuiAgent(config=gui_cfg) if gui_cfg else GuiAgent()
                     gui_result = gui.handle_request(
                         tool_name, tool_call.get("params", {}),
                     )
@@ -1953,9 +1956,9 @@ class Controller:
                 )
             try:
                 from gui_agent.agent import GuiAgent
-                gui = GuiAgent(scratch_dir=getattr(
-                    gui_cfg, "screenshot_dir", "/tmp/icebreaker-gui"
-                ) if gui_cfg else "/tmp/icebreaker-gui")
+                # v6.10 P6 (F-73): full-config path — non-streaming call
+                # site mirror of the streaming path above.
+                gui = GuiAgent(config=gui_cfg) if gui_cfg else GuiAgent()
                 gui_result = gui.handle_request(
                     tool_name, tool_call.get("params", {}),
                 )

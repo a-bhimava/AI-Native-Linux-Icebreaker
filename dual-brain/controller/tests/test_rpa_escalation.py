@@ -64,7 +64,11 @@ class TestRpaEvent:
 class TestRpaConfig:
     def test_defaults(self):
         cfg = RpaConfig()
-        assert cfg.enabled is False
+        # v6.10 P2 (F-69): flipped to True. See test_config.py
+        # test_rpa_config_default_enabled for the anti-hide guard +
+        # rationale. Sandbox is safe-by-design so shipping off-by-default
+        # hid the whole Phase 6T RPA milestone with no security benefit.
+        assert cfg.enabled is True
         assert cfg.timeout_seconds == 30
         assert cfg.max_keywords_per_workflow == 20
         assert cfg.screenshot_every_step is True
