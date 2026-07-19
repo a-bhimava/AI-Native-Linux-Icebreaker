@@ -55,15 +55,23 @@ def test_tier0_read_only(action):
 
 # ── Tier 1: fs.write inside $HOME ────────────────────────────────────────────
 
-def test_fs_write_in_home_is_tier1():
-    r = classify(_make_intent("fs.write", f"{HOME}/notes.md"))
+# These pin HOME to a neutral path instead of using the invoking user's:
+# under root, expanduser("~") is /root, which the classifier correctly
+# tiers HIGH as a protected system path — the test must not depend on
+# who runs the suite. (_get_user_home resolves at call time; see the
+# resolution test below.)
+
+def test_fs_write_in_home_is_tier1(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/testuser")
+    r = classify(_make_intent("fs.write", "/home/testuser/notes.md"))
     assert r.tier == Tier.LOW
     assert r.auto_execute
     assert not r.requires_hitl
 
 
-def test_fs_write_deep_in_home_is_tier1():
-    r = classify(_make_intent("fs.write", f"{HOME}/projects/icebreaker/scratch"))
+def test_fs_write_deep_in_home_is_tier1(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/testuser")
+    r = classify(_make_intent("fs.write", "/home/testuser/projects/icebreaker/scratch"))
     assert r.tier == Tier.LOW
 
 
