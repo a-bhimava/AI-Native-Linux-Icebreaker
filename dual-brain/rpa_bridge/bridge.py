@@ -49,6 +49,7 @@ from .protocol import (
 from .workflow_gen import (
     WorkflowGenerator,
     WorkflowError,
+    READ_ONLY_KEYWORDS,
     insert_auto_waits,
 )
 from .image_match import ImageMatcher, ImageMatchError
@@ -91,7 +92,15 @@ class WorkflowResult:
 
 
 class _WorkflowTimeout(Exception):
-    """Internal: raised by SIGALRM handler when workflow exceeds timeout."""
+    """Internal: raised by SIGALRM handler when workflow exceeds timeout.
+
+    ``ROBOT_EXIT_ON_FAILURE`` makes Robot Framework abort the whole suite
+    when this is raised inside a keyword (single-suite execution path) —
+    ordinary keyword failures still continue to the next step, but a
+    timeout hard-stops the run.
+    """
+
+    ROBOT_EXIT_ON_FAILURE = True
 
 
 def _scrubbed_rpa_env(
@@ -173,6 +182,7 @@ class RpaBridge:
         workflow_name = params.get("workflow_name", "workflow")
         timeout_seconds = params.get("timeout_seconds", _DEFAULT_TIMEOUT)
         auto_wait_seconds = float(params.get("auto_wait_seconds", 0.0))
+        screenshot_policy = params.get("screenshot_policy", "all")
 
         try:
             validated = self._workflow_gen.validate_keywords(keywords)
@@ -217,52 +227,20 @@ class RpaBridge:
         signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
 
         try:
-            for i, (name, args) in enumerate(validated):
-                kw_start = time.monotonic()
-                status = "pass"
-                error = ""
-
-                try:
-                    self._execute_single_keyword(name, args)
-                except _WorkflowTimeout:
-                    elapsed_ms = (time.monotonic() - kw_start) * 1000
-                    keyword_results.append(KeywordResult(
-                        index=i, name=name, status="timeout",
-                        elapsed_ms=elapsed_ms, screenshot_hash="",
-                        error="workflow timeout exceeded",
-                    ))
-                    break
-                except Exception as exc:  # noqa: BLE001
-                    # F-53 Scope A.P3: per-keyword execution failure —
-                    # `error = str(exc)` propagates the reason into the
-                    # KeywordResult that both the audit log and the UI
-                    # see. Nothing swallowed.
-                    status = "fail"
-                    error = str(exc)
-
-                elapsed_ms = (time.monotonic() - kw_start) * 1000
-
-                screenshot_hash = self._capture_step_screenshot()
-
-                kr = KeywordResult(
-                    index=i, name=name, status=status,
-                    elapsed_ms=elapsed_ms,
-                    screenshot_hash=screenshot_hash,
-                    error=error,
+            if self._robot_available():
+                self._run_workflow_suite(
+                    validated, keyword_results,
+                    start_time=start_time,
+                    timeout_seconds=timeout_seconds,
+                    screenshot_policy=screenshot_policy,
                 )
-                keyword_results.append(kr)
-
-                remaining = max(0, (timeout_seconds - (time.monotonic() - start_time)) * 1000)
-                self._emit_progress(
-                    keyword_index=i,
-                    keyword_total=total,
-                    keyword_name=name,
-                    status=status,
-                    elapsed_ms=elapsed_ms,
-                    screenshot_hash=screenshot_hash,
-                    timeout_remaining_ms=remaining,
+            else:
+                self._run_workflow_noop(
+                    validated, keyword_results,
+                    start_time=start_time,
+                    timeout_seconds=timeout_seconds,
+                    screenshot_policy=screenshot_policy,
                 )
-
         except _WorkflowTimeout:
             self._timed_out = True
         finally:
@@ -291,21 +269,154 @@ class RpaBridge:
             ],
         }
 
-    def _execute_single_keyword(self, name: str, args: list[str]) -> None:
-        """Execute a single Robot Framework keyword.
-
-        Uses ``robot.api.TestSuite`` for execution. On macOS / systems
-        without Robot Framework, this is a no-op (tests use the fake shim).
-        """
+    @staticmethod
+    def _robot_available() -> bool:
         try:
-            from robot.api import TestSuite
+            import robot  # noqa: F401
         except ImportError:
-            return
+            return False
+        return True
 
-        suite = TestSuite(name="single_keyword")
-        test = suite.tests.create(name="step")
-        test.body.create_keyword(name=name, args=args)
-        suite.run(output=None, log=None, report=None)
+    def _run_workflow_suite(
+        self,
+        validated: list[tuple[str, list[str]]],
+        keyword_results: list[KeywordResult],
+        *,
+        start_time: float,
+        timeout_seconds: float,
+        screenshot_policy: str,
+    ) -> None:
+        """Single-suite execution: one TestSuite, one test per keyword.
+
+        One ``suite.run()`` pays Robot Framework startup once (the old code
+        built and ran a fresh suite PER keyword) and lets GLOBAL/SUITE-scope
+        library instances persist across keywords. One test per keyword
+        preserves the old continue-on-failure semantics: a failing keyword
+        marks its own test failed and execution moves to the next test.
+        A listener (v3 API) records per-keyword telemetry; a workflow
+        timeout aborts the whole suite via ``ROBOT_EXIT_ON_FAILURE``.
+        """
+        from robot.api import TestSuite
+
+        suite = TestSuite(name="icebreaker_workflow")
+        suite.resource.imports.library("SeleniumLibrary")
+        for i, (name, args) in enumerate(validated):
+            test = suite.tests.create(name=f"step_{i:03d}")
+            test.body.create_keyword(name=name, args=args)
+
+        bridge = self
+
+        class _StepListener:
+            ROBOT_LISTENER_API_VERSION = 3
+
+            def __init__(self) -> None:
+                self._kw_start = 0.0
+                self._index = 0
+
+            def start_test(self, data: Any, result: Any) -> None:
+                self._kw_start = time.monotonic()
+
+            def end_test(self, data: Any, result: Any) -> None:
+                i = self._index
+                self._index += 1
+                if i >= len(validated):
+                    return
+                name, _args = validated[i]
+
+                if bridge._timed_out:
+                    # SIGALRM fired inside this keyword. Record one timeout
+                    # row for the in-flight step; further end_test calls
+                    # (exit-on-failure auto-fails remaining tests) no-op.
+                    if not any(kr.status == "timeout" for kr in keyword_results):
+                        keyword_results.append(KeywordResult(
+                            index=i, name=name, status="timeout",
+                            elapsed_ms=(time.monotonic() - self._kw_start) * 1000,
+                            screenshot_hash="",
+                            error="workflow timeout exceeded",
+                        ))
+                    return
+
+                status = "pass" if result.passed else "fail"
+                error = "" if result.passed else (result.message or "keyword failed")
+                bridge._record_step(
+                    keyword_results,
+                    index=i, name=name, status=status, error=error,
+                    kw_start=self._kw_start, start_time=start_time,
+                    timeout_seconds=timeout_seconds,
+                    total=len(validated),
+                    screenshot_policy=screenshot_policy,
+                )
+
+        suite.run(
+            output=None, log=None, report=None, listener=_StepListener(),
+        )
+
+    def _run_workflow_noop(
+        self,
+        validated: list[tuple[str, list[str]]],
+        keyword_results: list[KeywordResult],
+        *,
+        start_time: float,
+        timeout_seconds: float,
+        screenshot_policy: str,
+    ) -> None:
+        """Per-keyword no-op loop for hosts without Robot Framework.
+
+        Keeps dev/macOS behavior identical to before: keywords "pass"
+        without doing anything, telemetry (screenshots, progress) still
+        flows so unit tests exercise the full recording path.
+        """
+        for i, (name, _args) in enumerate(validated):
+            kw_start = time.monotonic()
+            self._record_step(
+                keyword_results,
+                index=i, name=name, status="pass", error="",
+                kw_start=kw_start, start_time=start_time,
+                timeout_seconds=timeout_seconds,
+                total=len(validated),
+                screenshot_policy=screenshot_policy,
+            )
+
+    def _record_step(
+        self,
+        keyword_results: list[KeywordResult],
+        *,
+        index: int,
+        name: str,
+        status: str,
+        error: str,
+        kw_start: float,
+        start_time: float,
+        timeout_seconds: float,
+        total: int,
+        screenshot_policy: str,
+    ) -> None:
+        """Record one keyword's telemetry: screenshot + progress."""
+        elapsed_ms = (time.monotonic() - kw_start) * 1000
+
+        capture = screenshot_policy == "all" or (
+            screenshot_policy == "state_changing"
+            and name not in READ_ONLY_KEYWORDS
+        )
+        screenshot_hash = self._capture_step_screenshot() if capture else ""
+
+        keyword_results.append(KeywordResult(
+            index=index, name=name, status=status,
+            elapsed_ms=elapsed_ms,
+            screenshot_hash=screenshot_hash,
+            error=error,
+        ))
+
+        remaining = max(0, (timeout_seconds - (time.monotonic() - start_time)) * 1000)
+        self._emit_progress(
+            keyword_index=index,
+            keyword_total=total,
+            keyword_name=name,
+            status=status,
+            elapsed_ms=elapsed_ms,
+            screenshot_hash=screenshot_hash,
+            timeout_remaining_ms=remaining,
+        )
 
     def _capture_step_screenshot(self) -> str:
         """Capture a screenshot after a keyword step, return SHA-256 hash.
