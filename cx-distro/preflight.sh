@@ -224,15 +224,15 @@ fi
 if [ "$(hostname 2>/dev/null)" = "$VM_NAME" ]; then
     echo ""
     echo "── 8. Running on VM directly — local disk/tools checks ──"
-    # Disk
-    free_gb="$(df -BG /home/aditya 2>/dev/null | awk 'NR==2 {print $4}' | tr -d G)"
+    # Disk — probe $HOME (portable across build VMs / user accounts)
+    free_gb="$(df -BG "$HOME" 2>/dev/null | awk 'NR==2 {print $4}' | tr -d G)"
     if [ -n "$free_gb" ] && [ "$free_gb" -ge 40 ]; then
         pass "VM has ${free_gb}G free (>= 40G required for dual-arch)"
     elif [ -n "$free_gb" ] && [ "$free_gb" -ge 20 ]; then
         pass "VM has ${free_gb}G free (>= 20G — amd64-only OK)"
     else
         fail "VM has only ${free_gb:-?}G free" \
-             "clean up: sudo rm -rf /home/aditya/*.bak-* /home/aditya/icebreaker"
+             "clean up: sudo rm -rf ${HOME}/*.bak-* ${HOME}/icebreaker"
     fi
     # Docker + tmux — also probe /usr/bin directly so a stripped PATH
     # (e.g. under tmux non-login shell) doesn't produce a false negative.
@@ -246,11 +246,14 @@ if [ "$(hostname 2>/dev/null)" = "$VM_NAME" ]; then
     else
         fail "tmux missing" "apt install tmux"
     fi
-    # Model
-    if [ -f /home/aditya/models/run7_cot_q4km.gguf ]; then
-        pass "model at /home/aditya/models/run7_cot_q4km.gguf"
+    # Model — accept $HOME/models/ OR the in-tree ${REPO_ROOT}/models/
+    # so the build can be run from any user account.
+    if [ -f "$HOME/models/run7_cot_q4km.gguf" ]; then
+        pass "model at $HOME/models/run7_cot_q4km.gguf"
+    elif [ -f "${REPO_ROOT}/models/run7_cot_q4km.gguf" ]; then
+        pass "model at ${REPO_ROOT}/models/run7_cot_q4km.gguf"
     else
-        fail "model missing on VM" "copy run7_cot_q4km.gguf into /home/aditya/models/"
+        fail "model missing on VM" "copy run7_cot_q4km.gguf into $HOME/models/ or ${REPO_ROOT}/models/"
     fi
 elif [ "$SKIP_VM" -eq 0 ]; then
     echo ""
