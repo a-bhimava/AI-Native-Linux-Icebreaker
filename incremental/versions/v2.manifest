@@ -280,6 +280,42 @@ version_overlay() {
         # (cx-distro/tests/test_panel_launchers.sh + test_installed_binaries.sh)
         # run at build time via ci.sh — not through the F-51 venv marker
         # loop. See ci.sh G14 for the pre-ISO check.
+        # v6.11 (2026-07-20) — dormant AgentGraph regressions from Task #173.
+        # Task #173 (Bug C: enable AgentGraph by default) redirected the
+        # primary pipeline through agent_graph_nodes.py without porting
+        # four invariants that lived only in main.py::run_turn_streaming.
+        # Each marker below anchors one v6.11 fix. Cache reseed cannot
+        # ship v6.11 code without every anchor intact.
+        #
+        # F-32-recur (Fix #1): empty-target guard in AgentGraph planner.
+        # Without this, "what's in this folder" and similar ambiguous
+        # path-requiring queries hit mcpd's minLength=1 rejection with
+        # a cryptic 'shorter than 1 character' error. See F-32 (v6.3).
+        "F32-recur-agent:agent_graph_nodes.py:F-32"
+        # F-35-recur (Fix #2): system.unsupported short-circuit in
+        # AgentGraph planner. Without this, unsupported intents flow to
+        # verifier which fires rubric #1 with the confusing message
+        # 'tool_call.tool is missing, cannot match intent.action'. See
+        # F-35 (v6.4) — monolithic path used _emit_unsupported.
+        "F35-recur-agent:agent_graph_nodes.py:F-35"
+        # F-74 (NEW): bridge emits final TokenEvent before ResultEvent
+        # for terminal LEFT-pane rendering. Without this, successful
+        # tool_calls execute correctly but the pane shows only stale
+        # errors from prior turns. Terminal renders through the
+        # streaming _on_token_event handler which never fires for
+        # AgentGraph outcomes without this emission.
+        "F74-token-agent:agent_graph_bridge.py:F-74"
+        # F-49-recur (Fix #4): verifier retry via _should_retry_verifier
+        # in AgentGraph. Without this, single-shot verifier rejection is
+        # authoritative and legitimate writes are intermittently rejected
+        # on Gemini flake. See F-49 (v6.65).
+        "F49-recur-agent:agent_graph_nodes.py:_should_retry_verifier"
+        # F-43-recur (Fix #6): _normalize_server_owned_fields applied
+        # to EVERY plan step in AgentGraph planner (not just step 0).
+        # Without this, Task #148 multi-step plans carry QB's placeholder
+        # intent_id ('DO_NOT_EMIT') on step 2+ and fail validation. See
+        # F-43 (v6.6) / F-47b (v6.61).
+        "F43-recur-agent:agent_graph_nodes.py:_normalize_server_owned_fields"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do

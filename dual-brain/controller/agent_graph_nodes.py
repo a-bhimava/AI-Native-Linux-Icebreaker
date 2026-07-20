@@ -245,6 +245,19 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
                 "completed": True,
             }
 
+        # v6.11 Fix #6 (F-43/F-47b applied to ALL plan steps): the
+        # monolithic path calls _normalize_server_owned_fields on the
+        # intent to overwrite QB-emitted placeholder intent_id /
+        # schema_version / timestamp with authoritative server values.
+        # Task #148 introduced multi-step plans; Task #173 flipped
+        # agent_graph.enabled=True without porting the helper — so step
+        # 2+ carried placeholder intent_id ('DO_NOT_EMIT') and failed
+        # validation. Apply to every step (idempotent — safe on step 0
+        # too, giving F-43/F-47b coverage for the AgentGraph path).
+        from .main import _normalize_server_owned_fields
+        for step in plan:
+            _normalize_server_owned_fields(step)
+
         # Store the whole plan under a fresh plan_id. Also store step 0
         # under an intent_id so risk_classifier's per-step lookup (which
         # uses intent_id) finds it. Subsequent steps get looked up via
@@ -318,13 +331,28 @@ def verifier_node(collab: dict) -> Callable[[GraphState], dict]:
         # Verifier runs on the intent (v6.7 semantics) — for Task #146's
         # 1-step case we don't have a tool_call yet before Executor. So
         # we pass an empty tool_call: verifier votes on intent-shape only.
-        try:
-            vresult = collab["verifier"].verify(
+        #
+        # v6.11 Fix #4 (F-49-recur): monolithic path (main.py) retries
+        # once when `_should_retry_verifier(retry_mode, vresult)` returns
+        # True — this handles "verifier call failed" (network flake /
+        # LLM timeout / single-shot rejection) per config's retry_mode.
+        # Task #173 flipped agent_graph.enabled=True without porting the
+        # retry, so legitimate writes intermittently rejected on Gemini
+        # flake. Mirror the monolithic behaviour: single retry when the
+        # helper says so.
+        from .main import _should_retry_verifier
+        retry_mode = str(getattr(vcfg, "retry_mode", "on_call_failed_only") or "on_call_failed_only")
+
+        def _verify_once():
+            return collab["verifier"].verify(
                 intent=intent,
                 tool_call={},
                 qb=collab["qb"],
                 verifier_system=collab["prompts"].get("qb_verifier"),
             )
+
+        try:
+            vresult = _verify_once()
         except Exception as exc:  # noqa: BLE001
             return {
                 "tool_call_valid": False,
@@ -332,6 +360,18 @@ def verifier_node(collab: dict) -> Callable[[GraphState], dict]:
                 "error_reason": f"{type(exc).__name__}: {exc}"[:400],
                 "completed": True,
             }
+        # F-49-recur: single retry (max 1) if the retry_mode + result agree.
+        if (not getattr(vresult, "verified", False)
+                and _should_retry_verifier(retry_mode, vresult)):
+            try:
+                vresult = _verify_once()
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "tool_call_valid": False,
+                    "error_kind": "verifier",
+                    "error_reason": f"{type(exc).__name__}: {exc}"[:400],
+                    "completed": True,
+                }
         if not getattr(vresult, "verified", False):
             return {
                 "tool_call_valid": False,
