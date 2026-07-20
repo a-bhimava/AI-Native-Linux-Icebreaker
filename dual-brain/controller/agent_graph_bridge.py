@@ -220,7 +220,7 @@ def translate_outcome_to_events(
     yield. Emits ProgressEvent+CotEvent per node traversed + one
     terminal ResultEvent, plus an ErrorEvent when error_kind is set.
     """
-    from .turn_events import ErrorEvent, ResultEvent
+    from .turn_events import ErrorEvent, ResultEvent, TokenEvent
 
     events: list[Any] = []
     for node in _traversed_nodes_from_outcome(outcome):
@@ -234,6 +234,23 @@ def translate_outcome_to_events(
             error_type=str(outcome["error_kind"]),
             message=str(outcome.get("error_reason") or ""),
             cancelled_at_step="",
+        ))
+
+    # v6.11 Fix #3 (F-74): emit a final TokenEvent so the terminal's
+    # LEFT-pane RichLog renders the responder's output through the
+    # existing streaming render path (terminal/app.py::_on_token_event).
+    # The monolithic pipeline emits one TokenEvent per token during
+    # qb_summarize; Task #173 flipped agent_graph.enabled=True without
+    # a corresponding TokenEvent emission, and the terminal LEFT pane
+    # stayed empty on every successful turn even though ResultEvent
+    # carried the output correctly. Only emit when we have a non-empty
+    # output AND there was no error (error path renders via ErrorEvent).
+    outcome_output = str(outcome.get("output", "") or "")
+    if outcome_output and not outcome.get("error_kind"):
+        events.append(TokenEvent(
+            token=outcome_output,
+            accumulated=outcome_output,
+            final=True,
         ))
 
     result = _outcome_to_result(outcome, duration_ms, backend)
