@@ -191,6 +191,31 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
                 "completed": True,
             }
 
+        # v6.11 Fix #1 (F-32 recurrence guard): before storing the plan,
+        # short-circuit path-requiring actions with empty/"/" target. The
+        # monolithic path enforces this at main.py:623-643; Task #173
+        # flipped agent_graph.enabled=True without porting the guard, so
+        # empty target flowed through PB into mcpd which rejected with a
+        # cryptic "Invalid params: \"\" is shorter than 1 character at
+        # /path" JSON Schema error. Reuse main.py's _PATH_REQUIRING_ACTIONS
+        # (no forking — drift protection).
+        from .main import _PATH_REQUIRING_ACTIONS
+        for step_idx, step in enumerate(plan):
+            step_action = str(step.get("action", "") or "")
+            step_target = str(step.get("target", "") or "")
+            if step_action in _PATH_REQUIRING_ACTIONS and step_target in ("", "/"):
+                return {
+                    "intent_valid": False,
+                    "error_kind": "schema",
+                    "error_reason": (
+                        f"F-32: step {step_idx+1}/{len(plan)} ({step_action}) "
+                        f"has ambiguous target {step_target!r}. Query too "
+                        f"ambiguous to route safely — try naming a specific "
+                        f"path (e.g. '/home/icebreaker/Downloads')."
+                    )[:400],
+                    "completed": True,
+                }
+
         # Store the whole plan under a fresh plan_id. Also store step 0
         # under an intent_id so risk_classifier's per-step lookup (which
         # uses intent_id) finds it. Subsequent steps get looked up via
