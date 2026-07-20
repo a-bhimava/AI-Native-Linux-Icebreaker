@@ -216,6 +216,35 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
                     "completed": True,
                 }
 
+        # v6.11 Fix #2 (F-35 short-circuit): if QB emitted the
+        # `system.unsupported` landing pad, do NOT proceed to verifier /
+        # executor / mcpd_dispatcher. main.py's _emit_unsupported yields
+        # a friendly card and returns; the AgentGraph equivalent is to
+        # mark completed=True + populate output so responder_node has
+        # something to render and downstream nodes short-circuit via
+        # after_planner routing. Without this, the intent flowed to
+        # verifier which saw empty tool_call.tool and produced the
+        # confusing error "tool_call.tool is missing, cannot match
+        # intent.action 'system.unsupported'" (qb_verifier.txt:22 rubric).
+        if plan[0].get("action") == "system.unsupported":
+            unsupported_params = plan[0].get("params", {}) or {}
+            requested = str(unsupported_params.get("requested_intent", "") or "")
+            suggestion = str(unsupported_params.get("suggestion", "") or "")
+            msg_lines = [
+                "This kind of request isn't supported yet.",
+            ]
+            if requested:
+                msg_lines.append(f"You asked: {requested}")
+            if suggestion:
+                msg_lines.append(f"Suggestion: {suggestion}")
+            return {
+                "intent_valid": False,
+                "error_kind": "unsupported",
+                "error_reason": "F-35: system.unsupported short-circuit",
+                "output": "\n".join(msg_lines),
+                "completed": True,
+            }
+
         # Store the whole plan under a fresh plan_id. Also store step 0
         # under an intent_id so risk_classifier's per-step lookup (which
         # uses intent_id) finds it. Subsequent steps get looked up via
