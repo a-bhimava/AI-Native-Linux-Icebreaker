@@ -42,7 +42,10 @@ while [ $# -gt 0 ]; do
 done
 # LABEL defaults to plain vN when not overridden (backwards-compatible).
 [ -z "$LABEL" ] && LABEL="v${VN}"
-[[ "$LABEL" =~ ^v[0-9]+(\.[0-9]+)?$ ]] || die "--label must match ^v[0-9]+(\.[0-9]+)?$, got: $LABEL"
+# Widened 2026-07-20 (v6.10b build): accept revision suffixes so patch
+# ISOs on top of a shipped release don't need a spurious minor bump.
+# Grammar: v<N>[.<M>[.<P>]][<letter>] — v6, v6.10, v6.10.1, v6.10b.
+[[ "$LABEL" =~ ^v[0-9]+(\.[0-9]+){0,2}[a-z]?$ ]] || die "--label must match ^v[0-9]+(\.[0-9]+){0,2}[a-z]?$, got: $LABEL"
 
 # V6.6: source arch config (ARCH, GRUB_FORMAT, EFI_BOOT_NAME, APT_MIRROR,
 # LLAMA_BUILD_DIR, BOOT_MODE, etc.). Every downstream reference to those
@@ -161,7 +164,11 @@ OUT_DIR="${BUILD_DIR}/out"
 # rebuild-v67.sh Step 5 then FATAL'd on missing `v6.10-amd64.iso`.
 # Widened the second alternation to cover `v6.<multi-digit-minor>`
 # (v6.10, v6.11, v6.99...) so all v6.6+ get the arch suffix.
-if [[ "$LABEL" =~ ^v6\.[6-9]$ ]] || [[ "$LABEL" =~ ^v6\.[1-9][0-9]+$ ]] || [[ "$LABEL" =~ ^v[7-9] ]] || [ "$ARCH" != "amd64" ]; then
+# v6.10b build fix (2026-07-20): `^v6\.[1-9][0-9]+$` didn't match
+# `v6.10b` (trailing letter suffix). Widened both v6 alternations to
+# accept an optional `[a-z]?` suffix so revision ISOs (v6.10b, v6.10c...)
+# get the arch suffix too.
+if [[ "$LABEL" =~ ^v6\.[6-9][a-z]?$ ]] || [[ "$LABEL" =~ ^v6\.[1-9][0-9]+[a-z]?$ ]] || [[ "$LABEL" =~ ^v[7-9] ]] || [ "$ARCH" != "amd64" ]; then
     ISO_FILE="${OUT_DIR}/${LABEL}-${ARCH}.iso"
 else
     ISO_FILE="${OUT_DIR}/${LABEL}.iso"
