@@ -34,6 +34,20 @@ from .hitl import Decision, HitlDisplayData
 from .risk_classifier import Tier
 
 
+# v6.12 Fix F (F-86 2026-07-21): error_kinds that are semantically NOT
+# errors — they're controlled short-circuits with valid user-facing text.
+# For these, the bridge streams the friendly output as if success and
+# skips the ErrorEvent that would drive daemon.py::make_error → ib_run.py
+# '[error]' rendering. Hard errors (planner/pb/mcpd/verifier/internal)
+# still get ErrorEvent because the LEFT pane genuinely can't render what
+# went wrong without operator intervention.
+#   - "unsupported": F-35 catalogue landing pad. state.output has the
+#     friendly "This kind of request isn't supported yet" card.
+#   - "schema":      F-32 ambiguous-target reject. state.output populated
+#     by planner_node in v6.12 Fix F so this behaves symmetric to F-35.
+_SOFT_ERROR_KINDS: frozenset[str] = frozenset({"unsupported", "schema"})
+
+
 # Named nodes in the AgentGraph pipeline (mirrors agent_graph.py::_build_graph).
 # Each is surfaced as a ProgressEvent + CotEvent pair so the companion
 # panel stays populated when the flag is on.
@@ -85,10 +99,33 @@ def _outcome_to_result(outcome: dict, duration_ms: float, backend: str) -> Any:
             backend=backend,
             duration_ms=duration_ms,
         )
+    error_kind = outcome.get("error_kind") or ""
+    # v6.12 Fix F (F-86): soft outcomes get a success=True TurnResult
+    # with their friendly text, but track the specific Outcome enum so
+    # audit consumers can still filter by outcome=unsupported /
+    # outcome=schema_rejected. From the shell trigger's perspective the
+    # user asked a coherent question and got a coherent answer — no red
+    # [error] rendering.
+    if error_kind in _SOFT_ERROR_KINDS:
+        soft_enum = {
+            "unsupported": Outcome.UNSUPPORTED,
+            "schema":      Outcome.SCHEMA_REJECTED,
+        }[error_kind]
+        return TurnResult(
+            success=True,
+            output=str(
+                outcome.get("output", "")
+                or outcome.get("error_reason", "")
+                or ""
+            ),
+            outcome=soft_enum,
+            tier=int(outcome.get("tier", 0) or 0),
+            backend=backend,
+            duration_ms=duration_ms,
+        )
     # error / paused-but-terminated / unknown → map to the closest
     # Outcome. Paused should never reach here (the caller loops), so
     # we bucket it as an internal error if we ever see it terminal.
-    error_kind = outcome.get("error_kind") or ""
     reason = outcome.get("error_reason") or f"agent_graph terminal state: {kind}"
     outcome_enum = {
         "planner":  Outcome.BRAIN_ERROR,
@@ -280,9 +317,13 @@ def translate_outcome_to_events(
 
     duration_ms = (time.monotonic() - t0) * 1000
 
-    if outcome.get("error_kind"):
+    # v6.12 Fix F (F-86): soft outcomes carry valid user-facing text in
+    # state["output"] — don't emit ErrorEvent for them or the shell trigger
+    # renders their friendly card as red [error] via daemon.py::make_error.
+    error_kind = outcome.get("error_kind") or ""
+    if error_kind and error_kind not in _SOFT_ERROR_KINDS:
         events.append(ErrorEvent(
-            error_type=str(outcome["error_kind"]),
+            error_type=str(error_kind),
             message=str(outcome.get("error_reason") or ""),
             cancelled_at_step="",
         ))
@@ -297,7 +338,12 @@ def translate_outcome_to_events(
     # carried the output correctly. Only emit when we have a non-empty
     # output AND there was no error (error path renders via ErrorEvent).
     outcome_output = str(outcome.get("output", "") or "")
-    if outcome_output and not outcome.get("error_kind"):
+    # v6.12 Fix F: soft outcomes (unsupported, schema) DO stream their
+    # friendly text through TokenEvent, same as success turns. Hard error
+    # kinds skip TokenEvent (their message is already in ErrorEvent
+    # emitted above).
+    _hard_error = error_kind and error_kind not in _SOFT_ERROR_KINDS
+    if outcome_output and not _hard_error:
         events.append(TokenEvent(
             token=outcome_output,
             accumulated=outcome_output,

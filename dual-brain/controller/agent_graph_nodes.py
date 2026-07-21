@@ -231,15 +231,22 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
             step_action = str(step.get("action", "") or "")
             step_target = str(step.get("target", "") or "")
             if step_action in _PATH_REQUIRING_ACTIONS and step_target in ("", "/"):
+                # v6.12 Fix F (F-86 2026-07-21): populate state["output"]
+                # so the bridge's TokenEvent path streams the friendly
+                # rejection to the terminal, matching the F-35 shape.
+                # Pre-v6.12 this branch set error_reason only and the
+                # user saw the bridge's `[error] F-32: ...` rendering.
+                _msg = (
+                    f"F-32: step {step_idx+1}/{len(plan)} ({step_action}) "
+                    f"has ambiguous target {step_target!r}. Query too "
+                    f"ambiguous to route safely — try naming a specific "
+                    f"path (e.g. '/home/icebreaker/Downloads')."
+                )[:400]
                 return _mark("planner", "failed", {
                     "intent_valid": False,
                     "error_kind": "schema",
-                    "error_reason": (
-                        f"F-32: step {step_idx+1}/{len(plan)} ({step_action}) "
-                        f"has ambiguous target {step_target!r}. Query too "
-                        f"ambiguous to route safely — try naming a specific "
-                        f"path (e.g. '/home/icebreaker/Downloads')."
-                    )[:400],
+                    "error_reason": _msg,
+                    "output": _msg,
                     "completed": True,
                 })
 
