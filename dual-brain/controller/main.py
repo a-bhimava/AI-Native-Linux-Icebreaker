@@ -338,6 +338,20 @@ def _build_qb_input(session: Any, user_input: str) -> str:
                 recent_turns_block = ""
         if recent_turns_block:
             render_kwargs["recent_turns_block"] = recent_turns_block
+        # v6.12 Fix D (F-84 2026-07-21): thread SessionState.session_cwd
+        # into the QB context. nav.cd (F-60 permanent fix, v6.9 Scope O
+        # Layer 2A) mutates session.session_cwd when the user navigates
+        # via "take me to X" — but ShellContext.render() only knew about
+        # the per-turn shell $PWD from the RPC. Result: nav.cd APPEARED
+        # to work (audit row + friendly message) but the next turn's
+        # "here" / "this folder" still resolved against the shell's
+        # unchanged $PWD. Live-verified broken on UTM Stage E: after
+        # `# take me to Downloads`, `# what's in this folder` fs.list'd
+        # /home/icebreaker, not Downloads. Passing override_cwd here
+        # closes that seam — see session.py::ShellContext.render.
+        session_cwd = str(getattr(session, "session_cwd", "") or "")
+        if session_cwd:
+            render_kwargs["override_cwd"] = session_cwd
         try:
             preamble = render(**render_kwargs) or ""
         except Exception:  # noqa: BLE001

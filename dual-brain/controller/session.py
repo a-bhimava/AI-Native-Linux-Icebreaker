@@ -71,6 +71,7 @@ class ShellContext:
         max_chars: int = _MAX_CONTEXT_LEN,
         max_recent: int = _MAX_RECENT,
         recent_turns_block: str = "",
+        override_cwd: str = "",
     ) -> str:
         """Return the XML preamble string. Empty when no fields are populated.
 
@@ -84,11 +85,21 @@ class ShellContext:
         tool result summaries. Caller (main.py::_build_qb_input) computes
         it from ``SessionState.render_recent_turns()``. Empty string
         disables it — old behavior preserved.
+
+        ``override_cwd`` (v6.12 Fix D 2026-07-21): when non-empty, use it
+        as the ``cwd`` field instead of ``self.cwd``. This wires
+        ``SessionState.session_cwd`` (mutated by the nav.cd manifest at
+        ``session.py:189-195``) into the QB prompt — nav.cd's whole
+        promise is that subsequent turns resolve "here" / bare filenames
+        against the last navigated dir, but without this override the
+        prompt always got the per-turn shell ``cwd`` from the RPC and
+        session_cwd was a dead field.
         """
         parts = ["<context>"]
         any_field = False
-        if self.cwd:
-            parts.append(f"cwd: {_clean(self.cwd, max_chars)}")
+        effective_cwd = override_cwd if override_cwd else self.cwd
+        if effective_cwd:
+            parts.append(f"cwd: {_clean(effective_cwd, max_chars)}")
             any_field = True
         if self.user:
             # user/hostname stay capped at 64 — they're identifiers, not
