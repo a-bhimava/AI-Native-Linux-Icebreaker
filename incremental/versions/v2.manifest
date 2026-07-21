@@ -316,6 +316,33 @@ version_overlay() {
         # intent_id ('DO_NOT_EMIT') on step 2+ and fail validation. See
         # F-43 (v6.6) / F-47b (v6.61).
         "F43-recur-agent:agent_graph_nodes.py:_normalize_server_owned_fields"
+        # v6.12 (2026-07-21) — INV-8 audit gap + CoT display accuracy.
+        # Task #173's flag flip left two invariants unported. F-82 was
+        # confirmed via on-guest lsof: controller-audit.log open, 0
+        # bytes, hours of turns processed. F-83 was the visible symptom
+        # of "quickly passes through CoT to executed but I don't get a
+        # result" — CoT panel rendered downstream nodes green even for
+        # planner short-circuits. Each marker below anchors one v6.12
+        # fix; reseed cannot ship v6.12 without every anchor intact.
+        #
+        # F-82 audit-writer-agent (Fix A part 1): terminal audit node
+        # exists in agent_graph_nodes.py. Without this, INV-8 is
+        # silently violated on every AgentGraph turn.
+        "Faudit-agent:agent_graph_nodes.py:audit_writer_node"
+        # F-82 audit-writer-wire (Fix A part 2): the node is actually
+        # wired as a terminal predecessor of END in the graph. Without
+        # this, the node exists but nothing routes through it.
+        "Faudit-wire:agent_graph.py:audit_writer"
+        # F-83 cot-visited-state (Fix B part 1): visited_nodes field
+        # declared in GraphState schema. Without this, nodes have
+        # nowhere to record their traversal state and the bridge falls
+        # back to inference (pre-v6.12 lie).
+        "FcotV-state:agent_graph_state.py:visited_nodes"
+        # F-83 cot-visited-bridge (Fix B part 2): bridge consumes the
+        # explicit visited_nodes list instead of inferring. Without
+        # this, even a correctly-populated state gets rendered through
+        # the old outcome-inference maps.
+        "FcotV-bridge:agent_graph_bridge.py:_visited_from_state"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do
