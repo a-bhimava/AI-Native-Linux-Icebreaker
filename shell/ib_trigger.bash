@@ -71,14 +71,27 @@ _ib_prompt_hook() {
     IB_CD_SIGNAL="$ib_cd_signal" \
         "${_IB_VENV_PYTHON}" "${_IB_RUN}" "$query" "$_IB_SOCK"
 
-    # Auto-cd on nav.cd success. Belt-and-braces validation on top of
-    # nav.cd's own daemon-side path validation: reject anything that is
-    # not an absolute path composed of safe characters. Read + delete.
+    # Auto-cd on nav.cd success. Blocklist (not allowlist) validation on
+    # top of nav.cd's own daemon-side path validation: reject only truly
+    # dangerous characters — shell metachars, NUL, control bytes. Allows
+    # spaces, unicode, parens, and every legitimate filename character
+    # so `# take me to My Documents` actually works. On rejection print
+    # a stderr diagnostic so the user knows why the cd didn't happen
+    # (D-3 ct-scan finding: silent rejection is worse than no auto-cd).
     if [ -n "$ib_cd_signal" ] && [ -s "$ib_cd_signal" ]; then
         local ib_cd_target
         ib_cd_target="$(head -c 4096 "$ib_cd_signal")"
-        if [[ "$ib_cd_target" =~ ^/[A-Za-z0-9_./~-]+$ ]] && [ -d "$ib_cd_target" ]; then
-            cd "$ib_cd_target" 2>/dev/null || true
+        # Reject: must start with /, must not contain any of ; & | ` $ < > * ? ! " ' \ or newline/tab/NUL
+        if [[ "$ib_cd_target" == /* ]] \
+                && ! [[ "$ib_cd_target" == *[$';&|`$<>*?!"'"'"'\\'$'\n\t\0']* ]]; then
+            if [ -d "$ib_cd_target" ]; then
+                cd "$ib_cd_target" 2>/dev/null || \
+                    printf '\033[1;33m[icebreaker]\033[0m cd %q failed (permission?)\n' "$ib_cd_target" >&2
+            else
+                printf '\033[1;33m[icebreaker]\033[0m cd target %q is not a directory\n' "$ib_cd_target" >&2
+            fi
+        else
+            printf '\033[1;33m[icebreaker]\033[0m cd target %q rejected (dangerous characters)\n' "$ib_cd_target" >&2
         fi
     fi
     [ -n "$ib_cd_signal" ] && rm -f "$ib_cd_signal"

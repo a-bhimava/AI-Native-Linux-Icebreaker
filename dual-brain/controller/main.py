@@ -349,6 +349,15 @@ def _build_qb_input(session: Any, user_input: str) -> str:
         # `# take me to Downloads`, `# what's in this folder` fs.list'd
         # /home/icebreaker, not Downloads. Passing override_cwd here
         # closes that seam — see session.py::ShellContext.render.
+        #
+        # NOTE (D-4 ct-scan finding, deferred): when the user manually
+        # `cd`s in bash AFTER nav.cd, the shell's $PWD diverges from
+        # session_cwd and this override still wins. Corner case; fixing
+        # it would fragilize the primary Fix D flow (Fix G sync failures
+        # would silently regress Fix D). Deferring to v6.13 with a
+        # divergence-detection helper (last_synced_cwd marker exported
+        # by ib_trigger.bash) that properly disambiguates "Fix G synced
+        # cleanly" from "user diverged".
         session_cwd = str(getattr(session, "session_cwd", "") or "")
         if session_cwd:
             render_kwargs["override_cwd"] = session_cwd
