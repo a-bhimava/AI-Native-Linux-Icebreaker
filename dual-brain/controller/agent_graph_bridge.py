@@ -177,37 +177,84 @@ def _emit_progress_and_cot(node_name: str, t0: float, state: str = "done") -> li
     ]
 
 
-def _traversed_nodes_from_outcome(outcome: dict) -> list[str]:
-    """Infer which nodes the graph traversed by looking at the outcome.
+def _visited_from_state(outcome: dict) -> list[tuple[str, str]]:
+    """v6.12 Fix B — return the (node_name, state) list the graph accrued.
 
-    Task #146 doesn't emit per-node events (Task #151 will via
-    astream_events). For Task #147 we approximate: every terminal
-    outcome traversed planner + risk_classifier at minimum. From there
-    we branch by tier/decision/error to reconstruct which downstream
-    nodes ran.
+    Each node calls ``_mark(name, state, update)`` in agent_graph_nodes.py
+    which contributes ``visited_nodes=[(name, state)]`` to its return
+    dict. LangGraph's ``Annotated[list, add]`` reducer appends across the
+    traversal so ``outcome["visited_nodes"]`` at the terminal state is
+    the accurate ordered list of nodes that ran, with each node's real
+    state (done or failed).
+
+    Falls back to the pre-v6.12 outcome-inference approach if the state
+    lacks visited_nodes (e.g. old test fixtures that construct outcomes
+    by hand instead of running the graph). The fallback emits a warning
+    log so we notice any coverage gap. On the shipped path — always via
+    ``AgentGraph.run()`` — visited_nodes is always populated because the
+    factory ``make_initial_state`` seeds ``visited_nodes=[]`` and every
+    node appends.
     """
-    if outcome.get("error_kind") == "planner":
-        return ["planner"]
+    visited = outcome.get("visited_nodes")
+    if isinstance(visited, list) and visited:
+        return [
+            (str(item[0]), str(item[1]))
+            for item in visited
+            if isinstance(item, (tuple, list)) and len(item) >= 2
+        ]
 
-    seen = ["planner", "risk_classifier"]
+    # Fallback for pre-v6.12 outcome shapes (mostly hand-built test
+    # fixtures). Kept minimal so real coverage gaps surface via the log.
+    try:
+        from .logger import get_logger
+        get_logger("controller.agent_graph_bridge").warning(
+            "visited_nodes missing from outcome — falling back to "
+            "pre-v6.12 inference (accuracy degraded)"
+        )
+    except Exception:  # noqa: BLE001 — logging must never break emission
+        pass
+    return _legacy_traversal_inference(outcome)
 
-    if outcome.get("error_kind") == "internal" and not outcome.get("intent_id"):
+
+def _legacy_traversal_inference(outcome: dict) -> list[tuple[str, str]]:
+    """Pre-v6.12 approximation kept for outcome dicts missing
+    visited_nodes. Returns each node paired with a best-effort
+    (done|failed) state. Do NOT extend this — new coverage comes from
+    the explicit visited_nodes path, not from more inference cases."""
+    kind = str(outcome.get("error_kind") or "")
+    owner = {
+        "planner": "planner",
+        "pb":      "executor",
+        "verifier": "verifier",
+        "mcpd":    "mcpd_dispatcher",
+        "internal": "planner",
+    }.get(kind, "")
+
+    def _pair(name: str) -> tuple[str, str]:
+        return (name, "failed" if name == owner else "done")
+
+    if kind == "planner":
+        return [_pair("planner")]
+
+    seen = [_pair("planner"), _pair("risk_classifier")]
+
+    if kind == "internal" and not outcome.get("intent_id"):
         return seen
 
     tier = int(outcome.get("tier", -1) or -1)
     if tier >= 2:
-        seen.append("verifier")
-        seen.append("hitl_gate")
+        seen.append(_pair("verifier"))
+        seen.append(_pair("hitl_gate"))
         if outcome.get("outcome") == "denied":
             return seen
 
-    seen.append("executor")
-    if outcome.get("error_kind") == "pb":
+    seen.append(_pair("executor"))
+    if kind == "pb":
         return seen
-    seen.append("mcpd_dispatcher")
-    if outcome.get("error_kind") == "mcpd":
+    seen.append(_pair("mcpd_dispatcher"))
+    if kind == "mcpd":
         return seen
-    seen.append("responder")
+    seen.append(_pair("responder"))
     return seen
 
 
@@ -223,9 +270,13 @@ def translate_outcome_to_events(
     from .turn_events import ErrorEvent, ResultEvent, TokenEvent
 
     events: list[Any] = []
-    for node in _traversed_nodes_from_outcome(outcome):
-        state = "failed" if _node_owned_error(outcome, node) else "done"
-        events.extend(_emit_progress_and_cot(node, t0, state=state))
+    # v6.12 Fix B: consume the explicit visited_nodes list mutated by
+    # each node instead of inferring from outcome fields. Inference could
+    # not represent short-circuits — schema-reject, system.unsupported,
+    # hitl-deny all rendered downstream nodes as "done" green even though
+    # they never ran. Now the CoT panel mirrors the actual traversal.
+    for node_name, node_state in _visited_from_state(outcome):
+        events.extend(_emit_progress_and_cot(node_name, t0, state=node_state))
 
     duration_ms = (time.monotonic() - t0) * 1000
 
@@ -258,17 +309,23 @@ def translate_outcome_to_events(
     return events
 
 
-def _node_owned_error(outcome: dict, node: str) -> bool:
-    """Which node owned the error, so its CoT event renders 'failed'
-    instead of 'done'. Best-effort mapping from error_kind → node."""
-    kind = outcome.get("error_kind")
-    return bool(kind and _NODE_INDEX.get(node) == _NODE_INDEX.get({
-        "planner": "planner",
-        "pb":      "executor",
-        "verifier": "verifier",
-        "mcpd":    "mcpd_dispatcher",
-        "internal": "planner",
-    }.get(kind or "", "")))
+# _node_owned_error removed in v6.12 — nodes now self-report their state
+# via the visited_nodes list; the bridge no longer infers ownership. Any
+# code still referencing this helper is broken and should read
+# outcome["visited_nodes"] instead.
+
+
+def _traversed_nodes_from_outcome(outcome: dict) -> list[str]:
+    """v6.12 backward-compat shim for existing tests.
+
+    Returns just the node names (dropping the state) from the current
+    _visited_from_state path. New code should use _visited_from_state
+    directly to get the (name, state) tuples. This shim exists so
+    test_agent_graph_bridge.py's pre-v6.12 assertions keep working
+    without needing a mass rewrite; it will be removed once those tests
+    migrate to visited_nodes-shape assertions.
+    """
+    return [name for (name, _) in _visited_from_state(outcome)]
 
 
 # ── The bridge loop ─────────────────────────────────────────────────
