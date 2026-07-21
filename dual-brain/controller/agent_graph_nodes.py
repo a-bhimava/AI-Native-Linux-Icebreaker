@@ -798,6 +798,170 @@ def responder_node(collab: dict) -> Callable[[GraphState], dict]:
     return _run
 
 
+# ── v6.12 Fix A: audit_writer terminal node ───────────────────────────
+#
+# Every terminal branch in the graph (responder success, planner
+# short-circuit, executor error, mcpd error, verifier reject, hitl deny)
+# routes through this node before END so INV-8 is upheld regardless of
+# which branch fired. main.py's run_turn_streaming had 12+ audit
+# write_fields sites — one per terminal branch — and Task #173's flag
+# flip forgot to port them. This node is the AgentGraph equivalent of
+# that discipline: one call site, one shape, always fires.
+#
+# Design:
+# - Reads all provenance from state + collab (no new inputs).
+# - Maps state.error_kind → Outcome enum via _outcome_from_state.
+# - Mirrors AuditFields(...) construction pattern at main.py:711 exactly
+#   so audit log rows are indistinguishable regardless of which pipeline
+#   produced them.
+# - Any exception during write is swallowed with _log_exception —
+#   audit failure MUST NOT break turn delivery to the user (BP-10 spirit:
+#   never let observability become a DoS amplifier).
+# - The node itself marks visited "done" (or "failed" if the write
+#   raised) so operators can see audit health in the CoT panel.
+
+
+def _outcome_from_state(state: GraphState) -> Any:
+    """Map the AgentGraph state's terminal fields → Outcome enum.
+
+    Mirrors the Outcome selection main.py::run_turn_streaming makes at
+    each of its 12 write_fields call sites: schema-reject → SCHEMA_REJECTED,
+    hitl deny/timeout → HITL_DENIED/HITL_TIMEOUT, verifier reject →
+    QB_VERIFIER_REJECTED, mcpd fault → TOOL_ERROR, brain fault →
+    BRAIN_ERROR, unsupported short-circuit → UNSUPPORTED, otherwise
+    EXECUTED. Kept as a plain lookup so a new error_kind falls back to
+    BRAIN_ERROR (safe, human-readable) instead of silently misclassifying.
+    """
+    from .audit import Outcome
+
+    kind = str(state.get("error_kind") or "")
+    if not kind:
+        return Outcome.EXECUTED
+
+    if kind == "schema":
+        return Outcome.SCHEMA_REJECTED
+    if kind == "unsupported":
+        return Outcome.UNSUPPORTED
+    if kind == "verifier":
+        return Outcome.QB_VERIFIER_REJECTED
+    if kind == "mcpd":
+        return Outcome.TOOL_ERROR
+    if kind == "hitl":
+        # explicit hitl error_kind only fires on non-tty / timeout paths;
+        # normal deny comes through hitl_decision instead
+        return Outcome.HITL_TIMEOUT
+    # planner, pb, internal, validation → generic brain failure bucket
+    return Outcome.BRAIN_ERROR
+
+
+def audit_writer_node(collab: dict) -> Callable[[GraphState], dict]:
+    """v6.12 Fix A — terminal node that writes one audit row per turn.
+
+    Runs after every terminal branch (see agent_graph.py edge wiring).
+    Failure to write is logged but never re-raised — turn delivery is
+    more important than the audit line for that single turn, and repeated
+    audit failures surface via the CoT panel (this node visits "failed")
+    and via the daemon's structured error log.
+    """
+
+    def _run(state: GraphState) -> dict:
+        from .audit import AuditFields
+
+        # ── Provenance lookup ──────────────────────────────────────
+        # intent is looked up by intent_id; may be absent on pre-planner
+        # rejects (BrainError before intent_store.put). Coerce every
+        # AuditFields input to the expected type so an unset field never
+        # trips make_entry's non-null validators.
+        intent = {}
+        iid = str(state.get("intent_id", "") or "")
+        if iid:
+            got = collab.get("turn_content", {}).get(iid)
+            if isinstance(got, dict):
+                intent = got
+
+        # session_id + turn_index come from SessionStore; on internal
+        # errors before the session is even created the store may not
+        # know this session — swallow and use safe defaults.
+        session_id = str(state.get("session_id", "") or "")
+        turn_index = 0
+        session_backend = ""
+        try:
+            sess = collab["session_store"].get(session_id)
+            if sess is not None:
+                turn_index = int(getattr(sess, "turn_index", 0) or 0)
+                session_backend = str(getattr(sess, "backend", "") or "")
+        except Exception:  # noqa: BLE001 — audit path must not raise
+            pass
+
+        # HITL decision overrides error_kind when the gate itself
+        # short-circuited (after_hitl routes to END on deny).
+        outcome = _outcome_from_state(state)
+        hitl_dec = state.get("hitl_decision")
+        if hitl_dec == "deny":
+            from .audit import Outcome
+            outcome = Outcome.HITL_DENIED
+
+        # Duration from state.t0_monotonic (populated by run() at
+        # graph invocation). Zero-safe: if t0 wasn't seeded, we still
+        # emit a row with duration_ms=0 rather than skipping the audit.
+        t0 = float(state.get("t0_monotonic", 0.0) or 0.0)
+        duration_ms = max(0.0, (time.monotonic() - t0) * 1000) if t0 else 0.0
+
+        # Cost / token totals — Task #148 Cost accounting fields are not
+        # yet on GraphState (deferred to a follow-up commit). Zero for
+        # now so the field is present and the audit row shape stays
+        # stable; a later commit fills them in without a schema break.
+        cfg = collab.get("cfg")
+        qb_model = ""
+        try:
+            qb_model = str(getattr(getattr(cfg, "qb", None), "model", "") or "")
+        except Exception:  # noqa: BLE001
+            pass
+
+        fields = AuditFields(
+            session_id=session_id,
+            turn_index=turn_index,
+            intent_id=iid,
+            action=str(intent.get("action", "") or ""),
+            target=str(intent.get("target", "") or ""),
+            tier=int(state.get("tier", -1) or -1),
+            reason=str(intent.get("reason", "") or ""),
+            risk_level=str(intent.get("risk_level", "") or ""),
+            outcome=outcome,
+            duration_ms=duration_ms,
+            backend=session_backend,
+            model=qb_model,
+            tokens_in=0,
+            tokens_out=0,
+            cost_estimate_usd=0.0,
+            extra={
+                "error_kind": str(state.get("error_kind") or ""),
+                "error_reason": str(state.get("error_reason") or "")[:400],
+                "plan_id": str(state.get("plan_id") or ""),
+                "total_steps": int(state.get("total_steps", 1) or 1),
+            },
+        )
+
+        try:
+            collab["audit"].write_fields(fields)
+        except Exception as exc:  # noqa: BLE001 — audit MUST NOT break turn
+            try:
+                from .main import _log_exception
+                from .logger import get_logger
+                _log_exception(
+                    get_logger("controller.agent_graph.audit_writer"),
+                    "audit_writer_node.write_fields",
+                    exc,
+                )
+            except Exception:  # noqa: BLE001 — logging can't cascade either
+                pass
+            return _mark("audit_writer", "failed", {})
+
+        return _mark("audit_writer", "done", {})
+
+    return _run
+
+
 # ── Conditional edges ─────────────────────────────────────────────────
 
 
