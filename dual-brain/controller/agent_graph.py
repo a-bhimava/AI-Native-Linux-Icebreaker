@@ -281,9 +281,19 @@ class AgentGraph:
             "planner", after_planner,
             _route_end({"risk_classifier": "risk_classifier"}),
         )
+        # v6.12 Fix E (F-85 2026-07-21): verifier runs AFTER executor for
+        # tier>=2 turns (v6.7 semantics restored). Pre-v6.12 the graph
+        # ran verifier BEFORE executor with tool_call={} — every rubric
+        # #1 check failed because there was no tool_call to verify.
+        # Routing updates:
+        #   risk_classifier ─→ executor (always)
+        #   executor ── tier<2 ─→ mcpd_dispatcher
+        #            └─ tier>=2 ─→ verifier
+        #   hitl_gate  approve  ─→ mcpd_dispatcher (executor already ran)
+        # The verifier + hitl_gate route tables are unchanged.
         builder.add_conditional_edges(
             "risk_classifier", after_risk,
-            _route_end({"executor": "executor", "verifier": "verifier"}),
+            _route_end({"executor": "executor"}),
         )
         builder.add_conditional_edges(
             "verifier", after_verifier,
@@ -291,11 +301,14 @@ class AgentGraph:
         )
         builder.add_conditional_edges(
             "hitl_gate", after_hitl,
-            _route_end({"executor": "executor"}),
+            _route_end({"mcpd_dispatcher": "mcpd_dispatcher"}),
         )
         builder.add_conditional_edges(
             "executor", after_executor,
-            _route_end({"mcpd_dispatcher": "mcpd_dispatcher"}),
+            _route_end({
+                "mcpd_dispatcher": "mcpd_dispatcher",
+                "verifier": "verifier",
+            }),
         )
         builder.add_conditional_edges(
             "mcpd_dispatcher", after_mcpd,

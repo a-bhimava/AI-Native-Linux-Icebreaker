@@ -354,9 +354,13 @@ def test_after_planner_routes_to_end_on_invalid():
     assert after_planner(_state(intent_valid=False)) == "END"
 
 
+# v6.12 Fix E (F-85): after_risk always routes to executor. Verifier
+# now runs AFTER executor for tier>=2 (see after_executor). Locking this
+# in prevents the pre-v6.12 "verifier before executor + tool_call={}"
+# regression from returning.
 @pytest.mark.parametrize("tier,expected", [
     (0, "executor"), (1, "executor"),
-    (2, "verifier"), (3, "verifier"),
+    (2, "executor"), (3, "executor"),
 ])
 def test_after_risk_routes_by_tier(tier, expected):
     assert after_risk(_state(tier=tier)) == expected
@@ -374,8 +378,11 @@ def test_after_verifier_ends_on_reject():
     assert after_verifier(_state(tool_call_valid=False)) == "END"
 
 
-def test_after_hitl_routes_to_executor_on_approve():
-    assert after_hitl(_state(hitl_decision="approve")) == "executor"
+# v6.12 Fix E: approve goes to mcpd_dispatcher because executor already
+# ran BEFORE verifier (v6.7 semantics restored). Pre-v6.12 routed back
+# to executor which then had to re-run.
+def test_after_hitl_routes_to_mcpd_dispatcher_on_approve():
+    assert after_hitl(_state(hitl_decision="approve")) == "mcpd_dispatcher"
 
 
 def test_after_hitl_ends_on_deny():
@@ -386,8 +393,15 @@ def test_after_hitl_ends_on_none():
     assert after_hitl(_state(hitl_decision=None)) == "END"
 
 
-def test_after_executor_routes_to_mcpd_on_valid():
-    assert after_executor(_state(tool_call_valid=True)) == "mcpd_dispatcher"
+# v6.12 Fix E: after_executor branches by tier — tier<2 routes straight
+# to mcpd_dispatcher (no verifier for read-only intents), tier>=2 routes
+# to verifier so it can inspect the real tool_call PB produced.
+@pytest.mark.parametrize("tier,expected", [
+    (0, "mcpd_dispatcher"), (1, "mcpd_dispatcher"),
+    (2, "verifier"), (3, "verifier"),
+])
+def test_after_executor_routes_by_tier_on_valid(tier, expected):
+    assert after_executor(_state(tool_call_valid=True, tier=tier)) == expected
 
 
 def test_after_executor_ends_on_invalid():

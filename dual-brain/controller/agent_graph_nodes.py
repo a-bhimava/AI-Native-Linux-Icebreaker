@@ -359,9 +359,18 @@ def verifier_node(collab: dict) -> Callable[[GraphState], dict]:
             return _mark("verifier", "done", {"tool_call_valid": True})
 
         intent = collab["turn_content"].get(state.get("intent_id", ""))
-        # Verifier runs on the intent (v6.7 semantics) — for Task #146's
-        # 1-step case we don't have a tool_call yet before Executor. So
-        # we pass an empty tool_call: verifier votes on intent-shape only.
+        # v6.12 Fix E (F-85 2026-07-21): read the ACTUAL tool_call the
+        # executor produced. Pre-v6.12 shape ran verifier BEFORE executor
+        # and passed tool_call={} because there was nothing to pass —
+        # but qb_verifier.txt rubric #1 requires `tool_call.tool ==
+        # intent.action` verbatim, so empty tool_call failed every check.
+        # Now the graph runs executor → verifier for tier>=2 (see
+        # after_executor at ~line 1030 for the edge move), so
+        # state["tool_call_hash"] is set and turn_content has the real
+        # tool_call keyed by hash.
+        tool_call = collab["turn_content"].get(state.get("tool_call_hash", ""), {})
+        if not isinstance(tool_call, dict):
+            tool_call = {}
         #
         # v6.11 Fix #4 (F-49-recur): monolithic path (main.py) retries
         # once when `_should_retry_verifier(retry_mode, vresult)` returns
@@ -377,7 +386,7 @@ def verifier_node(collab: dict) -> Callable[[GraphState], dict]:
         def _verify_once():
             return collab["verifier"].verify(
                 intent=intent,
-                tool_call={},
+                tool_call=tool_call,
                 qb=collab["qb"],
                 verifier_system=collab["prompts"].get("qb_verifier"),
             )
@@ -974,13 +983,22 @@ def after_planner(state: GraphState) -> str:
 
 
 def after_risk(state: GraphState) -> str:
+    # v6.12 Fix E (F-85 2026-07-21): every tier goes to executor. The
+    # pre-v6.12 shape routed tier>=2 directly to verifier before executor
+    # ran; that meant verifier_node had NO tool_call to verify (executor
+    # is what generates it), so it passed tool_call={} into verify() and
+    # the qb_verifier.txt rubric #1 (`tool_call.tool == intent.action`)
+    # fired every single time. Every fs.write outside $HOME + every
+    # package.install + every service.* op was silently unreachable
+    # through the AgentGraph pipeline. This restores v6.7 semantics
+    # (verifier runs on the actual tool_call PB produced) by moving the
+    # tier branch to after_executor and updating after_hitl to skip
+    # executor (already ran) and go straight to mcpd_dispatcher.
     if state.get("error_kind"):
         return "END"
     tier = int(state.get("tier", -1))
     if tier < 0:
         return "END"
-    if tier >= 2:
-        return "verifier"
     return "executor"
 
 
@@ -993,17 +1011,29 @@ def after_verifier(state: GraphState) -> str:
 
 
 def after_hitl(state: GraphState) -> str:
+    # v6.12 Fix E: approve routes to mcpd_dispatcher because executor
+    # already ran BEFORE verifier (v6.7 semantics — see after_risk
+    # comment). Pre-v6.12 shape was hitl_gate → executor → mcpd_dispatcher
+    # because verifier ran before executor; that shape passed tool_call={}
+    # into verify() and broke every tier>=2 turn.
     if state.get("hitl_decision") == "approve":
-        return "executor"
+        return "mcpd_dispatcher"
     # deny, timeout, or missing → end without dispatching.
     return "END"
 
 
 def after_executor(state: GraphState) -> str:
+    # v6.12 Fix E: executor now decides whether to route through the
+    # verifier + hitl_gate gauntlet (tier>=2) or straight to mcpd_dispatcher
+    # (tier<2). Verifier runs AFTER executor so it can see the real
+    # tool_call PB produced — the whole point of a verifier.
     if state.get("error_kind"):
         return "END"
     if not state.get("tool_call_valid"):
         return "END"
+    tier = int(state.get("tier", -1))
+    if tier >= 2:
+        return "verifier"
     return "mcpd_dispatcher"
 
 

@@ -129,29 +129,31 @@ def test_planner_error_short_circuits_to_end():
 
 
 def test_tier2_pauses_at_hitl_then_resumes_on_approve():
+    # v6.12 Fix E (F-85): verifier now runs AFTER executor. Executor
+    # (and thus PB, since package.install isn't tier-0 fast-path) fires
+    # BEFORE the HITL pause. mcpd stays gated behind HITL.
     ag = _make_agent()
-    # Rig for Tier 2.
     ag._risk_classify = MagicMock(return_value=SimpleNamespace(tier=2))
     ag._qb.complete.return_value = SimpleNamespace(
         content_json={"action": "package.install", "target": "htop", "reason": "install"}
     )
-    # Rebuild the graph so the new risk_classify closure is bound.
     ag._graph = ag._build_graph()
 
     try:
         results = list(ag.run("install htop", "sess-3"))
         out = results[0]
         assert out["outcome"] == "paused", f"expected paused, got {out}"
-        # PB hasn't fired yet — the flow paused BEFORE executor.
-        ag._pb.complete.assert_not_called()
+        # v6.12 Fix E: executor ran before HITL so PB fired. mcpd remains
+        # gated behind the pause.
+        ag._pb.complete.assert_called_once()
         ag._mcpd.call.assert_not_called()
 
         # Resume with approve.
         resumed = list(ag.resume("sess-3", "approve"))
         out2 = resumed[0]
         assert out2["outcome"] == "executed"
-        # Now PB + mcpd fired (slow path since package.install is not
-        # in the tier-0 allowlist).
+        # PB call count stays at 1 — after_hitl routes to mcpd_dispatcher,
+        # not back to executor.
         ag._pb.complete.assert_called_once()
         ag._mcpd.call.assert_called_once()
     finally:
@@ -159,6 +161,7 @@ def test_tier2_pauses_at_hitl_then_resumes_on_approve():
 
 
 def test_tier2_deny_short_circuits_no_dispatch():
+    # v6.12 Fix E: executor runs before HITL; deny stops before mcpd.
     ag = _make_agent()
     ag._risk_classify = MagicMock(return_value=SimpleNamespace(tier=2))
     ag._qb.complete.return_value = SimpleNamespace(
@@ -172,7 +175,8 @@ def test_tier2_deny_short_circuits_no_dispatch():
         denied = list(ag.resume("sess-4", "deny"))
         out = denied[0]
         assert out["outcome"] == "denied"
-        ag._pb.complete.assert_not_called()
+        # v6.12 Fix E: PB ran once before the pause; deny prevents mcpd.
+        ag._pb.complete.assert_called_once()
         ag._mcpd.call.assert_not_called()
     finally:
         ag.close()
