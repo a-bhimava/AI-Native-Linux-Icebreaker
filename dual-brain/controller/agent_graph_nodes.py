@@ -111,6 +111,33 @@ def make_collaborators(
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
+# ── v6.12 Fix B: visited_nodes helper ─────────────────────────────────
+#
+# Every node calls _mark("<node_name>", "done"|"failed", update_dict) as
+# it returns, so the bridge's translate_outcome_to_events can render the
+# CoT panel from the actual traversal instead of inferring it from
+# outcome fields (the pre-v6.12 approach couldn't represent short-
+# circuits like F-32 schema reject, F-35 unsupported, or HITL deny —
+# every failed turn rendered all-green in the CoT panel).
+#
+# visited_nodes is Annotated[list, add] in GraphState so LangGraph's
+# reducer appends across nodes; each _mark call contributes exactly one
+# tuple.
+
+
+def _mark(node: str, node_state: str, update: dict) -> dict:
+    """Attach a visited_nodes tuple to a node's return dict.
+
+    node_state must be either "done" (successful traversal) or "failed"
+    (this node produced the error_kind and short-circuited). The bridge
+    renders "done" nodes in the CoT panel's normal colour and "failed"
+    nodes in red. Both cases mean "this node ran"; the distinction is
+    whether execution continued past it.
+    """
+    update["visited_nodes"] = [(node, node_state)]
+    return update
+
+
 def _sha(payload: Any) -> str:
     """SHA-256 hex of the JSON-serialized payload. Used everywhere we
     reference content in state without carrying it."""
@@ -173,23 +200,23 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
             )
             raw = resp.content_json
         except BrainError as exc:
-            return {
+            return _mark("planner", "failed", {
                 "intent_valid": False,
                 "error_kind": "planner",
                 "error_reason": f"{type(exc).__name__}: {exc}"[:400],
                 "completed": True,
-            }
+            })
 
         # Task #148: accept bare intent OR plan wrapper.
         try:
             plan = normalize_planner_output(raw)
         except ValueError as exc:
-            return {
+            return _mark("planner", "failed", {
                 "intent_valid": False,
                 "error_kind": "planner",
                 "error_reason": f"malformed planner output: {exc}"[:400],
                 "completed": True,
-            }
+            })
 
         # v6.11 Fix #1 (F-32 recurrence guard): before storing the plan,
         # short-circuit path-requiring actions with empty/"/" target. The
@@ -204,7 +231,7 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
             step_action = str(step.get("action", "") or "")
             step_target = str(step.get("target", "") or "")
             if step_action in _PATH_REQUIRING_ACTIONS and step_target in ("", "/"):
-                return {
+                return _mark("planner", "failed", {
                     "intent_valid": False,
                     "error_kind": "schema",
                     "error_reason": (
@@ -214,7 +241,7 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
                         f"path (e.g. '/home/icebreaker/Downloads')."
                     )[:400],
                     "completed": True,
-                }
+                })
 
         # v6.11 Fix #2 (F-35 short-circuit): if QB emitted the
         # `system.unsupported` landing pad, do NOT proceed to verifier /
@@ -237,13 +264,17 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
                 msg_lines.append(f"You asked: {requested}")
             if suggestion:
                 msg_lines.append(f"Suggestion: {suggestion}")
-            return {
+            # v6.12: system.unsupported is a controlled short-circuit, not
+            # a failure. Mark the planner "done" (it did its job — routed
+            # to unsupported) so the CoT panel doesn't flash red for a
+            # totally normal outcome.
+            return _mark("planner", "done", {
                 "intent_valid": False,
                 "error_kind": "unsupported",
                 "error_reason": "F-35: system.unsupported short-circuit",
                 "output": "\n".join(msg_lines),
                 "completed": True,
-            }
+            })
 
         # v6.11 Fix #6 (F-43/F-47b applied to ALL plan steps): the
         # monolithic path calls _normalize_server_owned_fields on the
@@ -269,13 +300,13 @@ def planner_node(collab: dict) -> Callable[[GraphState], dict]:
         intent_id = collab["intent_store"].put(plan[0])
         collab["turn_content"][intent_id] = plan[0]
 
-        return {
+        return _mark("planner", "done", {
             "plan_id": plan_id,
             "step_index": 0,
             "total_steps": len(plan),
             "intent_id": intent_id,
             "intent_valid": True,
-        }
+        })
 
     return _run
 
@@ -295,18 +326,18 @@ def risk_classifier_node(collab: dict) -> Callable[[GraphState], dict]:
         if plan and isinstance(plan, list) and len(plan) > 1:
             # Multi-step plan: max-tier wins.
             tier = plan_max_tier(plan, collab["risk_classify"])
-            return {"tier": int(tier)}
+            return _mark("risk_classifier", "done", {"tier": int(tier)})
 
         # Backward-compat single-step path — classify the intent directly.
         intent = collab["turn_content"].get(state.get("intent_id", ""))
         if intent is None:
-            return {
+            return _mark("risk_classifier", "failed", {
                 "error_kind": "internal",
                 "error_reason": "risk classifier: intent lookup miss",
                 "completed": True,
-            }
+            })
         result = collab["risk_classify"](intent)
-        return {"tier": int(getattr(result, "tier", -1))}
+        return _mark("risk_classifier", "done", {"tier": int(getattr(result, "tier", -1))})
 
     return _run
 
@@ -325,7 +356,7 @@ def verifier_node(collab: dict) -> Callable[[GraphState], dict]:
         tier = int(state.get("tier", -1))
 
         if vcfg is not None and should_skip_verifier(vcfg, tier):
-            return {"tool_call_valid": True}
+            return _mark("verifier", "done", {"tool_call_valid": True})
 
         intent = collab["turn_content"].get(state.get("intent_id", ""))
         # Verifier runs on the intent (v6.7 semantics) — for Task #146's
@@ -354,32 +385,32 @@ def verifier_node(collab: dict) -> Callable[[GraphState], dict]:
         try:
             vresult = _verify_once()
         except Exception as exc:  # noqa: BLE001
-            return {
+            return _mark("verifier", "failed", {
                 "tool_call_valid": False,
                 "error_kind": "verifier",
                 "error_reason": f"{type(exc).__name__}: {exc}"[:400],
                 "completed": True,
-            }
+            })
         # F-49-recur: single retry (max 1) if the retry_mode + result agree.
         if (not getattr(vresult, "verified", False)
                 and _should_retry_verifier(retry_mode, vresult)):
             try:
                 vresult = _verify_once()
             except Exception as exc:  # noqa: BLE001
-                return {
+                return _mark("verifier", "failed", {
                     "tool_call_valid": False,
                     "error_kind": "verifier",
                     "error_reason": f"{type(exc).__name__}: {exc}"[:400],
                     "completed": True,
-                }
+                })
         if not getattr(vresult, "verified", False):
-            return {
+            return _mark("verifier", "failed", {
                 "tool_call_valid": False,
                 "error_kind": "verifier",
                 "error_reason": (getattr(vresult, "reason", "") or "verifier rejected")[:400],
                 "completed": True,
-            }
-        return {"tool_call_valid": True}
+            })
+        return _mark("verifier", "done", {"tool_call_valid": True})
 
     return _run
 
@@ -407,7 +438,16 @@ def hitl_gate_node(collab: dict) -> Callable[[GraphState], dict]:
         # interrupt() raises to pause; on resume the return value is the
         # user's decision passed via Command(resume="approve"|"deny").
         decision = interrupt(payload)
-        return {"hitl_decision": decision, "hitl_required": True}
+        # v6.12 Fix B: deny/timeout marks hitl_gate "failed" so the CoT
+        # panel renders it red (matches the fact that execution
+        # short-circuits at the gate — after_hitl returns END on deny).
+        # Approve marks it "done" so the panel shows the gate ran and
+        # execution continued into executor.
+        node_state = "done" if decision == "approve" else "failed"
+        return _mark("hitl_gate", node_state, {
+            "hitl_decision": decision,
+            "hitl_required": True,
+        })
 
     return _run
 
@@ -445,7 +485,7 @@ def executor_node(collab: dict) -> Callable[[GraphState], dict]:
                 intent, collab["intent_schema"],
             )
             if validation_err is not None:
-                return {
+                return _mark("executor", "failed", {
                     "tool_call_valid": False,
                     "error_kind": "planner",
                     "error_reason": (
@@ -453,17 +493,17 @@ def executor_node(collab: dict) -> Callable[[GraphState], dict]:
                         f"failed validation: {validation_err}"
                     )[:400],
                     "completed": True,
-                }
+                })
         else:
             # Backward-compat single-intent path (Task #146 behavior).
             intent = collab["turn_content"].get(state.get("intent_id", ""))
             if intent is None:
-                return {
+                return _mark("executor", "failed", {
                     "tool_call_valid": False,
                     "error_kind": "internal",
                     "error_reason": "executor: intent lookup miss",
                     "completed": True,
-                }
+                })
 
         tier = int(state.get("tier", -1))
         rcfg = getattr(collab["cfg"], "run", None)
@@ -491,28 +531,28 @@ def executor_node(collab: dict) -> Callable[[GraphState], dict]:
                 )
                 tool_call = resp.content_json
             except BrainError as exc:
-                return {
+                return _mark("executor", "failed", {
                     "tool_call_valid": False,
                     "error_kind": "pb",
                     "error_reason": f"{type(exc).__name__}: {exc}"[:400],
                     "completed": True,
-                }
+                })
             except AttributeError:
-                return {
+                return _mark("executor", "failed", {
                     "tool_call_valid": False,
                     "error_kind": "internal",
                     "error_reason": "executor: session lookup miss",
                     "completed": True,
-                }
+                })
 
         # Stash tool_call by hash so mcpd_dispatcher can retrieve it.
         tc_hash = _sha(tool_call)
         collab["turn_content"][tc_hash] = tool_call
 
-        return {
+        return _mark("executor", "done", {
             "tool_call_hash": tc_hash,
             "tool_call_valid": True,
-        }
+        })
 
     return _run
 
@@ -558,11 +598,11 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
     def _run(state: GraphState) -> dict:
         tool_call = collab["turn_content"].get(state.get("tool_call_hash", ""))
         if tool_call is None:
-            return {
+            return _mark("mcpd_dispatcher", "failed", {
                 "error_kind": "internal",
                 "error_reason": "mcpd: tool_call lookup miss",
                 "completed": True,
-            }
+            })
         try:
             # v6.9 Scope O Layer 2 Part A: manifest-first dispatch.
             # If the tool is registered in the ManifestRegistry, route
@@ -610,12 +650,12 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
             step_index = int(state.get("step_index", 0))
             total_steps = int(state.get("total_steps", 1))
             step_label = f"step {step_index + 1}/{total_steps}"
-            return {
+            return _mark("mcpd_dispatcher", "failed", {
                 "error_kind": "mcpd",
                 "error_reason": f"{step_label} ({tool_call.get('tool', '')}): "
                                 f"{type(exc).__name__}: {exc}"[:400],
                 "completed": True,
-            }
+            })
         # v6.9 P0-3 (2026-07-15 CT scan): shape-agnostic hash extraction.
         # Both dispatch paths now return ToolResult (mcpd via .call, manifest
         # via the wrap above), but a legacy SimpleNamespace-shape may still
@@ -633,10 +673,10 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
 
         # Advance to the next step. after_mcpd edge decides whether to
         # loop back to executor or route to responder.
-        return {
+        return _mark("mcpd_dispatcher", "done", {
             "mcpd_result_hash": result_hash,
             "step_index": step_index + 1,
-        }
+        })
 
     return _run
 
@@ -753,7 +793,7 @@ def responder_node(collab: dict) -> Callable[[GraphState], dict]:
             action = intent.get("action", "action")
             summary = f"{action} completed."
 
-        return {"completed": True, "output": summary}
+        return _mark("responder", "done", {"completed": True, "output": summary})
 
     return _run
 
