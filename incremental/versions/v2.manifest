@@ -364,11 +364,17 @@ version_overlay() {
         # output streams via TokenEvent. Without this, F-32 / F-35
         # short-circuits render as red [error] in the shell trigger.
         "F-F-soft-outcomes:agent_graph_bridge.py:_SOFT_ERROR_KINDS"
-        # F-87 cd-sync (Fix G): daemon returns session_cwd; ib_run.py
-        # writes a signal file; ib_trigger.bash cd's the shell. Without
-        # this, `# take me to Downloads` moves Icebreaker's session
-        # cwd but plain `ls` still shows the old shell $PWD.
-        "F-G-cd-sync:ib_run.py:IB_CD_SIGNAL"
+        # F-87 cd-sync (Fix G): daemon returns session_cwd on every
+        # ResultEvent so ib_run.py can signal ib_trigger.bash to cd
+        # the shell. Anchor on the daemon-side hook because the F-51
+        # loop resolves marker file paths relative to the venv
+        # site-packages controller/ dir; ib_run.py + ib_trigger.bash
+        # live at /usr/share/icebreaker/shell/ and are verified by
+        # cx-distro/tests/test_installed_binaries.sh at build time
+        # (F-72 pattern). Without this daemon hook the entire chain
+        # is dead — no session_cwd in the response means ib_run.py
+        # has nothing to write to the signal file.
+        "F-G-cd-sync:daemon.py:getattr(session.session_state, \"session_cwd\""
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do
