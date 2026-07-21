@@ -105,6 +105,21 @@ class GraphState(TypedDict, total=False):
     # to come from run_turn_streaming's outer clock in main.py.
     t0_monotonic: Annotated[float, last_write_wins]
 
+    # ── v6.12 Fix C — responder-produced NL summary for the user ────
+    # Written by responder_node from the QB summarize call, threaded to
+    # ``outcome["output"]`` by ``AgentGraph._as_outcome``, and consumed
+    # by (a) the bridge's F-74 TokenEvent emission for TUI/GUI streaming
+    # and (b) daemon.py's run_turn RPC response for the shell trigger
+    # (``ib_run.py``) which prints it directly. Prior to v6.12 this key
+    # was written by responder but never declared — LangGraph silently
+    # dropped it during state merging with downstream nodes (the
+    # audit_writer terminal added in v6.12 Fix A made this visible;
+    # before that it happened to survive only because responder was the
+    # terminal node). Every "quickly through CoT to (done) with no
+    # output" symptom traces to this missing declaration. Declaring it
+    # here makes state.output round-trip through all downstream nodes.
+    output: Annotated[str, last_write_wins]
+
 
 # ── Factory: build the default initial state for a run ────────────────
 
@@ -143,4 +158,5 @@ def make_initial_state(
         last_event_seq=0,
         visited_nodes=[],
         t0_monotonic=t0_monotonic,
+        output="",
     )
