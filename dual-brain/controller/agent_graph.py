@@ -225,6 +225,7 @@ class AgentGraph:
         from .agent_graph_nodes import (
             after_executor, after_hitl, after_mcpd, after_planner,
             after_risk, after_verifier,
+            audit_writer_node,               # v6.12 Fix A — terminal INV-8 writer
             executor_node, hitl_gate_node, mcpd_dispatcher_node,
             make_collaborators, planner_node, responder_node,
             risk_classifier_node, verifier_node,
@@ -254,15 +255,26 @@ class AgentGraph:
         builder.add_node("executor", executor_node(collab))
         builder.add_node("mcpd_dispatcher", mcpd_dispatcher_node(collab))
         builder.add_node("responder", responder_node(collab))
+        # v6.12 Fix A: audit_writer is the sole terminal predecessor of
+        # END. Every branch that previously routed to END now routes to
+        # this node so INV-8 is upheld regardless of which terminal
+        # branch fires (success, schema-reject, verifier-reject,
+        # hitl-deny, executor-error, mcpd-error, unsupported).
+        builder.add_node("audit_writer", audit_writer_node(collab))
 
         builder.add_edge(START, "planner")
 
         # Conditional edges — each maps the router's return value to the
-        # actual node name (or END).
+        # actual node name (or the audit_writer terminal, which then
+        # unconditionally goes to END).
         def _route_end(dest_map: dict[str, str]) -> dict[str, str]:
-            """Add END → real END sentinel in every route table."""
+            """Map the router's "END" return → audit_writer node so the
+            audit row is written before the graph actually terminates.
+            v6.12 Fix A: pre-v6.12 this mapped "END" → END sentinel;
+            every branch that used END-sentinel was silently skipping
+            INV-8. Now the sentinel is a real terminal node."""
             table = dict(dest_map)
-            table["END"] = END
+            table["END"] = "audit_writer"
             return table
 
         builder.add_conditional_edges(
@@ -293,7 +305,11 @@ class AgentGraph:
                 "executor": "executor",
             }),
         )
-        builder.add_edge("responder", END)
+        # v6.12 Fix A: responder now flows through audit_writer instead
+        # of terminating directly, so INV-8 fires on every successful
+        # turn as well.
+        builder.add_edge("responder", "audit_writer")
+        builder.add_edge("audit_writer", END)
 
         return builder.compile(checkpointer=self._checkpointer)
 
@@ -319,10 +335,14 @@ class AgentGraph:
         invoke-then-yield-final.
         """
         from .agent_graph_state import make_initial_state
+        import time as _time
 
         turn_id = str(uuid.uuid4())
+        # v6.12 Fix A: seed t0_monotonic so audit_writer_node can compute
+        # duration_ms for the audit row (matches main.py's outer clock).
         initial = make_initial_state(
             session_id=session_id, turn_id=turn_id, query=query,
+            t0_monotonic=_time.monotonic(),
         )
         final = self._graph.invoke(initial, config=self._thread_config(session_id))
         yield self._as_outcome(final, session_id)
@@ -372,6 +392,10 @@ class AgentGraph:
             # _outcome_to_result unblocks the AgentGraph flag flip.
             # Prior default was empty; TurnResult.output stayed "".
             "output": state.get("output", ""),
+            # v6.12 Fix B: pass the accurate per-node traversal list
+            # through to the bridge so translate_outcome_to_events can
+            # render the CoT panel from truth instead of inference.
+            "visited_nodes": list(state.get("visited_nodes", []) or []),
         }
         if outcome != "paused":
             self._reset_turn()
