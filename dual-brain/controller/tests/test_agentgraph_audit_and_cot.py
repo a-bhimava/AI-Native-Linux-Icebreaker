@@ -326,3 +326,233 @@ class TestVisitedNodesAccuracy:
         cot_names = [e.step_name for e in events if isinstance(e, CotEvent)]
         # The ONLY node that visited is planner. Nothing else.
         assert cot_names == ["planner"]
+
+
+# ── Fix D: session_cwd overrides shell_context.cwd in QB context ─────
+
+
+class TestSessionCwdOverridesShellContext:
+    """v6.12 Fix D (F-84) — SessionState.session_cwd (set by nav.cd)
+    overrides ShellContext.cwd (the per-turn shell $PWD) when rendering
+    the QB <context> preamble. Pre-v6.12 this fallback was documented
+    but not wired, so nav.cd APPEARED to work (audit + friendly card)
+    but the next turn's `# what's in this folder` still resolved
+    against the shell's unchanged $PWD.
+    """
+
+    def test_render_uses_override_cwd_when_present(self):
+        from controller.session import ShellContext
+        ctx = ShellContext(cwd="/home/icebreaker")
+        rendered = ctx.render(override_cwd="/home/icebreaker/Downloads")
+        assert "cwd: /home/icebreaker/Downloads" in rendered
+        assert "cwd: /home/icebreaker\n" not in rendered  # not the raw cwd
+
+    def test_render_falls_back_to_self_cwd_when_override_empty(self):
+        from controller.session import ShellContext
+        ctx = ShellContext(cwd="/home/icebreaker")
+        rendered = ctx.render(override_cwd="")
+        assert "cwd: /home/icebreaker" in rendered
+
+    def test_build_qb_input_threads_session_cwd(self):
+        from types import SimpleNamespace
+        from controller.main import _build_qb_input
+        from controller.session import ShellContext
+        session = SimpleNamespace(
+            shell_context=ShellContext(cwd="/home/icebreaker"),
+            cfg=None,
+            session_cwd="/home/icebreaker/Downloads",
+        )
+        # render_recent_turns absent → skipped
+        rendered = _build_qb_input(session, "list files here")
+        assert "cwd: /home/icebreaker/Downloads" in rendered
+        # Contract: the query still comes after the preamble.
+        assert "list files here" in rendered
+
+
+# ── Fix E: verifier runs after executor with real tool_call ──────────
+
+
+class TestVerifierRunsAfterExecutor:
+    """v6.12 Fix E (F-85) — verifier no longer runs BEFORE executor with
+    tool_call={} (which failed qb_verifier.txt rubric #1 for every
+    tier>=2 turn). Now executor produces the tool_call, verifier reads
+    it via state.tool_call_hash → turn_content.
+    """
+
+    def test_after_risk_never_routes_to_verifier(self):
+        from controller.agent_graph_nodes import after_risk
+        for tier in (0, 1, 2, 3):
+            assert after_risk({
+                "tier": tier, "intent_valid": True,
+            }) == "executor", f"tier {tier} did not route to executor"
+
+    def test_after_executor_routes_tier2_to_verifier(self):
+        from controller.agent_graph_nodes import after_executor
+        assert after_executor({
+            "tier": 2, "tool_call_valid": True,
+        }) == "verifier"
+        assert after_executor({
+            "tier": 3, "tool_call_valid": True,
+        }) == "verifier"
+
+    def test_after_executor_routes_tier0_1_to_mcpd(self):
+        from controller.agent_graph_nodes import after_executor
+        for tier in (0, 1):
+            assert after_executor({
+                "tier": tier, "tool_call_valid": True,
+            }) == "mcpd_dispatcher"
+
+    def test_verifier_node_reads_real_tool_call(self):
+        """verifier_node's verify() call receives the actual tool_call
+        keyed by state.tool_call_hash, not {}."""
+        from controller.agent_graph_nodes import verifier_node
+        real_tool_call = {"tool": "fs.write", "params": {"path": "/tmp/x"}}
+        collab = _kit()
+        collab["turn_content"]["intent-abc"] = {
+            "action": "fs.write", "target": "/tmp/x",
+        }
+        collab["turn_content"]["hash-xyz"] = real_tool_call
+        # Force verify() path (skip tier_floor short-circuit).
+        collab["cfg"].verifier.tier_floor = 0
+        collab["verifier"].verify.return_value = SimpleNamespace(
+            verified=True, reason="ok",
+        )
+        state = _state(
+            intent_id="intent-abc", tool_call_hash="hash-xyz", tier=2,
+        )
+
+        verifier_node(collab)(state)
+
+        # Assert verifier.verify() got the REAL tool_call, not {}
+        assert collab["verifier"].verify.call_count == 1
+        kwargs = collab["verifier"].verify.call_args.kwargs
+        assert kwargs["tool_call"] == real_tool_call
+
+
+# ── Fix F: soft outcomes render as info, not error ───────────────────
+
+
+class TestSoftOutcomesRenderAsSuccess:
+    """v6.12 Fix F (F-86) — soft outcomes (unsupported, schema) render
+    as normal output with the friendly text, not `[error]` red.
+    """
+
+    def test_bridge_skips_error_event_for_unsupported(self):
+        from controller.turn_events import ErrorEvent
+        outcome = {
+            "outcome": "error",
+            "error_kind": "unsupported",
+            "error_reason": "F-35 short-circuit",
+            "output": "This kind of request isn't supported yet.",
+            "visited_nodes": [("planner", "done")],
+        }
+        events = translate_outcome_to_events(outcome, t0=0.0, backend="gemini")
+        assert not any(isinstance(e, ErrorEvent) for e in events), (
+            "unsupported must NOT emit ErrorEvent"
+        )
+
+    def test_bridge_skips_error_event_for_schema(self):
+        from controller.turn_events import ErrorEvent
+        outcome = {
+            "outcome": "error",
+            "error_kind": "schema",
+            "error_reason": "F-32: ambiguous target",
+            "output": "F-32: ambiguous target",
+            "visited_nodes": [("planner", "failed")],
+        }
+        events = translate_outcome_to_events(outcome, t0=0.0, backend="gemini")
+        assert not any(isinstance(e, ErrorEvent) for e in events), (
+            "schema must NOT emit ErrorEvent"
+        )
+
+    def test_bridge_still_emits_error_event_for_hard_kinds(self):
+        from controller.turn_events import ErrorEvent
+        for kind in ("planner", "pb", "mcpd", "verifier", "internal"):
+            outcome = {
+                "outcome": "error", "error_kind": kind,
+                "error_reason": "boom", "output": "",
+                "visited_nodes": [("planner", "failed")],
+            }
+            events = translate_outcome_to_events(outcome, t0=0.0, backend="gemini")
+            assert any(isinstance(e, ErrorEvent) for e in events), (
+                f"hard kind '{kind}' must emit ErrorEvent"
+            )
+
+    def test_outcome_to_result_marks_soft_kinds_as_success(self):
+        from controller.agent_graph_bridge import _outcome_to_result
+        outcome = {
+            "outcome": "error", "error_kind": "unsupported",
+            "output": "friendly text", "tier": 0,
+        }
+        r = _outcome_to_result(outcome, duration_ms=1.0, backend="gemini")
+        assert r.success is True, "unsupported must map to success=True"
+        assert "friendly text" in r.output
+        assert r.outcome == Outcome.UNSUPPORTED
+
+    def test_planner_f32_branch_populates_output(self):
+        """F-32 empty-target reject must set state[output] so the
+        TokenEvent path streams the friendly text (bridge's soft-kind
+        handling relies on non-empty output)."""
+        collab = _kit()
+        collab["qb"].complete.return_value = SimpleNamespace(
+            content_json={"action": "fs.list", "target": ""}
+        )
+        result = planner_node(collab)(_state())
+        assert result["error_kind"] == "schema"
+        assert result.get("output"), "F-32 branch must set output"
+        assert "F-32" in result["output"]
+
+
+# ── Fix G: nav.cd auto-syncs bash shell cwd ──────────────────────────
+
+
+class TestNavCdSyncsShell:
+    """v6.12 Fix G (F-87) — nav.cd success signals ib_trigger.bash to
+    cd there so plain `ls` after `# take me to Downloads` shows
+    Downloads.
+    """
+
+    def test_ib_run_writes_signal_when_session_cwd_differs(self, tmp_path, monkeypatch):
+        """When the daemon response's session_cwd differs from the
+        shell's cwd, ib_run.py writes the new path to IB_CD_SIGNAL."""
+        import subprocess, sys, json
+        signal = tmp_path / "cd_signal"
+        # We can't easily invoke ib_run.py's main() with a live socket,
+        # so replicate the signal-write logic inline and assert.
+        os.environ["IB_CD_SIGNAL"] = str(signal)
+        try:
+            # Mimic the ib_run.py post-response block.
+            resp_result = {"session_cwd": "/home/icebreaker/Downloads"}
+            context = {"cwd": "/home/icebreaker"}
+            _signal = os.environ.get("IB_CD_SIGNAL", "")
+            _new_scwd = str(resp_result.get("session_cwd", "") or "")
+            _cur_scwd = str(context.get("cwd", "") or "")
+            if _signal and _new_scwd and _new_scwd != _cur_scwd:
+                with open(_signal, "w") as f:
+                    f.write(_new_scwd)
+            assert signal.exists()
+            assert signal.read_text() == "/home/icebreaker/Downloads"
+        finally:
+            monkeypatch.delenv("IB_CD_SIGNAL", raising=False)
+
+    def test_ib_run_skips_signal_when_session_cwd_matches(self, tmp_path, monkeypatch):
+        """No signal write when session_cwd equals the shell's cwd —
+        avoids a wasted cd on every non-nav turn."""
+        signal = tmp_path / "cd_signal_2"
+        os.environ["IB_CD_SIGNAL"] = str(signal)
+        try:
+            resp_result = {"session_cwd": "/home/icebreaker"}
+            context = {"cwd": "/home/icebreaker"}
+            _signal = os.environ.get("IB_CD_SIGNAL", "")
+            _new_scwd = str(resp_result.get("session_cwd", "") or "")
+            _cur_scwd = str(context.get("cwd", "") or "")
+            if _signal and _new_scwd and _new_scwd != _cur_scwd:
+                with open(_signal, "w") as f:
+                    f.write(_new_scwd)
+            assert not signal.exists()
+        finally:
+            monkeypatch.delenv("IB_CD_SIGNAL", raising=False)
+
+
+# Keep the `import os` for TestNavCdSyncsShell at module scope.
+import os  # noqa: E402

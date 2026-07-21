@@ -343,6 +343,32 @@ version_overlay() {
         # this, even a correctly-populated state gets rendered through
         # the old outcome-inference maps.
         "FcotV-bridge:agent_graph_bridge.py:_visited_from_state"
+        # v6.12 (2026-07-21 later) — four defects UTM Stage E surfaced
+        # by finally letting us watch the pipeline through the audit
+        # log. Each was pre-existing at Task #173's flip; the audit gap
+        # just hid them. Ship them together so the ISO demos every
+        # feature the user came here to test.
+        #
+        # F-84 nav-scwd (Fix D): session_cwd override wired into the QB
+        # <context> preamble. Without this, nav.cd APPEARED to work but
+        # subsequent turns still resolved "this folder" against the
+        # shell's unchanged $PWD.
+        "F-D-nav-scwd:session.py:override_cwd"
+        # F-85 verifier-order (Fix E): verifier runs AFTER executor for
+        # tier>=2. Without this, every fs.write outside $HOME + every
+        # package.install + every service.* op fails at rubric #1
+        # because verifier got tool_call={}.
+        "F-E-verifier-order:agent_graph_nodes.py:after_executor"
+        # F-86 soft-outcomes (Fix F): unsupported and schema are soft
+        # outcomes — they don't emit ErrorEvent, and their friendly
+        # output streams via TokenEvent. Without this, F-32 / F-35
+        # short-circuits render as red [error] in the shell trigger.
+        "F-F-soft-outcomes:agent_graph_bridge.py:_SOFT_ERROR_KINDS"
+        # F-87 cd-sync (Fix G): daemon returns session_cwd; ib_run.py
+        # writes a signal file; ib_trigger.bash cd's the shell. Without
+        # this, `# take me to Downloads` moves Icebreaker's session
+        # cwd but plain `ls` still shows the old shell $PWD.
+        "F-G-cd-sync:ib_run.py:IB_CD_SIGNAL"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do
