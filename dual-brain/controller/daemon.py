@@ -450,6 +450,21 @@ class Daemon:
                             session.transport.send(notif.to_bytes())
                         elif isinstance(event, ResultEvent):
                             r = event.result
+                            # v6.12 Fix G (F-87 2026-07-21): expose the
+                            # daemon's SessionState.session_cwd on every
+                            # turn's response so the shell trigger can
+                            # sync bash $PWD when nav.cd fires. nav.cd's
+                            # session_op impl mutates the SessionState's
+                            # session_cwd field directly; we snapshot it
+                            # here on the way out. Zero cost for non-nav
+                            # turns — just an empty string.
+                            _scwd = ""
+                            try:
+                                _scwd = str(
+                                    getattr(session.session_state, "session_cwd", "") or ""
+                                )
+                            except Exception:  # noqa: BLE001
+                                pass
                             resp = JsonRpcResponse(id=msg_id, result={
                                 "success": r.success,
                                 "output": r.output,
@@ -460,6 +475,7 @@ class Daemon:
                                 "cost_usd": r.cost_usd,
                                 "tokens_in": r.tokens_in,
                                 "tokens_out": r.tokens_out,
+                                "session_cwd": _scwd,
                             })
                             session.transport.send(resp.to_bytes())
                         elif isinstance(event, ErrorEvent):

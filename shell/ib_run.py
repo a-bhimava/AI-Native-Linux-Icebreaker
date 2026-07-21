@@ -88,6 +88,24 @@ def main() -> int:
         if "result" in resp:
             out = resp["result"].get("output", "")
             print(out if out else "(done)")
+            # v6.12 Fix G (F-87 2026-07-21): if nav.cd (or any future
+            # session-mutating tool) set a new session_cwd that differs
+            # from the calling shell's $PWD, signal ib_trigger.bash to
+            # cd there. Uses a temp-file dropbox because bash can't read
+            # a Python subprocess's return value directly — the trigger
+            # exports IB_CD_SIGNAL=/tmp/ib_cd.XXXXXX before invoking us,
+            # and after we return reads + evals its contents. Never
+            # raises: signal-file write failure just means no auto-cd,
+            # which degrades to today's behavior.
+            _signal = os.environ.get("IB_CD_SIGNAL", "")
+            _new_scwd = str(resp["result"].get("session_cwd", "") or "")
+            _cur_scwd = str(context.get("cwd", "") or "")
+            if _signal and _new_scwd and _new_scwd != _cur_scwd:
+                try:
+                    with open(_signal, "w") as _f:
+                        _f.write(_new_scwd)
+                except OSError:
+                    pass  # best-effort; ib_trigger validates before cd
             return 0
         msg = resp.get("error", {}).get("message", "unknown error")
         print(_c("1;31", "[error]") + f" {msg}", file=sys.stderr)

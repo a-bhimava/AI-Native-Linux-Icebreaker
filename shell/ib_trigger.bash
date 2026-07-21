@@ -56,10 +56,32 @@ _ib_prompt_hook() {
     # the first row is topmost/focused under a stacking WM. Empty on failure.
     local ib_window
     ib_window="$(command -v wmctrl >/dev/null 2>&1 && wmctrl -l 2>/dev/null | head -1 | awk '{$1=$2=$3=""; sub(/^ +/, ""); print}' || true)"
+    # v6.12 Fix G (F-87 2026-07-21): create a per-turn signal file. If
+    # the daemon returns a session_cwd that differs from $PWD (nav.cd
+    # fired), ib_run.py writes the new path here; we validate and cd.
+    # This closes the design gap live UTM Stage E surfaced: nav.cd used
+    # to update Icebreaker's session_cwd but never bash's $PWD, so
+    # `# take me to Downloads` followed by plain `ls` still showed home.
+    local ib_cd_signal
+    ib_cd_signal="$(mktemp /tmp/ib_cd.XXXXXX 2>/dev/null)" || ib_cd_signal=""
+
     IB_CWD="$PWD" \
     IB_RECENT="$ib_recent" \
     IB_ACTIVE_WINDOW="$ib_window" \
+    IB_CD_SIGNAL="$ib_cd_signal" \
         "${_IB_VENV_PYTHON}" "${_IB_RUN}" "$query" "$_IB_SOCK"
+
+    # Auto-cd on nav.cd success. Belt-and-braces validation on top of
+    # nav.cd's own daemon-side path validation: reject anything that is
+    # not an absolute path composed of safe characters. Read + delete.
+    if [ -n "$ib_cd_signal" ] && [ -s "$ib_cd_signal" ]; then
+        local ib_cd_target
+        ib_cd_target="$(head -c 4096 "$ib_cd_signal")"
+        if [[ "$ib_cd_target" =~ ^/[A-Za-z0-9_./~-]+$ ]] && [ -d "$ib_cd_target" ]; then
+            cd "$ib_cd_target" 2>/dev/null || true
+        fi
+    fi
+    [ -n "$ib_cd_signal" ] && rm -f "$ib_cd_signal"
 }
 
 # Prepend to PROMPT_COMMAND (runs before each prompt is drawn).
