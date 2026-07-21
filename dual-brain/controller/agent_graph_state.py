@@ -89,6 +89,22 @@ class GraphState(TypedDict, total=False):
     # ── Streaming provenance (small) ────────────────────────────────
     last_event_seq: Annotated[int, last_write_wins]
 
+    # ── v6.12 Fix B — explicit per-node traversal for accurate CoT ──
+    # Each node appends (node_name, "done"|"failed") as its first line
+    # (success path) or in its exception handler (failed path). The
+    # bridge consumes this list in translate_outcome_to_events so the
+    # CoT panel renders exactly the nodes that ran, with their real
+    # state — no more inference from error_kind which cannot represent
+    # schema/unsupported/hitl short-circuits accurately.
+    visited_nodes: Annotated[list, add]
+
+    # ── v6.12 Fix A — turn start clock for audit duration_ms ────────
+    # Populated by the graph invoker at run() time; audit_writer_node
+    # computes (time.monotonic() - t0_monotonic) * 1000 for the audit
+    # record so the audit row carries the same duration_ms that used
+    # to come from run_turn_streaming's outer clock in main.py.
+    t0_monotonic: Annotated[float, last_write_wins]
+
 
 # ── Factory: build the default initial state for a run ────────────────
 
@@ -98,6 +114,7 @@ def make_initial_state(
     session_id: str,
     turn_id: str,
     query: str,
+    t0_monotonic: float = 0.0,
 ) -> GraphState:
     """Explicit factory — never rely on TypedDict defaults.
 
@@ -124,4 +141,6 @@ def make_initial_state(
         error_reason=None,
         completed=False,
         last_event_seq=0,
+        visited_nodes=[],
+        t0_monotonic=t0_monotonic,
     )
