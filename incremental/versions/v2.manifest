@@ -375,6 +375,15 @@ version_overlay() {
         # is dead — no session_cwd in the response means ib_run.py
         # has nothing to write to the signal file.
         "F-G-cd-sync:daemon.py:getattr(session.session_state, \"session_cwd\""
+        # F-88/F-89 (Fix I 2026-07-21 later): mcpd_dispatcher_node
+        # forks gui.* → GuiAgent and rpa.* → RpaBridge before falling
+        # through to mcpd. Task #173's AgentGraph flip forgot to port
+        # main.py's is_gui/is_rpa dispatch (main.py:1049), so every
+        # gui.screenshot / gui.get_window_list / rpa.list_workflows
+        # etc. hit mcpd's Rust dispatcher and got 'Method not found'.
+        # Live-verified broken via '# take a screenshot' on UTM Stage E2.
+        "F-I-gui-dispatch:agent_graph_nodes.py:from gui_agent.agent import GuiAgent"
+        "F-I-rpa-dispatch:agent_graph_nodes.py:from rpa_bridge.bridge import RpaBridge"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do

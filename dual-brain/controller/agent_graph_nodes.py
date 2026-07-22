@@ -657,6 +657,84 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
                 }
                 _payload.update(impl_res.metadata)
                 result = ToolResult(result=_payload, request_id=0)
+            elif tool_name.startswith("gui."):
+                # v6.12 Fix I (F-88 2026-07-21): GUI Agent dispatch.
+                # main.py forks at line 1049 (is_gui) and calls the
+                # Python GuiAgent module (AT-SPI + screenshot). Task
+                # #173's AgentGraph pipeline didn't port this — every
+                # gui.* call hit mcpd's Rust dispatcher which returned
+                # 'Method not found'. Ported here so `# take a screenshot`
+                # / `# list my open windows` etc. work end-to-end.
+                gui_cfg = getattr(collab.get("cfg"), "gui", None)
+                if gui_cfg is not None and not getattr(gui_cfg, "enabled", True):
+                    return _mark("mcpd_dispatcher", "failed", {
+                        "error_kind": "mcpd",
+                        "error_reason": "GUI automation is disabled. "
+                                        "Enable with [gui] enabled = true in "
+                                        "/etc/icebreaker/controller.toml",
+                        "completed": True,
+                    })
+                # Lazy import — gui_agent depends on pyatspi which is
+                # optional at controller level (tests mock it).
+                from gui_agent.agent import GuiAgent
+                _gui = GuiAgent(config=gui_cfg) if gui_cfg else GuiAgent()
+                gui_result = _gui.handle_request(
+                    tool_name, tool_call.get("params", {}) or {},
+                )
+                # GuiAgent returns a plain dict — wrap in ToolResult so
+                # downstream code (hash, responder) sees the same shape
+                # as the mcpd + manifest branches.
+                if not isinstance(gui_result, dict):
+                    gui_result = {"result": gui_result}
+                _payload = dict(gui_result)
+                # Stringify the whole payload for stdout so the responder
+                # has something to summarize. Prefer an existing 'stdout'
+                # or a natural-language 'status' key if the GUI Agent
+                # provided one; else JSON-dump the dict.
+                _stdout = ""
+                if isinstance(_payload.get("stdout"), str):
+                    _stdout = _payload["stdout"]
+                elif isinstance(_payload.get("status"), str):
+                    _stdout = f"{tool_name}: {_payload['status']}"
+                else:
+                    _stdout = json.dumps(_payload)[:2000]
+                _payload["stdout"] = _stdout
+                _payload.setdefault("ok", True)
+                _payload["gui_dispatched"] = True
+                result = ToolResult(result=_payload, request_id=0)
+            elif tool_name.startswith("rpa."):
+                # v6.12 Fix I (F-89 2026-07-21): RPA Bridge dispatch.
+                # Same shape as the gui.* branch — port of main.py's
+                # is_rpa fork. RPA runs Robot Framework workflows under
+                # the /dev/uinput sandbox; tier 3 (highest risk).
+                rpa_cfg = getattr(collab.get("cfg"), "rpa", None)
+                if rpa_cfg is not None and not getattr(rpa_cfg, "enabled", True):
+                    return _mark("mcpd_dispatcher", "failed", {
+                        "error_kind": "mcpd",
+                        "error_reason": "RPA automation is disabled. "
+                                        "Enable with [rpa] enabled = true in "
+                                        "/etc/icebreaker/controller.toml",
+                        "completed": True,
+                    })
+                from rpa_bridge.bridge import RpaBridge
+                _rpa = RpaBridge(config=rpa_cfg) if rpa_cfg else RpaBridge()
+                rpa_result = _rpa.handle_request(
+                    tool_name, tool_call.get("params", {}) or {},
+                )
+                if not isinstance(rpa_result, dict):
+                    rpa_result = {"result": rpa_result}
+                _payload = dict(rpa_result)
+                _stdout = ""
+                if isinstance(_payload.get("stdout"), str):
+                    _stdout = _payload["stdout"]
+                elif isinstance(_payload.get("status"), str):
+                    _stdout = f"{tool_name}: {_payload['status']}"
+                else:
+                    _stdout = json.dumps(_payload)[:2000]
+                _payload["stdout"] = _stdout
+                _payload.setdefault("ok", True)
+                _payload["rpa_dispatched"] = True
+                result = ToolResult(result=_payload, request_id=0)
             else:
                 result = collab["mcpd"].call(
                     method=tool_name,

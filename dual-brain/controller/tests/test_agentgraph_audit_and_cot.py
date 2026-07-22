@@ -556,3 +556,119 @@ class TestNavCdSyncsShell:
 
 # Keep the `import os` for TestNavCdSyncsShell at module scope.
 import os  # noqa: E402
+
+
+# ── Fix I: gui.* / rpa.* dispatched through AgentGraph ───────────────
+
+
+class TestGuiRpaDispatchInAgentGraph:
+    """v6.12 Fix I (F-88/F-89) — mcpd_dispatcher_node routes gui.* to
+    GuiAgent and rpa.* to RpaBridge before falling through to mcpd.
+    Pre-v6.12 the AgentGraph path sent everything to mcpd (which only
+    knows fs.*/system.*/network.* etc.) so every gui.* / rpa.* call
+    hit 'Method not found: gui.*' on the guest.
+    """
+
+    def test_gui_dispatch_calls_gui_agent_not_mcpd(self, monkeypatch):
+        """gui.ping → GuiAgent.handle_request is called; mcpd.call is NOT
+        called. GuiAgent's dict return is wrapped in a ToolResult."""
+        from controller.agent_graph_nodes import mcpd_dispatcher_node
+        from unittest.mock import MagicMock
+
+        collab = _kit()
+        # Enable gui via cfg (default is enabled).
+        collab["cfg"].gui = SimpleNamespace(enabled=True)
+        # Stub the GuiAgent import site.
+        fake_gui_agent = MagicMock()
+        fake_gui_agent.handle_request.return_value = {
+            "status": "ok", "atspi_available": True,
+        }
+        import sys, types
+        # Inject a fake gui_agent.agent module so lazy-import inside the
+        # dispatcher resolves cleanly without touching the real module.
+        fake_mod = types.ModuleType("gui_agent.agent")
+        fake_mod.GuiAgent = MagicMock(return_value=fake_gui_agent)
+        fake_pkg = types.ModuleType("gui_agent")
+        fake_pkg.agent = fake_mod
+        monkeypatch.setitem(sys.modules, "gui_agent", fake_pkg)
+        monkeypatch.setitem(sys.modules, "gui_agent.agent", fake_mod)
+
+        # Seed a gui.ping tool_call in turn_content.
+        tool_call = {"tool": "gui.ping", "params": {}}
+        collab["turn_content"]["tc-hash-1"] = tool_call
+
+        result = mcpd_dispatcher_node(collab)(_state(
+            tool_call_hash="tc-hash-1", intent_id="", plan_id="", step_index=0,
+        ))
+
+        # GuiAgent.handle_request called; mcpd.call NOT called.
+        fake_gui_agent.handle_request.assert_called_once_with("gui.ping", {})
+        collab["mcpd"].call.assert_not_called()
+        # Node marked done, not failed.
+        assert result.get("visited_nodes") == [("mcpd_dispatcher", "done")]
+
+    def test_gui_disabled_returns_friendly_error(self, monkeypatch):
+        """gui.click with cfg.gui.enabled=False returns error_kind=mcpd
+        with a message pointing at /etc/icebreaker/controller.toml. No
+        GuiAgent instantiation attempted."""
+        from controller.agent_graph_nodes import mcpd_dispatcher_node
+        from unittest.mock import MagicMock
+
+        collab = _kit()
+        collab["cfg"].gui = SimpleNamespace(enabled=False)
+        collab["turn_content"]["tc-hash-2"] = {"tool": "gui.click", "params": {}}
+
+        result = mcpd_dispatcher_node(collab)(_state(
+            tool_call_hash="tc-hash-2",
+        ))
+
+        assert result.get("error_kind") == "mcpd"
+        assert "GUI automation is disabled" in result.get("error_reason", "")
+        assert result.get("visited_nodes") == [("mcpd_dispatcher", "failed")]
+
+    def test_rpa_dispatch_calls_rpa_bridge_not_mcpd(self, monkeypatch):
+        """rpa.ping → RpaBridge.handle_request called; mcpd.call NOT."""
+        from controller.agent_graph_nodes import mcpd_dispatcher_node
+        from unittest.mock import MagicMock
+        import sys, types
+
+        collab = _kit()
+        collab["cfg"].rpa = SimpleNamespace(enabled=True)
+
+        fake_rpa = MagicMock()
+        fake_rpa.handle_request.return_value = {"status": "ok"}
+        fake_mod = types.ModuleType("rpa_bridge.bridge")
+        fake_mod.RpaBridge = MagicMock(return_value=fake_rpa)
+        fake_pkg = types.ModuleType("rpa_bridge")
+        fake_pkg.bridge = fake_mod
+        monkeypatch.setitem(sys.modules, "rpa_bridge", fake_pkg)
+        monkeypatch.setitem(sys.modules, "rpa_bridge.bridge", fake_mod)
+
+        collab["turn_content"]["tc-hash-3"] = {"tool": "rpa.ping", "params": {}}
+
+        result = mcpd_dispatcher_node(collab)(_state(
+            tool_call_hash="tc-hash-3",
+        ))
+
+        fake_rpa.handle_request.assert_called_once_with("rpa.ping", {})
+        collab["mcpd"].call.assert_not_called()
+        assert result.get("visited_nodes") == [("mcpd_dispatcher", "done")]
+
+    def test_non_gui_rpa_still_falls_through_to_mcpd(self):
+        """fs.list must still route to mcpd — the gui/rpa branch is a
+        prefix match, not a catch-all."""
+        from controller.agent_graph_nodes import mcpd_dispatcher_node
+        collab = _kit()
+        collab["mcpd"].call.return_value = SimpleNamespace(
+            stdout="entries: [...]", result={"stdout": "entries: [...]"},
+        )
+        collab["turn_content"]["tc-hash-4"] = {
+            "tool": "fs.list", "params": {"path": "/tmp"},
+        }
+
+        result = mcpd_dispatcher_node(collab)(_state(
+            tool_call_hash="tc-hash-4",
+        ))
+
+        collab["mcpd"].call.assert_called_once()
+        assert result.get("visited_nodes") == [("mcpd_dispatcher", "done")]
