@@ -43,7 +43,10 @@ cd "$REPO"
 # ── Step 0: preflight ────────────────────────────────────────────────────
 echo ""
 echo "▶ Step 0: preflight"
-bash "$REPO/cx-distro/preflight.sh" --quiet || {
+# --host: skip the operator-side VM check because rebuild-v67.sh runs
+# ON the build VM itself (the VM checking whether it can reach itself
+# via gcloud is chicken-and-egg AND requires gcloud creds inside the VM).
+bash "$REPO/cx-distro/preflight.sh" --quiet --host || {
     echo "FATAL: preflight failed. Fix the failed checks above, then re-run."
     exit 1
 }
