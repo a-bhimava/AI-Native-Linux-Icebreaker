@@ -160,14 +160,14 @@ incremental/
 
 | Item | Value |
 |------|-------|
-| Build VM | `icebreaker-phase2-vm` · zone `us-west4-b` · project `project-12486d7e-4046-45bd-8b4` |
-| Start VM | `gcloud compute instances start icebreaker-phase2-vm --zone=us-west4-b --project=project-12486d7e-4046-45bd-8b4` |
-| Repo on VM | `/home/aditya/icebreaker/` (NOT a git repo — synced by rsync) |
-| Sync | `rsync -avz --exclude='.git/' --exclude='.build/' --exclude='backups/' --exclude='ISO/' --exclude='*.iso' --exclude='*.gguf' --exclude='*.tar.gz' /Users/aditya/Documents/Icebreaker/ icebreaker-phase2-vm.us-west4-b.project-12486d7e-4046-45bd-8b4:/home/aditya/icebreaker/` (run `gcloud compute config-ssh` first) |
+| Build VM | `icebreaker-build-vm` · zone `us-central1-a` · project `project-ef281c18-2a28-4139-a89` · account `team.projectsyard@gmail.com` |
+| Start VM | `gcloud compute instances start icebreaker-build-vm --zone=us-central1-a --project=project-ef281c18-2a28-4139-a89` |
+| Repo on VM | `$HOME/Icebreaker/` — git clone, pulled per build (`git fetch origin && git checkout <branch> && git pull --ff-only`) |
+| Sync | branch push + pull. From Mac: `git push origin <branch>`. On VM: `cd ~/Icebreaker && git fetch && git checkout <branch> && git pull --ff-only` |
 | Build pattern | Always inside tmux: `tmux new -d -s build '<cmd> 2>&1 \| tee /tmp/build.log'` — survives SSH drops |
-| cargo gotcha | cargo lives at `/home/aditya/.cargo/bin/cargo`; `sudo` strips PATH. Use `sudo env PATH=/home/aditya/.cargo/bin:$PATH bash …` (only matters when a version rebuilds mcpd) |
-| Models on VM | `/home/aditya/models/*.gguf` + `/home/aditya/icebreaker/models/checksums.sha256` |
-| Download ISO | `gcloud compute scp icebreaker-phase2-vm:/home/aditya/icebreaker/incremental/.build/out/icebreaker-vN.iso ~/Documents/Icebreaker/ISO/incremental/vN.iso --zone=us-west4-b --project=project-12486d7e-4046-45bd-8b4` |
+| cargo gotcha | cargo lives at `$HOME/.cargo/bin/cargo`; `sudo` strips PATH. Use `sudo env PATH=$HOME/.cargo/bin:$PATH bash …` (only matters when a version rebuilds mcpd) |
+| Models on VM | `$HOME/models/*.gguf` + `$HOME/Icebreaker/models/checksums.sha256` |
+| Download ISO | `gcloud compute scp icebreaker-build-vm:~/Icebreaker/incremental/.build/out/vN-arm64.iso ~/Documents/Icebreaker/ISO/incremental/ --zone=us-central1-a --project=project-ef281c18-2a28-4139-a89` |
 | STOP the VM when done | `gcloud compute instances stop …` — it bills while running |
 
 ## 6. The two loops

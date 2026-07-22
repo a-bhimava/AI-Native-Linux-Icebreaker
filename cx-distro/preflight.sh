@@ -62,9 +62,9 @@ V2_MANIFEST="${REPO_ROOT}/incremental/versions/v2.manifest"
 V6_MANIFEST="${REPO_ROOT}/incremental/versions/v6.manifest"
 CHECKSUMS="${REPO_ROOT}/models/checksums.sha256"
 
-VM_NAME="${VM_NAME:-icebreaker-phase2-vm}"
-VM_ZONE="${VM_ZONE:-us-west4-b}"
-VM_PROJECT="${VM_PROJECT:-project-12486d7e-4046-45bd-8b4}"
+VM_NAME="${VM_NAME:-icebreaker-build-vm}"
+VM_ZONE="${VM_ZONE:-us-central1-a}"
+VM_PROJECT="${VM_PROJECT:-project-ef281c18-2a28-4139-a89}"
 
 echo "═══ Icebreaker ISO build preflight ═══"
 echo ""

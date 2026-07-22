@@ -10,10 +10,10 @@
 
 | Requirement | Value | Verify command |
 |---|---|---|
-| GCP project ID | `project-12486d7e-4046-45bd-8b4` | `gcloud config get-value project` |
-| GCP zone | `us-west4-b` | (arg to every gcloud call) |
-| VM name | `icebreaker-phase2-vm` | `gcloud compute instances describe <VM> --format='value(status)'` returns `RUNNING` |
-| VM min free disk | ≥ 20 GB on `/home/aditya` filesystem | `ssh <VM> df -BG /home/aditya \| awk 'NR==2 {print $4}'` ≥ 20 |
+| GCP project ID | `project-ef281c18-2a28-4139-a89` (team.projectsyard@gmail.com) | `gcloud config get-value project` |
+| GCP zone | `us-central1-a` | (arg to every gcloud call) |
+| VM name | `icebreaker-build-vm` | `gcloud compute instances describe <VM> --format='value(status)'` returns `RUNNING` |
+| VM min free disk | ≥ 20 GB on `$HOME` filesystem | `ssh <VM> df -BG $HOME \| awk 'NR==2 {print $4}'` ≥ 20 |
 | Docker on VM | v20.10+ (legacy builder OK) | `ssh <VM> docker --version` — supports `--no-cache` flag but NOT `--progress=plain` on 29.1.3 |
 | tmux on VM | any version | `ssh <VM> which tmux` |
 | operator has `gcloud`, `git`, `tar`, `zstd` | | `which gcloud git tar zstd` on Mac |
@@ -22,11 +22,11 @@
 
 | Requirement | Value |
 |---|---|
-| Tree layout on VM | `/home/aditya/Icebreaker` — overwritable via tarball push, NOT a git clone |
-| Tree preparation | `git archive HEAD \| gzip > /tmp/tarball.gz && gcloud scp /tmp/tarball.gz <VM>:/tmp/ && ssh <VM> 'cd Icebreaker && tar xzf /tmp/tarball.gz'` |
-| Model file location | `/home/aditya/models/run7_cot_q4km.gguf` on the VM (940 MB, kept out of git) |
+| Tree layout on VM | `$HOME/Icebreaker` — git clone (branch pull on each build) |
+| Tree preparation | `ssh <VM> 'cd Icebreaker && git fetch origin && git checkout <branch> && git pull --ff-only'` |
+| Model file location | `$HOME/models/run7_cot_q4km.gguf` on the VM (940 MB, kept out of git) |
 | Model checksum | Must match `models/checksums.sha256` in the tree |
-| Model symlink | `models/run7_cot_q4km.gguf → /home/aditya/models/run7_cot_q4km.gguf` (created after tarball extract) |
+| Model symlink | `models/run7_cot_q4km.gguf → $HOME/models/run7_cot_q4km.gguf` (created after clone) |
 | `cx-distro/.build/` | Owned by root from prior sudo builds; `sudo rm -rf` to clean if needed |
 
 ## 3. Docker image apt packages (`cx-distro/Dockerfile.build`)

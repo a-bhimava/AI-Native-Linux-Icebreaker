@@ -22,7 +22,7 @@
 set -Eeuo pipefail
 
 # ── config ───────────────────────────────────────────────────────────────
-REPO="${REPO:-/home/aditya/Icebreaker}"
+REPO="${REPO:-$HOME/Icebreaker}"
 LABEL="${LABEL:-v6.7}"
 VN="${VN:-6}"
 V67_INCLUDE_ARM64="${V67_INCLUDE_ARM64:-1}"
@@ -154,6 +154,6 @@ if [ "$V67_INCLUDE_ARM64" = "1" ]; then
 fi
 echo ""
 echo "3. Download to Mac:"
-echo "   gcloud compute scp icebreaker-phase2-vm:${REPO}/incremental/.build/out/${LABEL}-\\*.iso ~/Documents/Icebreaker/ISO/incremental/ --zone=us-west4-b"
+echo "   gcloud compute scp icebreaker-build-vm:${REPO}/incremental/.build/out/${LABEL}-\\*.iso ~/Documents/Icebreaker/ISO/incremental/ --zone=us-central1-a --project=project-ef281c18-2a28-4139-a89"
 echo ""
 echo "4. Boot in QEMU (amd64, Intel Mac / KVM) or UTM (Apple Silicon)."

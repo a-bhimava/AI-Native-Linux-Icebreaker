@@ -9,9 +9,9 @@
 set -euo pipefail
 
 # ── GCP VM config ──────────────────────────────────────────────────────
-VM_NAME="${VM_NAME:-icebreaker-phase2-vm}"
-VM_ZONE="${VM_ZONE:-us-west4-b}"
-VM_PROJECT="${VM_PROJECT:-project-12486d7e-4046-45bd-8b4}"
+VM_NAME="${VM_NAME:-icebreaker-build-vm}"
+VM_ZONE="${VM_ZONE:-us-central1-a}"
+VM_PROJECT="${VM_PROJECT:-project-ef281c18-2a28-4139-a89}"
 
 REPO_DIR_ON_VM="~/icebreaker"
 ISO_REMOTE="${REPO_DIR_ON_VM}/cx-distro/icebreaker.iso"
