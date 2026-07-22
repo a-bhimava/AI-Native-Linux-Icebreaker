@@ -59,6 +59,24 @@ TIER0_FAST_PATH_TOOLS: dict[str, Callable[[dict], dict]] = {
     "package.query":    lambda intent: {"name": intent.get("target", "")},
     # ── Int-target (pid) — validated below to avoid ValueError leak ──
     "process.inspect":  lambda intent: {"pid": _target_as_pid(intent)},
+    # ── v6.12 Fix I follow-up: Tier-0 GUI Agent + RPA Bridge tools ──
+    # These are read-only Phase 6T tools that PB was never trained on
+    # (Qwen fine-tuning corpus was fs.* / system.* only). Without
+    # fast-path handling, PB free-forms and produces garbage params
+    # like {"host": "8.8.8.8"} for gui.ping — the tool then rejects
+    # via handle_request's schema validation. Fast-path skips PB
+    # entirely and constructs the correct empty / target-based
+    # params directly.
+    "gui.ping":              lambda intent: {},
+    "rpa.ping":              lambda intent: {},
+    "gui.get_window_list":   lambda intent: {},
+    "gui.screenshot":        lambda intent: (
+        {"window": intent.get("target", "")} if intent.get("target") else {}
+    ),
+    "gui.get_element_tree":  lambda intent: {"window": intent.get("target", "")},
+    "gui.find_element":      lambda intent: {"window": intent.get("target", "")},
+    "rpa.list_workflows":    lambda intent: {},
+    "rpa.find_by_image":     lambda intent: {"template": intent.get("target", "")},
 }
 
 
