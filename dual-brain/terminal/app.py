@@ -103,6 +103,12 @@ class AiTerminalApp(App):
         Binding("f2", "toggle_nl_mode", "Toggle NL mode", show=False),
         Binding("f3", "toggle_companion", "Toggle companion panel"),
         Binding("f10", "quit", "Quit"),
+        # v6.12 HITL-DIAG hotfix: always-available approve/deny keybindings.
+        # Works even when the HitlModal fails to render. Combined with the
+        # fallback banner in _on_hitl_prompt, the user always has a visible
+        # prompt AND a way to answer it.
+        Binding("ctrl+a", "hitl_approve", "Approve pending HITL", show=True),
+        Binding("ctrl+d", "hitl_deny", "Deny pending HITL", show=True),
     ]
 
     def __init__(
@@ -252,26 +258,72 @@ class AiTerminalApp(App):
         The daemon side (ForwardingPresenter) is blocked on an
         Event.wait() with a per-turn timeout; if the user does nothing
         here the daemon times out on its own. That means we don't need
-        to invent a client-side timeout — pushing the modal is enough."""
+        to invent a client-side timeout — pushing the modal is enough.
+
+        v6.12 HITL-DIAG hotfix: log every hop; also render a visible
+        text banner in the LEFT pane so the user SEES a pending prompt
+        even if the modal push fails silently (previously the modal
+        was the only surface — if it silently failed the user saw
+        nothing and the daemon timed out with a mystery deny)."""
+        log.info("HITL-DIAG _on_hitl_prompt: received prompt notification: %s", params)
         from .hitl_modal import HitlModal
 
         # Copy params — the modal keeps a snapshot.
         snapshot = dict(params or {})
+        # Stash for the keyboard fallback in case the modal doesn't render.
+        self._pending_hitl_snapshot = snapshot
+
+        def _emit_fallback_banner() -> None:
+            """Print a visible banner into the LEFT pane. Runs on UI thread."""
+            try:
+                action = str(snapshot.get("action", "?"))
+                target = str(snapshot.get("target", ""))
+                tier = int(snapshot.get("tier", 0) or 0)
+                banner = (
+                    f"[bold yellow][HITL PENDING][/bold yellow] "
+                    f"{action} {target} (Tier {tier}) — press "
+                    f"[bold]Ctrl+A[/bold] to approve, [bold]Ctrl+D[/bold] to deny"
+                )
+                # left_log is the RichLog on the left pane; write() renders inline.
+                for attr in ("_left_log", "left_log", "_output_log", "output_log"):
+                    ll = getattr(self, attr, None)
+                    if ll is not None and hasattr(ll, "write"):
+                        ll.write(banner)
+                        log.info("HITL-DIAG fallback banner written to %s", attr)
+                        return
+                log.warning("HITL-DIAG fallback banner: no left pane widget found")
+            except Exception as exc:  # noqa: BLE001
+                log.warning("HITL-DIAG fallback banner failed: %s: %s",
+                            type(exc).__name__, exc)
 
         def _open() -> None:
+            log.info("HITL-DIAG _on_hitl_prompt._open: on UI thread, about to push modal")
             try:
                 self.push_screen(HitlModal(snapshot), self._handle_hitl_decision)
+                log.info("HITL-DIAG _on_hitl_prompt._open: push_screen returned OK")
             except Exception as exc:  # noqa: BLE001 F-53
-                log.warning("hitl.modal push failed: %s: %s",
+                log.warning("HITL-DIAG _on_hitl_prompt._open: push_screen FAILED %s: %s",
                             type(exc).__name__, exc)
+            # Always emit the fallback banner too — cheap and visible.
+            _emit_fallback_banner()
 
         try:
             self.call_from_thread(_open)
+            log.info("HITL-DIAG _on_hitl_prompt: call_from_thread dispatched successfully")
         except Exception as exc:  # noqa: BLE001 F-53
-            # Fall through — daemon will time out and audit will record
-            # the hitl_timeout. Log so operators can diagnose the wire.
-            log.warning("hitl.prompt marshal failed: %s: %s",
+            log.warning("HITL-DIAG _on_hitl_prompt: call_from_thread FAILED %s: %s",
                         type(exc).__name__, exc)
+
+    # v6.12 HITL-DIAG hotfix: bind Ctrl+A / Ctrl+D as always-available approve/deny
+    # keys that fire regardless of modal state. Provides a resilient fallback UX
+    # if HitlModal fails to render for any reason.
+    def action_hitl_approve(self) -> None:
+        log.info("HITL-DIAG action_hitl_approve keybinding fired")
+        self._handle_hitl_decision("approved")
+
+    def action_hitl_deny(self) -> None:
+        log.info("HITL-DIAG action_hitl_deny keybinding fired")
+        self._handle_hitl_decision("denied")
 
     def _on_hitl_lockout(self, params: dict) -> None:
         """Daemon acknowledged the lockout window. No-op on the client:
@@ -289,19 +341,24 @@ class AiTerminalApp(App):
         decision back to the daemon via ``client.respond_hitl()`` on a
         worker thread — the RPC call is blocking (JSON-RPC request)
         and MUST NOT run on the UI thread."""
+        log.info("HITL-DIAG _handle_hitl_decision: called with decision=%r", decision)
         if not decision:
+            log.info("HITL-DIAG _handle_hitl_decision: empty decision, returning early (modal dismissed without answer)")
             return
         client = self._daemon_client
         if client is None:
+            log.warning("HITL-DIAG _handle_hitl_decision: no client attached!")
             return
 
         def _send() -> None:
             try:
+                log.info("HITL-DIAG _handle_hitl_decision._send: calling client.respond_hitl(%r)", decision)
                 client.respond_hitl(decision)
+                log.info("HITL-DIAG _handle_hitl_decision._send: respond_hitl returned OK")
             except Exception as exc:  # noqa: BLE001 F-53
                 # Daemon may have already timed out or the socket
                 # dropped. Surface the failure to journal + debug log.
-                log.warning("hitl.respond failed: %s: %s",
+                log.warning("HITL-DIAG _handle_hitl_decision._send: respond_hitl FAILED %s: %s",
                             type(exc).__name__, exc)
 
         try:
