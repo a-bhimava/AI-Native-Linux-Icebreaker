@@ -375,15 +375,22 @@ version_overlay() {
         # is dead — no session_cwd in the response means ib_run.py
         # has nothing to write to the signal file.
         "F-G-cd-sync:daemon.py:getattr(session.session_state, \"session_cwd\""
-        # F-88/F-89 (Fix I 2026-07-21 later): mcpd_dispatcher_node
-        # forks gui.* → GuiAgent and rpa.* → RpaBridge before falling
-        # through to mcpd. Task #173's AgentGraph flip forgot to port
-        # main.py's is_gui/is_rpa dispatch (main.py:1049), so every
-        # gui.screenshot / gui.get_window_list / rpa.list_workflows
-        # etc. hit mcpd's Rust dispatcher and got 'Method not found'.
-        # Live-verified broken via '# take a screenshot' on UTM Stage E2.
-        "F-I-gui-dispatch:agent_graph_nodes.py:from gui_agent.agent import GuiAgent"
-        "F-I-rpa-dispatch:agent_graph_nodes.py:from rpa_bridge.bridge import RpaBridge"
+        # F-88/F-89 (Fix I+ 2026-07-22): gui.*/rpa.* dispatched via
+        # subprocess isolation (controller.gui_worker module) — Fix I's
+        # in-thread call crashed the daemon with SIGTRAP inside libglib.
+        # See _dispatch_in_subprocess docstring in agent_graph_nodes.py.
+        # The old F-I-gui-dispatch / F-I-rpa-dispatch anchors are gone
+        # (the in-thread `from gui_agent.agent import GuiAgent` line was
+        # removed); replaced by these two:
+        "F-Iplus-subproc:agent_graph_nodes.py:controller.gui_worker"
+        "F-Iplus-worker:gui_worker.py:gui_worker: unknown kind"
+        # F-90 (Fix J 2026-07-22): fs.write content passthrough bypasses
+        # PB when intent has verbatim content. PB (local Qwen) truncated
+        # on any non-trivial content generation ('BrainTruncationError:
+        # unterminated object' after 78s on '# create html page'). Anchor
+        # in the fast-path source — grep for the pattern that only exists
+        # in the new branch.
+        "F-J-content-pass:tier0_fast_path.py:F-90 2026-07-22"
     )
     local _mkr _f _needle _target
     for _mkr in "${_v2_markers[@]}"; do
