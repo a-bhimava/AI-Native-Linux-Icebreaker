@@ -562,57 +562,54 @@ import os  # noqa: E402
 
 
 class TestGuiRpaDispatchInAgentGraph:
-    """v6.12 Fix I (F-88/F-89) — mcpd_dispatcher_node routes gui.* to
-    GuiAgent and rpa.* to RpaBridge before falling through to mcpd.
-    Pre-v6.12 the AgentGraph path sent everything to mcpd (which only
-    knows fs.*/system.*/network.* etc.) so every gui.* / rpa.* call
-    hit 'Method not found: gui.*' on the guest.
+    """v6.12 Fix I+ (F-88/F-89) — mcpd_dispatcher_node routes gui.* / rpa.*
+    to a controller.gui_worker subprocess (not an in-thread import).
+    Pre-Fix-I the AgentGraph path sent gui.* to mcpd which had no handler.
+    Fix I (in-thread) crashed the daemon with SIGTRAP inside libglib-2.0.
+    Fix I+ isolates the call in a fresh Python process so pyatspi's GLib
+    init runs in a context with its own mainloop.
     """
 
-    def test_gui_dispatch_calls_gui_agent_not_mcpd(self, monkeypatch):
-        """gui.ping → GuiAgent.handle_request is called; mcpd.call is NOT
-        called. GuiAgent's dict return is wrapped in a ToolResult."""
+    def test_gui_dispatch_calls_subprocess_not_mcpd(self, monkeypatch):
+        """gui.ping → controller.gui_worker subprocess is spawned via
+        subprocess.run; mcpd.call is NOT called. Envelope dict is unwrapped
+        and wrapped in a ToolResult with the same shape as pre-Fix-I+."""
+        from controller import agent_graph_nodes as agn
         from controller.agent_graph_nodes import mcpd_dispatcher_node
         from unittest.mock import MagicMock
 
         collab = _kit()
-        # Enable gui via cfg (default is enabled).
         collab["cfg"].gui = SimpleNamespace(enabled=True)
-        # Stub the GuiAgent import site.
-        fake_gui_agent = MagicMock()
-        fake_gui_agent.handle_request.return_value = {
-            "status": "ok", "atspi_available": True,
-        }
-        import sys, types
-        # Inject a fake gui_agent.agent module so lazy-import inside the
-        # dispatcher resolves cleanly without touching the real module.
-        fake_mod = types.ModuleType("gui_agent.agent")
-        fake_mod.GuiAgent = MagicMock(return_value=fake_gui_agent)
-        fake_pkg = types.ModuleType("gui_agent")
-        fake_pkg.agent = fake_mod
-        monkeypatch.setitem(sys.modules, "gui_agent", fake_pkg)
-        monkeypatch.setitem(sys.modules, "gui_agent.agent", fake_mod)
 
-        # Seed a gui.ping tool_call in turn_content.
-        tool_call = {"tool": "gui.ping", "params": {}}
-        collab["turn_content"]["tc-hash-1"] = tool_call
+        # Patch subprocess.run to return a fake success envelope.
+        fake_proc = MagicMock()
+        fake_proc.returncode = 0
+        fake_proc.stdout = '{"ok": true, "result": {"status": "ok", "atspi_available": true}}'
+        fake_proc.stderr = ""
+        fake_run = MagicMock(return_value=fake_proc)
+        import subprocess as _sp
+        monkeypatch.setattr(_sp, "run", fake_run)
+
+        collab["turn_content"]["tc-hash-1"] = {"tool": "gui.ping", "params": {}}
 
         result = mcpd_dispatcher_node(collab)(_state(
             tool_call_hash="tc-hash-1", intent_id="", plan_id="", step_index=0,
         ))
 
-        # GuiAgent.handle_request called; mcpd.call NOT called.
-        fake_gui_agent.handle_request.assert_called_once_with("gui.ping", {})
+        # subprocess.run called with controller.gui_worker; mcpd.call NOT.
+        fake_run.assert_called_once()
+        argv = fake_run.call_args[0][0]
+        assert "controller.gui_worker" in argv, (
+            f"expected -m controller.gui_worker in argv, got {argv}"
+        )
         collab["mcpd"].call.assert_not_called()
-        # Node marked done, not failed.
         assert result.get("visited_nodes") == [("mcpd_dispatcher", "done")]
 
-    def test_gui_disabled_returns_friendly_error(self, monkeypatch):
+    def test_gui_disabled_returns_friendly_error(self):
         """gui.click with cfg.gui.enabled=False returns error_kind=mcpd
         with a message pointing at /etc/icebreaker/controller.toml. No
-        GuiAgent instantiation attempted."""
+        subprocess spawned."""
         from controller.agent_graph_nodes import mcpd_dispatcher_node
-        from unittest.mock import MagicMock
 
         collab = _kit()
         collab["cfg"].gui = SimpleNamespace(enabled=False)
@@ -626,23 +623,22 @@ class TestGuiRpaDispatchInAgentGraph:
         assert "GUI automation is disabled" in result.get("error_reason", "")
         assert result.get("visited_nodes") == [("mcpd_dispatcher", "failed")]
 
-    def test_rpa_dispatch_calls_rpa_bridge_not_mcpd(self, monkeypatch):
-        """rpa.ping → RpaBridge.handle_request called; mcpd.call NOT."""
+    def test_rpa_dispatch_calls_subprocess_not_mcpd(self, monkeypatch):
+        """rpa.ping → controller.gui_worker subprocess with kind=rpa;
+        mcpd.call NOT called."""
         from controller.agent_graph_nodes import mcpd_dispatcher_node
         from unittest.mock import MagicMock
-        import sys, types
 
         collab = _kit()
         collab["cfg"].rpa = SimpleNamespace(enabled=True)
 
-        fake_rpa = MagicMock()
-        fake_rpa.handle_request.return_value = {"status": "ok"}
-        fake_mod = types.ModuleType("rpa_bridge.bridge")
-        fake_mod.RpaBridge = MagicMock(return_value=fake_rpa)
-        fake_pkg = types.ModuleType("rpa_bridge")
-        fake_pkg.bridge = fake_mod
-        monkeypatch.setitem(sys.modules, "rpa_bridge", fake_pkg)
-        monkeypatch.setitem(sys.modules, "rpa_bridge.bridge", fake_mod)
+        fake_proc = MagicMock()
+        fake_proc.returncode = 0
+        fake_proc.stdout = '{"ok": true, "result": {"status": "ok"}}'
+        fake_proc.stderr = ""
+        fake_run = MagicMock(return_value=fake_proc)
+        import subprocess as _sp
+        monkeypatch.setattr(_sp, "run", fake_run)
 
         collab["turn_content"]["tc-hash-3"] = {"tool": "rpa.ping", "params": {}}
 
@@ -650,9 +646,63 @@ class TestGuiRpaDispatchInAgentGraph:
             tool_call_hash="tc-hash-3",
         ))
 
-        fake_rpa.handle_request.assert_called_once_with("rpa.ping", {})
+        fake_run.assert_called_once()
+        # Verify the stdin payload had kind="rpa"
+        stdin_json = fake_run.call_args.kwargs.get("input", "")
+        import json as _json
+        req = _json.loads(stdin_json)
+        assert req["kind"] == "rpa", f"expected kind=rpa, got {req}"
         collab["mcpd"].call.assert_not_called()
         assert result.get("visited_nodes") == [("mcpd_dispatcher", "done")]
+
+    def test_gui_subprocess_timeout_returns_error_kind_mcpd(self, monkeypatch):
+        """subprocess.run timeout → error_kind=mcpd with a message that
+        names the tool + timeout. Visited node marked failed."""
+        from controller.agent_graph_nodes import mcpd_dispatcher_node
+        from unittest.mock import MagicMock
+        import subprocess as _sp
+
+        collab = _kit()
+        collab["cfg"].gui = SimpleNamespace(enabled=True)
+        collab["turn_content"]["tc-hash-5"] = {"tool": "gui.screenshot", "params": {}}
+
+        def _raise_timeout(*a, **kw):
+            raise _sp.TimeoutExpired(cmd=a[0] if a else "gui_worker", timeout=10)
+        monkeypatch.setattr(_sp, "run", _raise_timeout)
+
+        result = mcpd_dispatcher_node(collab)(_state(
+            tool_call_hash="tc-hash-5",
+        ))
+
+        assert result.get("error_kind") == "mcpd"
+        assert "timed out" in result.get("error_reason", "").lower()
+        assert "gui.screenshot" in result.get("error_reason", "")
+        assert result.get("visited_nodes") == [("mcpd_dispatcher", "failed")]
+
+    def test_gui_subprocess_nonzero_exit_returns_error_kind_mcpd(self, monkeypatch):
+        """subprocess exit != 0 → error_kind=mcpd surfacing exit code and
+        stderr snippet. Visited node marked failed."""
+        from controller.agent_graph_nodes import mcpd_dispatcher_node
+        from unittest.mock import MagicMock
+
+        collab = _kit()
+        collab["cfg"].gui = SimpleNamespace(enabled=True)
+        collab["turn_content"]["tc-hash-6"] = {"tool": "gui.ping", "params": {}}
+
+        fake_proc = MagicMock()
+        fake_proc.returncode = 1
+        fake_proc.stdout = ""
+        fake_proc.stderr = "ModuleNotFoundError: gui_agent"
+        import subprocess as _sp
+        monkeypatch.setattr(_sp, "run", MagicMock(return_value=fake_proc))
+
+        result = mcpd_dispatcher_node(collab)(_state(
+            tool_call_hash="tc-hash-6",
+        ))
+
+        assert result.get("error_kind") == "mcpd"
+        assert "exit 1" in result.get("error_reason", "")
+        assert result.get("visited_nodes") == [("mcpd_dispatcher", "failed")]
 
     def test_non_gui_rpa_still_falls_through_to_mcpd(self):
         """fs.list must still route to mcpd — the gui/rpa branch is a
@@ -672,3 +722,52 @@ class TestGuiRpaDispatchInAgentGraph:
 
         collab["mcpd"].call.assert_called_once()
         assert result.get("visited_nodes") == [("mcpd_dispatcher", "done")]
+
+
+class TestFsWriteContentPassthrough:
+    """v6.12 Fix J (F-90) — try_fast_path bypasses PB when intent has
+    verbatim content, at any tier. Pre-Fix-J the local Qwen truncated
+    on any non-trivial content and returned BrainTruncationError
+    ('JSON decode failure: unterminated object') after seconds of wait.
+    """
+
+    def test_fs_write_with_content_uses_fast_path_for_all_tiers(self):
+        """fs.write with content produces a fast-path tool_call at
+        tier 0, 1, 2, and 3 (writes outside $HOME still get to skip PB;
+        HITL gate still fires downstream)."""
+        from controller.tier0_fast_path import try_fast_path
+        for tier in (0, 1, 2, 3):
+            r = try_fast_path(
+                {"action": "fs.write", "target": "/tmp/x.txt", "content": "hi"},
+                tier=tier,
+            )
+            assert r == {
+                "tool": "fs.write",
+                "params": {"path": "/tmp/x.txt", "content": "hi"},
+            }, f"tier {tier} did not fast-path: got {r}"
+
+    def test_fs_write_without_content_falls_through_to_pb(self):
+        """Empty file writes (no content field) still need PB — the
+        fast-path only kicks in when content is a non-empty string."""
+        from controller.tier0_fast_path import try_fast_path
+        # tier=1 is the natural home-directory write case.
+        for missing in ({}, {"content": ""}, {"content": None}):
+            intent = {"action": "fs.write", "target": "/tmp/x", **missing}
+            r = try_fast_path(intent, tier=1)
+            assert r is None, f"unexpectedly fast-pathed empty content: {intent} → {r}"
+
+    def test_fs_write_with_content_at_tier0_still_falls_through_to_content_branch(self):
+        """Regression: the pre-existing tier-0 code path (mapper dict)
+        does NOT accidentally catch fs.write. Only the new content-branch
+        matches, and only when content is non-empty."""
+        from controller.tier0_fast_path import try_fast_path, TIER0_FAST_PATH_TOOLS
+        assert "fs.write" not in TIER0_FAST_PATH_TOOLS, (
+            "fs.write should NOT be in TIER0_FAST_PATH_TOOLS; the mapper "
+            "dict is tier-0-only, but fs.write is tier>=1."
+        )
+        # tier=0 with content: still gets the content-passthrough shape.
+        r = try_fast_path(
+            {"action": "fs.write", "target": "/tmp/x", "content": "hi"},
+            tier=0,
+        )
+        assert r is not None and r["params"]["content"] == "hi"

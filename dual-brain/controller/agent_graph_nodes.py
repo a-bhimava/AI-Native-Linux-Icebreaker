@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import time
 import uuid
 from typing import Any, Callable
@@ -601,6 +602,112 @@ def _extract_stdout_for_marker(result: Any) -> str:
     return str(stdout)
 
 
+# v6.12 Fix I+ (2026-07-22): subprocess isolation for gui.*/rpa.* dispatch.
+#
+# The initial Fix I (2026-07-21) called `from gui_agent.agent import GuiAgent`
+# + `handle_request(...)` directly inside the daemon's turn-worker thread.
+# pyatspi (transitively imported) lazy-initializes GLib, which requires a
+# running GMainLoop in the caller's thread. The daemon worker thread has
+# none → first AT-SPI enumeration (e.g. gui.get_window_list) aborted the
+# daemon with SIGTRAP inside libglib-2.0. Ubuntu apport caught it as a
+# process crash on UTM Stage E2.
+#
+# Fix I+ runs the call in a fresh subprocess (fresh interpreter → fresh
+# GLib init → mainloop wraps single call safely). Costs ~100-200ms per
+# gui.*/rpa.* call. Faster strategies (persistent worker daemon, direct
+# D-Bus AT-SPI, daemon-side mainloop thread) documented in
+# GROUND_TRUTH.md § 7 F-88/F-89 notes for v6.13+.
+
+
+def _config_to_dict(cfg: Any) -> dict:
+    """Serialize a Gui/RpaConfig dataclass instance to a plain dict so
+    the subprocess can rebuild a SimpleNamespace from it. Only public
+    (non-underscore, non-callable) fields are serialized. Returns {}
+    when cfg is None."""
+    if cfg is None:
+        return {}
+    out: dict = {}
+    for name in dir(cfg):
+        if name.startswith("_"):
+            continue
+        try:
+            v = getattr(cfg, name)
+        except Exception:  # noqa: BLE001
+            continue
+        if callable(v):
+            continue
+        # Coerce Path / other exotic types to str for JSON round-trip.
+        if isinstance(v, (str, int, float, bool)) or v is None:
+            out[name] = v
+        else:
+            try:
+                out[name] = str(v)
+            except Exception:  # noqa: BLE001
+                pass
+    return out
+
+
+def _dispatch_in_subprocess(
+    kind: str, tool_call: dict, cfg: Any, timeout_s: float = 10.0,
+) -> dict:
+    """Run gui.*/rpa.* dispatch in a fresh subprocess via the
+    ``controller.gui_worker`` module. Returns a dict with either
+    ``{"ok": True, "result": {...}}`` or ``{"ok": False, "error": "..."}``.
+    Never raises — every failure path (timeout, non-zero exit, JSON
+    parse error, subprocess spawn failure) is caught and reported in
+    the envelope.
+
+    Callers wrap the returned payload into a ToolResult so downstream
+    graph code (hash, responder) sees the same shape whether the tool
+    was mcpd-, manifest-, or subprocess-dispatched.
+    """
+    import subprocess  # local import — only pulled in when needed
+
+    req = {
+        "kind": kind,
+        "tool": tool_call.get("tool", ""),
+        "params": tool_call.get("params", {}) or {},
+        "config": _config_to_dict(cfg),
+    }
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "controller.gui_worker"],
+            input=json.dumps(req),
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "error": f"{tool_call.get('tool', kind)}: subprocess timed out "
+                     f"after {timeout_s:.0f}s",
+        }
+    except (FileNotFoundError, PermissionError) as exc:
+        return {
+            "ok": False,
+            "error": f"{tool_call.get('tool', kind)}: cannot spawn worker: "
+                     f"{type(exc).__name__}: {exc}",
+        }
+    if proc.returncode != 0:
+        return {
+            "ok": False,
+            "error": f"{tool_call.get('tool', kind)}: worker exit "
+                     f"{proc.returncode}: {proc.stderr[:400]}",
+        }
+    try:
+        envelope = json.loads(proc.stdout.strip() or "{}")
+    except (json.JSONDecodeError, ValueError) as exc:
+        return {
+            "ok": False,
+            "error": f"{tool_call.get('tool', kind)}: worker stdout "
+                     f"unparseable ({exc}); stdout={proc.stdout[:200]!r}",
+        }
+    if not isinstance(envelope, dict):
+        return {"ok": False, "error": "worker returned non-dict envelope"}
+    return envelope
+
+
 def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
     """Send the tool_call to mcpd. Comes AFTER hitl_gate on Tier ≥ 2
     paths so the side effect only fires on approve.
@@ -657,40 +764,38 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
                 }
                 _payload.update(impl_res.metadata)
                 result = ToolResult(result=_payload, request_id=0)
-            elif tool_name.startswith("gui."):
-                # v6.12 Fix I (F-88 2026-07-21): GUI Agent dispatch.
-                # main.py forks at line 1049 (is_gui) and calls the
-                # Python GuiAgent module (AT-SPI + screenshot). Task
-                # #173's AgentGraph pipeline didn't port this — every
-                # gui.* call hit mcpd's Rust dispatcher which returned
-                # 'Method not found'. Ported here so `# take a screenshot`
-                # / `# list my open windows` etc. work end-to-end.
-                gui_cfg = getattr(collab.get("cfg"), "gui", None)
-                if gui_cfg is not None and not getattr(gui_cfg, "enabled", True):
+            elif tool_name.startswith("gui.") or tool_name.startswith("rpa."):
+                # v6.12 Fix I+ (F-88/F-89 2026-07-22): route to
+                # controller.gui_worker subprocess. In-thread call
+                # (Fix I initial) crashed the daemon with SIGTRAP
+                # inside libglib-2.0 — see _dispatch_in_subprocess
+                # docstring above for the full story.
+                _kind = "gui" if tool_name.startswith("gui.") else "rpa"
+                _cfg_attr = "gui" if _kind == "gui" else "rpa"
+                _cfg = getattr(collab.get("cfg"), _cfg_attr, None)
+                if _cfg is not None and not getattr(_cfg, "enabled", True):
                     return _mark("mcpd_dispatcher", "failed", {
                         "error_kind": "mcpd",
-                        "error_reason": "GUI automation is disabled. "
-                                        "Enable with [gui] enabled = true in "
-                                        "/etc/icebreaker/controller.toml",
+                        "error_reason": (
+                            f"{_kind.upper()} automation is disabled. "
+                            f"Enable with [{_cfg_attr}] enabled = true in "
+                            "/etc/icebreaker/controller.toml"
+                        ),
                         "completed": True,
                     })
-                # Lazy import — gui_agent depends on pyatspi which is
-                # optional at controller level (tests mock it).
-                from gui_agent.agent import GuiAgent
-                _gui = GuiAgent(config=gui_cfg) if gui_cfg else GuiAgent()
-                gui_result = _gui.handle_request(
-                    tool_name, tool_call.get("params", {}) or {},
-                )
-                # GuiAgent returns a plain dict — wrap in ToolResult so
-                # downstream code (hash, responder) sees the same shape
-                # as the mcpd + manifest branches.
-                if not isinstance(gui_result, dict):
-                    gui_result = {"result": gui_result}
-                _payload = dict(gui_result)
-                # Stringify the whole payload for stdout so the responder
-                # has something to summarize. Prefer an existing 'stdout'
-                # or a natural-language 'status' key if the GUI Agent
-                # provided one; else JSON-dump the dict.
+                envelope = _dispatch_in_subprocess(_kind, tool_call, _cfg)
+                if not envelope.get("ok"):
+                    return _mark("mcpd_dispatcher", "failed", {
+                        "error_kind": "mcpd",
+                        "error_reason": str(envelope.get("error", "unknown"))[:400],
+                        "completed": True,
+                    })
+                sub_result = envelope.get("result") or {}
+                if not isinstance(sub_result, dict):
+                    sub_result = {"result": sub_result}
+                _payload = dict(sub_result)
+                # Same stdout selection as the pre-Fix-I+ in-thread
+                # path so responder-summarize input is unchanged.
                 _stdout = ""
                 if isinstance(_payload.get("stdout"), str):
                     _stdout = _payload["stdout"]
@@ -700,40 +805,8 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
                     _stdout = json.dumps(_payload)[:2000]
                 _payload["stdout"] = _stdout
                 _payload.setdefault("ok", True)
-                _payload["gui_dispatched"] = True
-                result = ToolResult(result=_payload, request_id=0)
-            elif tool_name.startswith("rpa."):
-                # v6.12 Fix I (F-89 2026-07-21): RPA Bridge dispatch.
-                # Same shape as the gui.* branch — port of main.py's
-                # is_rpa fork. RPA runs Robot Framework workflows under
-                # the /dev/uinput sandbox; tier 3 (highest risk).
-                rpa_cfg = getattr(collab.get("cfg"), "rpa", None)
-                if rpa_cfg is not None and not getattr(rpa_cfg, "enabled", True):
-                    return _mark("mcpd_dispatcher", "failed", {
-                        "error_kind": "mcpd",
-                        "error_reason": "RPA automation is disabled. "
-                                        "Enable with [rpa] enabled = true in "
-                                        "/etc/icebreaker/controller.toml",
-                        "completed": True,
-                    })
-                from rpa_bridge.bridge import RpaBridge
-                _rpa = RpaBridge(config=rpa_cfg) if rpa_cfg else RpaBridge()
-                rpa_result = _rpa.handle_request(
-                    tool_name, tool_call.get("params", {}) or {},
-                )
-                if not isinstance(rpa_result, dict):
-                    rpa_result = {"result": rpa_result}
-                _payload = dict(rpa_result)
-                _stdout = ""
-                if isinstance(_payload.get("stdout"), str):
-                    _stdout = _payload["stdout"]
-                elif isinstance(_payload.get("status"), str):
-                    _stdout = f"{tool_name}: {_payload['status']}"
-                else:
-                    _stdout = json.dumps(_payload)[:2000]
-                _payload["stdout"] = _stdout
-                _payload.setdefault("ok", True)
-                _payload["rpa_dispatched"] = True
+                _payload[f"{_kind}_dispatched"] = True
+                _payload["subprocess_isolated"] = True   # provenance
                 result = ToolResult(result=_payload, request_id=0)
             else:
                 result = collab["mcpd"].call(
