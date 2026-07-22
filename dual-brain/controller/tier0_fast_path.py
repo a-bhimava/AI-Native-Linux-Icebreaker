@@ -111,10 +111,41 @@ def try_fast_path(intent: dict, tier: int) -> Optional[dict]:
     The caller MUST run this through main._validate_tool_call() before
     dispatching. This module never bypasses INV-2.
     """
-    if tier != 0:
-        return None
     action = intent.get("action")
     if not action or not isinstance(action, str):
+        return None
+
+    # v6.12 Fix J (F-90 2026-07-22): fs.write content passthrough —
+    # bypass PB for ALL tiers when intent has verbatim content bytes.
+    # QB (Gemini) generates the bytes into `intent.content` per the
+    # v6.61 F-41 passthrough pattern; PB (local Qwen) has no work to
+    # do except re-emit those same bytes inside its output JSON, which
+    # exceeds PB's output token budget on any non-trivial content and
+    # deterministically truncates ("BrainTruncationError: JSON decode
+    # failure: unterminated object"). Live-verified on UTM Stage E:
+    # `# create a html page…` failed after 78s.
+    #
+    # Safety invariants preserved:
+    #  - INV-2 (schema): the constructed tool_call still runs through
+    #    validate_resolved_intent in agent_graph_nodes.py before
+    #    executor marks it valid.
+    #  - INV-6 (COW): tier ≥ 2 fs.write still routes through hitl_gate
+    #    → mcpd, and mcpd's fs.write handler still applies COW.
+    #  - INV-8 (audit): unchanged — audit_writer_node fires at end.
+    #
+    # General principle (extends R16): PB should only be called when
+    # it has real work to do. When the tool_call is derivable from
+    # intent + a shape mapping, skip PB — cheaper AND more reliable.
+    if action == "fs.write" and str(intent.get("content", "") or ""):
+        return {
+            "tool": "fs.write",
+            "params": {
+                "path": intent.get("target", ""),
+                "content": intent["content"],
+            },
+        }
+
+    if tier != 0:
         return None
     mapper = TIER0_FAST_PATH_TOOLS.get(action)
     if mapper is None:
