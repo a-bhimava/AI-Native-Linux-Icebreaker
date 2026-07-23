@@ -37,8 +37,8 @@
           "description": "INV-6 approve-button lockout in seconds."
         },
         "timeout_seconds": {
-          "type": "integer", "minimum": 5, "maximum": 300,
-          "description": "Decision timeout in seconds — auto-deny on expiry."
+          "type": "integer", "minimum": 5, "maximum": 1800,
+          "description": "Decision timeout in seconds — auto-deny on expiry. Default 300s (5 min); raise up to 1800s (30 min) if humans need longer to review dry-run diffs."
         },
         "presenter": {
           "type": "string", "enum": ["terminal", "screen_reader", "gtk", "ai_terminal"],

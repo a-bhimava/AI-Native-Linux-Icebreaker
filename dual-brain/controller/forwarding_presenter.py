@@ -24,15 +24,40 @@ from .transport import Transport, TransportClosed
 _log = logging.getLogger("controller.forwarding_presenter")
 
 
+_HDIAG_PATH = "/tmp/hitl-diag.log"
+
+
 def _hdiag(msg: str) -> None:
     """Write a HITL-DIAG line to /tmp/hitl-diag.log with timestamp.
     Bypasses the Python logging module entirely so the line survives
     stderr redirects, Textual's ANSI output, systemd journal filters,
-    or anything else that eats stderr. Best-effort — never raises."""
+    or anything else that eats stderr.
+
+    v10.2 (2026-07-23): daemon runs as root/icebreaker system user;
+    terminal client runs as icebreaker desktop user. If the daemon
+    creates the file first with a restrictive umask, the terminal
+    cannot append and all client-side HITL-DIAG lines vanish silently
+    — this masked the entire key-routing debug for an evening. Fix:
+    chmod 0666 after open so both users can append. Best-effort —
+    never raises."""
     try:
         line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} [presenter pid={os.getpid()}] {msg}\n"
-        with open("/tmp/hitl-diag.log", "a") as f:
-            f.write(line)
+        existed = os.path.exists(_HDIAG_PATH)
+        try:
+            with open(_HDIAG_PATH, "a") as f:
+                f.write(line)
+            if not existed:
+                try:
+                    os.chmod(_HDIAG_PATH, 0o666)
+                except Exception:
+                    pass
+        except PermissionError:
+            try:
+                os.chmod(_HDIAG_PATH, 0o666)
+                with open(_HDIAG_PATH, "a") as f:
+                    f.write(line)
+            except Exception:
+                pass
     except Exception:
         pass
     try:

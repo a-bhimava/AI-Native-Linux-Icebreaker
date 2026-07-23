@@ -531,6 +531,13 @@ class Controller:
                 self._build_presenter(),
                 user_input, session,
                 backend=self.backend_name(),
+                # v6.12 hotfix (2026-07-23 F-95_OC): bridge previously used
+                # its hardcoded 30s default because we forgot to pass the
+                # config value here. Meant [hitl] timeout_seconds in the
+                # toml had no effect under agent_graph.enabled=true, and
+                # every Tier ≥ 2 approval auto-denied at 30s. See
+                # agent_graph_bridge.py::run_via_agent_graph signature.
+                hitl_timeout_seconds=self._cfg.hitl.timeout_seconds,
             )
             return
 

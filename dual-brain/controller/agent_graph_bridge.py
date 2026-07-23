@@ -384,7 +384,14 @@ def run_via_agent_graph(
     session: Any,
     *,
     backend: str = "",
-    hitl_timeout_seconds: int = 30,
+    # v6.12 hotfix (2026-07-23 F-95_OC): default was 30. When
+    # main.run_turn_streaming forgot to pass this kwarg, agent_graph mode
+    # silently auto-denied every Tier ≥ 2 approval at 30s regardless of
+    # the toml [hitl] timeout_seconds. Even with the caller fixed, keep
+    # the default at 300 (matches HitlPrompt.TIMEOUT_SECONDS + sudo's
+    # timestamp_timeout) so future callers can't accidentally reintroduce
+    # a too-short human decision window.
+    hitl_timeout_seconds: int = 300,
 ) -> Iterator[Any]:
     """Drive the graph + HITL bridge and yield TurnEvents.
 

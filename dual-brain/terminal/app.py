@@ -22,14 +22,41 @@ from pathlib import Path
 from typing import Any
 
 
+_HDIAG_PATH = "/tmp/hitl-diag.log"
+
+
 def _hdiag(msg: str) -> None:
     """v6.12 HITL-DIAG hotfix: write to /tmp/hitl-diag.log. Bypasses
     Python logging so lines survive Textual's stderr/ANSI output
-    collision. Best-effort — never raises."""
+    collision.
+
+    v10.2 (2026-07-23): self-heal permissions. Prior versions could
+    silently drop every log line when the daemon (root) had created
+    the file with 0644 root:root — the terminal (uid 1000) then hit
+    Permission denied on open() and the except swallowed it, leaving
+    a completely empty diag log even though HITL was running. Now on
+    first write we attempt chmod 0666 so both users can append.
+    Best-effort — never raises."""
     try:
         line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} [terminal pid={os.getpid()}] {msg}\n"
-        with open("/tmp/hitl-diag.log", "a") as f:
-            f.write(line)
+        try:
+            with open(_HDIAG_PATH, "a") as f:
+                f.write(line)
+        except PermissionError:
+            # File exists but we cannot append — try to make it world-writable.
+            try:
+                os.chmod(_HDIAG_PATH, 0o666)
+                with open(_HDIAG_PATH, "a") as f:
+                    f.write(line)
+            except Exception:
+                # Fallback: per-user path so the diagnostic still lands
+                # somewhere the terminal can read after the fact.
+                try:
+                    alt = f"/tmp/hitl-diag-{os.getuid()}.log"
+                    with open(alt, "a") as f:
+                        f.write(line)
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -136,6 +163,36 @@ class AiTerminalApp(App):
         self._router = InputRouter()
         self._daemon_client = daemon_client
         self._startup_warning = startup_warning
+
+    # v10 diagnostic (2026-07-23): APP-LEVEL on_key catches EVERY key
+    # Textual dispatches, before any screen/widget focus routing. If
+    # this logs but HitlModal.on_key doesn't, the modal is losing keys
+    # in the routing chain. If this doesn't log either, keys aren't
+    # reaching Textual at all (window focus / driver / pty issue).
+    # v10.1: switched from async to sync def — some Textual versions
+    # require sync handlers at App level, silently ignore async ones.
+    def on_key(self, event) -> None:  # noqa: D401
+        try:
+            import os as _os, time as _time
+            focused_repr = "None"
+            try:
+                focused_repr = repr(self.focused)
+            except Exception:
+                pass
+            screen_repr = "None"
+            try:
+                screen_repr = type(self.screen).__name__
+            except Exception:
+                pass
+            with open("/tmp/hitl-diag.log", "a") as _f:
+                _f.write(
+                    f"{_time.strftime('%Y-%m-%d %H:%M:%S')} [APP pid={_os.getpid()}] "
+                    f"HITL-DIAG App.on_key: key={event.key!r} "
+                    f"screen={screen_repr} focused={focused_repr}\n"
+                )
+        except Exception:
+            pass
+        # Do NOT stop the event — let it continue to screen bindings.
 
     @property
     def router(self) -> InputRouter:
