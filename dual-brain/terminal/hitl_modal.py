@@ -205,7 +205,13 @@ class HitlModal(ModalScreen[str]):
             pass
 
     def on_key(self, event) -> None:  # type: ignore[override]
-        """v4 diagnostic overlay on the pre-existing on_key handler."""
+        """v8 (2026-07-23): handle keys DIRECTLY here instead of going
+        through class-level BINDINGS. v7 log proved keys reach this
+        handler (`HITL-DIAG HitlModal.on_key: key='a'`) with focus on
+        the AUTO_FOCUS anchor Button, but no action_* fired — Textual's
+        BINDINGS dispatch doesn't reach the modal for reasons that
+        aren't worth debugging further when we can just call
+        self.dismiss(decision) here and be done with it."""
         try:
             import os as _os, time as _time
             with open("/tmp/hitl-diag.log", "a") as _f:
@@ -213,11 +219,50 @@ class HitlModal(ModalScreen[str]):
                          f"HITL-DIAG HitlModal.on_key: key={event.key!r} name={event.name!r}\n")
         except Exception:
             pass
-        # Delegate to the original on_key defined further down for the
-        # Ctrl+C / Ctrl+D safety-net. (The class-level BINDINGS still
-        # dispatch action_* handlers automatically for defined keys.)
-        if event.key in {"ctrl+c", "ctrl+d"}:
+
+        k = event.key
+        # Approve family: check INV-6 lockout first.
+        if k in ("a", "y", "1"):
+            if time.monotonic() < self._locked_until:
+                # Silently swallow during the 3s lockout — countdown
+                # label already tells the user why.
+                event.stop()
+                return
+            try:
+                event.stop()
+            except Exception:
+                pass
+            self.dismiss("approved")
+            return
+        # Deny family (Esc reserved per SEC-1).
+        if k in ("d", "n", "2", "escape", "ctrl+c", "ctrl+d"):
+            try:
+                event.stop()
+            except Exception:
+                pass
             self.dismiss("denied")
+            return
+        if k in ("m", "3"):
+            try:
+                event.stop()
+            except Exception:
+                pass
+            self.dismiss("modify")
+            return
+        if k in ("e", "4"):
+            try:
+                event.stop()
+            except Exception:
+                pass
+            self.dismiss("explain")
+            return
+        if k in ("t", "5"):
+            try:
+                event.stop()
+            except Exception:
+                pass
+            self.dismiss("trust")
+            return
 
     def _countdown_text(self) -> str:
         remaining = int(max(0, self._locked_until - time.monotonic()))

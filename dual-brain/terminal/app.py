@@ -347,11 +347,31 @@ class AiTerminalApp(App):
     # keys that fire regardless of modal state. Provides a resilient fallback UX
     # if HitlModal fails to render for any reason.
     def action_hitl_approve(self) -> None:
+        # v8: if the current screen is HitlModal, dismiss it — that
+        # fires the callback → _handle_hitl_decision → RPC. If we just
+        # call _handle_hitl_decision here, the RPC fires but the modal
+        # stays visible.
         _hdiag("HITL-DIAG action_hitl_approve keybinding fired")
+        try:
+            from .hitl_modal import HitlModal
+            top = self.screen
+            if isinstance(top, HitlModal):
+                top.dismiss("approved")
+                return
+        except Exception as exc:
+            _hdiag(f"HITL-DIAG action_hitl_approve dismiss failed: {type(exc).__name__}: {exc}")
         self._handle_hitl_decision("approved")
 
     def action_hitl_deny(self) -> None:
         _hdiag("HITL-DIAG action_hitl_deny keybinding fired")
+        try:
+            from .hitl_modal import HitlModal
+            top = self.screen
+            if isinstance(top, HitlModal):
+                top.dismiss("denied")
+                return
+        except Exception as exc:
+            _hdiag(f"HITL-DIAG action_hitl_deny dismiss failed: {type(exc).__name__}: {exc}")
         self._handle_hitl_decision("denied")
 
     def _on_hitl_lockout(self, params: dict) -> None:
