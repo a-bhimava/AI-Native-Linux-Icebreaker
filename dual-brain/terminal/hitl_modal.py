@@ -151,6 +151,49 @@ class HitlModal(ModalScreen[str]):
     def on_mount(self) -> None:
         # Tick every 250 ms while locked — enough to look responsive.
         self.set_interval(0.25, self._tick_countdown)
+        # v4 hotfix (2026-07-22): explicitly grab focus. ModalScreen
+        # SHOULD auto-focus but the AI Terminal's split-pane layout has
+        # an InputBar that keeps focus even after push_screen, so key
+        # presses go to the input bar instead of the modal's bindings.
+        # Belt-and-braces: call self.focus() + also try to hand focus
+        # to a child widget so key events definitely land here.
+        try:
+            self.focus()
+        except Exception:  # noqa: BLE001 — never break the modal
+            pass
+        try:
+            # Focus a child (Vertical container or first Static) so the
+            # modal's Screen wraps a focused widget in its focus chain.
+            for widget_id in ("hitl-modal-root", "hitl-header", "hitl-keys"):
+                widget = self.query_one(f"#{widget_id}")
+                if widget is not None:
+                    widget.focus()
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+        # Log for HITL-DIAG diagnosis
+        try:
+            import os as _os, time as _time
+            with open("/tmp/hitl-diag.log", "a") as _f:
+                _f.write(f"{_time.strftime('%Y-%m-%d %H:%M:%S')} [modal pid={_os.getpid()}] "
+                         f"HITL-DIAG HitlModal.on_mount: focus grabbed, ready for key input\n")
+        except Exception:
+            pass
+
+    def on_key(self, event) -> None:  # type: ignore[override]
+        """v4 diagnostic overlay on the pre-existing on_key handler."""
+        try:
+            import os as _os, time as _time
+            with open("/tmp/hitl-diag.log", "a") as _f:
+                _f.write(f"{_time.strftime('%Y-%m-%d %H:%M:%S')} [modal pid={_os.getpid()}] "
+                         f"HITL-DIAG HitlModal.on_key: key={event.key!r} name={event.name!r}\n")
+        except Exception:
+            pass
+        # Delegate to the original on_key defined further down for the
+        # Ctrl+C / Ctrl+D safety-net. (The class-level BINDINGS still
+        # dispatch action_* handlers automatically for defined keys.)
+        if event.key in {"ctrl+c", "ctrl+d"}:
+            self.dismiss("denied")
 
     def _countdown_text(self) -> str:
         remaining = int(max(0, self._locked_until - time.monotonic()))
@@ -189,11 +232,6 @@ class HitlModal(ModalScreen[str]):
         self.dismiss("trust")
 
     # ── Keymap safety net ──────────────────────────────────────────────
-
-    def on_key(self, event: events.Key) -> None:
-        """Catch any keypress that isn't in BINDINGS so the modal never
-        becomes a black hole. Everything unhandled is a no-op (the
-        user has to press one of the documented decision keys)."""
-        if event.key in {"ctrl+c", "ctrl+d"}:
-            # Explicit deny path — treat kill-shortcut as "get me out".
-            self.dismiss("denied")
+    # (on_key is defined earlier in the class as part of v4 hotfix
+    # with diagnostic logging. The class-level BINDINGS still dispatch
+    # action_* handlers for defined keys.)
