@@ -318,9 +318,28 @@ class AiTerminalApp(App):
             # Always emit the fallback banner too — cheap and visible.
             _emit_fallback_banner()
 
+        # v3 hotfix (2026-07-22): Textual's call_from_thread REFUSES if
+        # we're already on the app's event loop thread (RuntimeError:
+        # "'call_from_thread' method must run in a different thread from
+        # the app"). TextualDaemonClient._fire dispatches on the app
+        # thread — so this handler already IS on the correct thread and
+        # we should call _open directly. But if we're EVER called from a
+        # background thread (future refactor), call_from_thread is right.
+        # Try call_from_thread first; on the "same thread" RuntimeError,
+        # call _open directly.
         try:
             self.call_from_thread(_open)
             _hdiag("HITL-DIAG _on_hitl_prompt: call_from_thread dispatched successfully")
+        except RuntimeError as exc:
+            msg = str(exc)
+            if "different thread" in msg or "must run" in msg:
+                _hdiag(f"HITL-DIAG _on_hitl_prompt: already on app thread ({msg!r}); calling _open() directly")
+                try:
+                    _open()
+                except Exception as exc2:  # noqa: BLE001
+                    _hdiag(f"HITL-DIAG _on_hitl_prompt: direct _open() FAILED {type(exc2).__name__}: {exc2}")
+            else:
+                _hdiag(f"HITL-DIAG _on_hitl_prompt: call_from_thread RuntimeError (unexpected shape): {msg!r}")
         except Exception as exc:  # noqa: BLE001 F-53
             _hdiag(f"HITL-DIAG _on_hitl_prompt: call_from_thread FAILED {type(exc).__name__}: {exc}")
 
