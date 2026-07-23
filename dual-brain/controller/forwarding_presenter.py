@@ -12,6 +12,7 @@ controller journal so the exact broken step is visible via
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from typing import Optional
@@ -21,6 +22,23 @@ from .protocol import JsonRpcNotification
 from .transport import Transport, TransportClosed
 
 _log = logging.getLogger("controller.forwarding_presenter")
+
+
+def _hdiag(msg: str) -> None:
+    """Write a HITL-DIAG line to /tmp/hitl-diag.log with timestamp.
+    Bypasses the Python logging module entirely so the line survives
+    stderr redirects, Textual's ANSI output, systemd journal filters,
+    or anything else that eats stderr. Best-effort — never raises."""
+    try:
+        line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} [presenter pid={os.getpid()}] {msg}\n"
+        with open("/tmp/hitl-diag.log", "a") as f:
+            f.write(line)
+    except Exception:
+        pass
+    try:
+        _log.info(msg)
+    except Exception:
+        pass
 
 
 class ForwardingPresenter(HitlPresenter):
@@ -66,15 +84,15 @@ class ForwardingPresenter(HitlPresenter):
             "cow_summary": data.cow_summary,
         }
         notif = JsonRpcNotification("hitl.prompt", payload)
-        _log.info(
-            "HITL-DIAG show_prompt: action=%s tier=%d transport_open=%s",
-            data.action, int(data.tier), self._transport.is_open(),
+        _hdiag(
+            f"HITL-DIAG show_prompt: action={data.action} tier={int(data.tier)} "
+            f"transport_open={self._transport.is_open()}"
         )
         try:
             self._transport.send(notif.to_bytes())
-            _log.info("HITL-DIAG show_prompt: notification sent to client")
+            _hdiag("HITL-DIAG show_prompt: notification sent to client")
         except TransportClosed:
-            _log.warning("HITL-DIAG show_prompt: transport CLOSED — client gone; deny will follow")
+            _hdiag("HITL-DIAG show_prompt: transport CLOSED — client gone; deny will follow")
 
     def lockout(self, seconds: int) -> None:
         notif = JsonRpcNotification("hitl.lockout", {"seconds": seconds})
@@ -85,39 +103,39 @@ class ForwardingPresenter(HitlPresenter):
         time.sleep(seconds)
 
     def read_decision(self, timeout_seconds: int) -> Decision:
-        _log.info("HITL-DIAG read_decision: BEGIN timeout=%ds", timeout_seconds)
+        _hdiag(f"HITL-DIAG read_decision: BEGIN timeout={timeout_seconds}s")
         self._decision_event.clear()
         with self._lock:
             self._pending_decision = None
 
         if not self._transport.is_open():
             self._last_key_class = "transport_closed"
-            _log.warning("HITL-DIAG read_decision: transport CLOSED at entry → DENIED (immediate)")
+            _hdiag("HITL-DIAG read_decision: transport CLOSED at entry → DENIED (immediate)")
             return Decision.DENIED
 
         t_wait_start = time.monotonic()
         got_event = self._decision_event.wait(timeout=timeout_seconds)
         elapsed = time.monotonic() - t_wait_start
-        _log.info("HITL-DIAG read_decision: wait returned got_event=%s elapsed=%.1fs", got_event, elapsed)
+        _hdiag(f"HITL-DIAG read_decision: wait returned got_event={got_event} elapsed={elapsed:.1f}s")
 
         if not got_event:
             self._last_key_class = "timeout"
-            _log.warning("HITL-DIAG read_decision: TIMEOUT after %.1fs — client never called hitl.respond", elapsed)
+            _hdiag(f"HITL-DIAG read_decision: TIMEOUT after {elapsed:.1f}s — client never called hitl.respond")
             return Decision.TIMEOUT
 
         with self._lock:
             decision = self._pending_decision
         if decision is None:
             self._last_key_class = "transport_closed"
-            _log.warning("HITL-DIAG read_decision: event set but pending_decision is None → DENIED")
+            _hdiag("HITL-DIAG read_decision: event set but pending_decision is None → DENIED")
             return Decision.DENIED
         self._last_key_class = "remote"
-        _log.info("HITL-DIAG read_decision: returning decision=%s", decision.value)
+        _hdiag(f"HITL-DIAG read_decision: returning decision={decision.value}")
         return decision
 
     def receive_decision(self, decision: Decision) -> None:
         """Called by the connection handler thread when hitl.respond arrives."""
-        _log.info("HITL-DIAG receive_decision: client sent decision=%s", decision.value)
+        _hdiag(f"HITL-DIAG receive_decision: client sent decision={decision.value}")
         with self._lock:
             self._pending_decision = decision
         self._decision_event.set()

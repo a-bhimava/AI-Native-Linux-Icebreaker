@@ -17,8 +17,21 @@ import asyncio
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any
+
+
+def _hdiag(msg: str) -> None:
+    """v6.12 HITL-DIAG hotfix: write to /tmp/hitl-diag.log. Bypasses
+    Python logging so lines survive Textual's stderr/ANSI output
+    collision. Best-effort — never raises."""
+    try:
+        line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} [terminal pid={os.getpid()}] {msg}\n"
+        with open("/tmp/hitl-diag.log", "a") as f:
+            f.write(line)
+    except Exception:
+        pass
 
 
 # Phase 6 Scope A.P2: module logger used by every event handler + UI
@@ -260,12 +273,12 @@ class AiTerminalApp(App):
         here the daemon times out on its own. That means we don't need
         to invent a client-side timeout — pushing the modal is enough.
 
-        v6.12 HITL-DIAG hotfix: log every hop; also render a visible
-        text banner in the LEFT pane so the user SEES a pending prompt
-        even if the modal push fails silently (previously the modal
-        was the only surface — if it silently failed the user saw
-        nothing and the daemon timed out with a mystery deny)."""
-        log.info("HITL-DIAG _on_hitl_prompt: received prompt notification: %s", params)
+        v6.12 HITL-DIAG hotfix: log every hop TO A DEDICATED FILE
+        (/tmp/hitl-diag.log) so lines survive Textual's ANSI output
+        collision on stderr. Also render a visible text banner in
+        the LEFT pane so the user SEES a pending prompt even if the
+        modal push fails silently."""
+        _hdiag(f"HITL-DIAG _on_hitl_prompt: received prompt notification: {params}")
         from .hitl_modal import HitlModal
 
         # Copy params — the modal keeps a snapshot.
@@ -289,40 +302,37 @@ class AiTerminalApp(App):
                     ll = getattr(self, attr, None)
                     if ll is not None and hasattr(ll, "write"):
                         ll.write(banner)
-                        log.info("HITL-DIAG fallback banner written to %s", attr)
+                        _hdiag(f"HITL-DIAG fallback banner written to {attr}")
                         return
-                log.warning("HITL-DIAG fallback banner: no left pane widget found")
+                _hdiag("HITL-DIAG fallback banner: no left pane widget found")
             except Exception as exc:  # noqa: BLE001
-                log.warning("HITL-DIAG fallback banner failed: %s: %s",
-                            type(exc).__name__, exc)
+                _hdiag(f"HITL-DIAG fallback banner failed: {type(exc).__name__}: {exc}")
 
         def _open() -> None:
-            log.info("HITL-DIAG _on_hitl_prompt._open: on UI thread, about to push modal")
+            _hdiag("HITL-DIAG _on_hitl_prompt._open: on UI thread, about to push modal")
             try:
                 self.push_screen(HitlModal(snapshot), self._handle_hitl_decision)
-                log.info("HITL-DIAG _on_hitl_prompt._open: push_screen returned OK")
+                _hdiag("HITL-DIAG _on_hitl_prompt._open: push_screen returned OK")
             except Exception as exc:  # noqa: BLE001 F-53
-                log.warning("HITL-DIAG _on_hitl_prompt._open: push_screen FAILED %s: %s",
-                            type(exc).__name__, exc)
+                _hdiag(f"HITL-DIAG _on_hitl_prompt._open: push_screen FAILED {type(exc).__name__}: {exc}")
             # Always emit the fallback banner too — cheap and visible.
             _emit_fallback_banner()
 
         try:
             self.call_from_thread(_open)
-            log.info("HITL-DIAG _on_hitl_prompt: call_from_thread dispatched successfully")
+            _hdiag("HITL-DIAG _on_hitl_prompt: call_from_thread dispatched successfully")
         except Exception as exc:  # noqa: BLE001 F-53
-            log.warning("HITL-DIAG _on_hitl_prompt: call_from_thread FAILED %s: %s",
-                        type(exc).__name__, exc)
+            _hdiag(f"HITL-DIAG _on_hitl_prompt: call_from_thread FAILED {type(exc).__name__}: {exc}")
 
     # v6.12 HITL-DIAG hotfix: bind Ctrl+A / Ctrl+D as always-available approve/deny
     # keys that fire regardless of modal state. Provides a resilient fallback UX
     # if HitlModal fails to render for any reason.
     def action_hitl_approve(self) -> None:
-        log.info("HITL-DIAG action_hitl_approve keybinding fired")
+        _hdiag("HITL-DIAG action_hitl_approve keybinding fired")
         self._handle_hitl_decision("approved")
 
     def action_hitl_deny(self) -> None:
-        log.info("HITL-DIAG action_hitl_deny keybinding fired")
+        _hdiag("HITL-DIAG action_hitl_deny keybinding fired")
         self._handle_hitl_decision("denied")
 
     def _on_hitl_lockout(self, params: dict) -> None:
@@ -341,25 +351,22 @@ class AiTerminalApp(App):
         decision back to the daemon via ``client.respond_hitl()`` on a
         worker thread — the RPC call is blocking (JSON-RPC request)
         and MUST NOT run on the UI thread."""
-        log.info("HITL-DIAG _handle_hitl_decision: called with decision=%r", decision)
+        _hdiag(f"HITL-DIAG _handle_hitl_decision: called with decision={decision!r}")
         if not decision:
-            log.info("HITL-DIAG _handle_hitl_decision: empty decision, returning early (modal dismissed without answer)")
+            _hdiag("HITL-DIAG _handle_hitl_decision: empty decision, returning early (modal dismissed without answer)")
             return
         client = self._daemon_client
         if client is None:
-            log.warning("HITL-DIAG _handle_hitl_decision: no client attached!")
+            _hdiag("HITL-DIAG _handle_hitl_decision: no client attached!")
             return
 
         def _send() -> None:
             try:
-                log.info("HITL-DIAG _handle_hitl_decision._send: calling client.respond_hitl(%r)", decision)
+                _hdiag(f"HITL-DIAG _handle_hitl_decision._send: calling client.respond_hitl({decision!r})")
                 client.respond_hitl(decision)
-                log.info("HITL-DIAG _handle_hitl_decision._send: respond_hitl returned OK")
+                _hdiag("HITL-DIAG _handle_hitl_decision._send: respond_hitl returned OK")
             except Exception as exc:  # noqa: BLE001 F-53
-                # Daemon may have already timed out or the socket
-                # dropped. Surface the failure to journal + debug log.
-                log.warning("HITL-DIAG _handle_hitl_decision._send: respond_hitl FAILED %s: %s",
-                            type(exc).__name__, exc)
+                _hdiag(f"HITL-DIAG _handle_hitl_decision._send: respond_hitl FAILED {type(exc).__name__}: {exc}")
 
         try:
             self.run_worker(_send, thread=True)
