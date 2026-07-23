@@ -179,6 +179,14 @@ class HitlModal(ModalScreen[str]):
     def on_mount(self) -> None:
         # Tick every 250 ms while locked — enough to look responsive.
         self.set_interval(0.25, self._tick_countdown)
+        # v9 diagnostic (2026-07-23): prove whether the Textual event
+        # loop is running while the modal is up. If _heartbeat fires
+        # every 500ms in the log, the loop is responsive and the
+        # 30-second-exactly key-arrival mystery is elsewhere. If we see
+        # zero heartbeats until t=30s and then a burst, the loop is
+        # blocked for the whole window.
+        self._heartbeat_t0 = time.monotonic()
+        self.set_interval(0.5, self._heartbeat)
         # v7 (2026-07-22): DO NOT call self.app.set_focus() here.
         # ModalScreen.AUTO_FOCUS above already focuses the hidden anchor
         # Button, which is the only thing that makes key events dispatch
@@ -270,6 +278,24 @@ class HitlModal(ModalScreen[str]):
             return (f"[#faca97]Approve unlocks in {remaining}s "
                     "(INV-6 lockout)[/]")
         return "[#5e8787]Approve ready[/]"
+
+    def _heartbeat(self) -> None:
+        """v9 diagnostic: proves whether the app event loop is running."""
+        try:
+            import os as _os
+            elapsed = time.monotonic() - getattr(self, "_heartbeat_t0", time.monotonic())
+            focused = "None"
+            try:
+                focused = repr(self.app.focused) if self.app else "None"
+            except Exception:
+                pass
+            with open("/tmp/hitl-diag.log", "a") as _f:
+                _f.write(
+                    f"{time.strftime('%Y-%m-%d %H:%M:%S')} [modal pid={_os.getpid()}] "
+                    f"HITL-DIAG heartbeat t={elapsed:.2f}s focused={focused}\n"
+                )
+        except Exception:
+            pass
 
     def _tick_countdown(self) -> None:
         if self._countdown_label is None:
