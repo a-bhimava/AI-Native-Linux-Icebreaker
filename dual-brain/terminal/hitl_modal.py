@@ -151,32 +151,46 @@ class HitlModal(ModalScreen[str]):
     def on_mount(self) -> None:
         # Tick every 250 ms while locked — enough to look responsive.
         self.set_interval(0.25, self._tick_countdown)
-        # v4 hotfix (2026-07-22): explicitly grab focus. ModalScreen
-        # SHOULD auto-focus but the AI Terminal's split-pane layout has
-        # an InputBar that keeps focus even after push_screen, so key
-        # presses go to the input bar instead of the modal's bindings.
-        # Belt-and-braces: call self.focus() + also try to hand focus
-        # to a child widget so key events definitely land here.
-        try:
-            self.focus()
-        except Exception:  # noqa: BLE001 — never break the modal
-            pass
-        try:
-            # Focus a child (Vertical container or first Static) so the
-            # modal's Screen wraps a focused widget in its focus chain.
-            for widget_id in ("hitl-modal-root", "hitl-header", "hitl-keys"):
-                widget = self.query_one(f"#{widget_id}")
-                if widget is not None:
-                    widget.focus()
-                    break
-        except Exception:  # noqa: BLE001
-            pass
-        # Log for HITL-DIAG diagnosis
+        # v5 hotfix (2026-07-22): the AI Terminal InputBar contains a
+        # Textual Input widget that keeps focus even after push_screen.
+        # When Input has focus, ALL printable keys go into it and
+        # screen-level Bindings don't fire. Fix: forcibly release the
+        # app's current focus and set focus to THIS modal at app level.
+        # Log what focus was before + after so we can prove the fix.
         try:
             import os as _os, time as _time
             with open("/tmp/hitl-diag.log", "a") as _f:
-                _f.write(f"{_time.strftime('%Y-%m-%d %H:%M:%S')} [modal pid={_os.getpid()}] "
-                         f"HITL-DIAG HitlModal.on_mount: focus grabbed, ready for key input\n")
+                _prior = None
+                try:
+                    _prior = self.app.focused
+                except Exception:
+                    pass
+                _f.write(
+                    f"{_time.strftime('%Y-%m-%d %H:%M:%S')} [modal pid={_os.getpid()}] "
+                    f"HITL-DIAG HitlModal.on_mount BEFORE: app.focused={_prior!r}\n"
+                )
+                try:
+                    self.app.set_focus(None)   # release whatever had focus
+                except Exception as _e1:
+                    _f.write(f"  set_focus(None) failed: {type(_e1).__name__}: {_e1}\n")
+                try:
+                    self.app.set_focus(self)   # force focus onto the modal
+                except Exception as _e2:
+                    _f.write(f"  set_focus(self) failed: {type(_e2).__name__}: {_e2}\n")
+                _now = None
+                try:
+                    _now = self.app.focused
+                except Exception:
+                    pass
+                _f.write(
+                    f"{_time.strftime('%Y-%m-%d %H:%M:%S')} [modal pid={_os.getpid()}] "
+                    f"HITL-DIAG HitlModal.on_mount AFTER: app.focused={_now!r}\n"
+                )
+        except Exception:
+            pass
+        # Belt-and-braces: try self.focus() too.
+        try:
+            self.focus()
         except Exception:
             pass
 
