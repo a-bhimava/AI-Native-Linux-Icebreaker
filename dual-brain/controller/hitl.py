@@ -412,7 +412,10 @@ class HitlPrompt:
     """Coordinates the HITL flow: build display data → present → lockout → read."""
 
     LOCKOUT_SECONDS: int = 3
-    TIMEOUT_SECONDS: int = 30
+    # v6.12 hotfix (2026-07-23): default 30 → 300 (5 min). See controller.toml
+    # [hitl] comment for the race: user thinking-time > 30s meant the daemon
+    # timed out before their 'approved' RPC arrived, silently auto-denying.
+    TIMEOUT_SECONDS: int = 300
 
     def __init__(
         self,

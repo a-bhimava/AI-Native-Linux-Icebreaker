@@ -93,7 +93,13 @@ max_recent_commands     = 5
 
 [hitl]
 lockout_seconds = 3
-timeout_seconds = 30
+# v6.12 hotfix (2026-07-23): bumped 30 → 300 (5 min). 30s is well below
+# human decision-time for a Tier-2/3 prompt — the user is reading the
+# target path, checking the CoW preview, sometimes tabbing between
+# windows. If they answered ~1s after the 30s mark, the daemon had
+# already timed out (auto-deny) and their 'approved' arrived at a stale
+# waiter, silently dropped. 300s matches sudo's default `timestamp_timeout`.
+timeout_seconds = 300
 
 [daemon]
 socket_path     = "/run/icebreaker/controller.sock"
