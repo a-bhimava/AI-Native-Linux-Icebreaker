@@ -35,7 +35,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Label, Static
+from textual.widgets import Button, Label, Static
 
 
 log = logging.getLogger(__name__)
@@ -62,6 +62,30 @@ class HitlModal(ModalScreen[str]):
     Decision.TIMEOUT when its event.wait() expires. If the user does
     nothing here we just don't send a response; daemon times out on
     its own after ``timeout_seconds``.
+    """
+
+    # v6 hotfix (2026-07-22): AUTO_FOCUS points at a hidden focusable
+    # Button in the modal so ModalScreen has a widget to focus on
+    # mount. Without a focusable child, `app.focused` stays None and
+    # key events don't route to the modal's Bindings (proven by v5
+    # diagnostic showing both BEFORE and AFTER app.focused=None).
+    AUTO_FOCUS = "#hitl-focus-anchor"
+
+    # Shrink the focus anchor to 1×1 (essentially invisible) — it's a
+    # focus target only, NOT display:none which would remove it from
+    # the widget tree and defeat the focus purpose.
+    DEFAULT_CSS = """
+    #hitl-focus-anchor {
+        width: 1;
+        height: 1;
+        min-width: 1;
+        min-height: 1;
+        padding: 0;
+        margin: 0;
+        border: none;
+        background: transparent;
+        color: transparent;
+    }
     """
 
     # ESC is hard-reserved to DENY per keymap contract (SEC-1).
@@ -111,6 +135,10 @@ class HitlModal(ModalScreen[str]):
         tier_label, tier_color = _TIER_STYLE.get(tier, (f"Tier {tier}", "#faca97"))
 
         with Vertical(id="hitl-modal-root"):
+            # v6 hotfix: invisible focusable anchor so ModalScreen has
+            # a widget to focus on mount, allowing key events to route
+            # to the modal's BINDINGS via the widget→screen bubble path.
+            yield Button("", id="hitl-focus-anchor")
             yield Label(
                 f"[b {tier_color}]{tier_label}[/]  [b]{action}[/]",
                 id="hitl-header",
