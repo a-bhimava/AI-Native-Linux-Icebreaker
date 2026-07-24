@@ -18,7 +18,7 @@ Applied after the v6.12 hotfix cycle surfaced new lessons, opencode research cor
 - **Every knob needs a schema entry** (F-97_OC precedent): every field in `[qb.opencode]`, `[qb.opencode.provider.*]`, `[audit_summarizer]` lands with a JSON-Schema entry with `type`, `minimum`, `maximum`. Config validator refuses invalid values loudly.
 - **HITL-modal key routing works as-is** (v8 code — on_key handles keys directly, bypassing Textual BINDINGS; AUTO_FOCUS on invisible anchor Button). No changes for OC.
 
-**D-R2-3 Preflight before design-lock**. Before writing OpencodeBackend, run a 60-min local prototype of `opencode serve` HTTP mode + `/session/x/message` POST + `/event` SSE + per-request model override. Decision gate: HTTP mode green → proceed as designed. HTTP mode broken → pivot Fix K to CLI-subprocess pattern (fork per turn, stdin/stdout JSON). Per-request override broken → hot-swap becomes per-session (respawn opencode with `--model`).
+**D-R2-3 Preflight before design-lock — COMPLETED 2026-07-24**. Local prototype validated `opencode serve` HTTP mode. **DECISION: GO** with Option A (Bun-compile single binary). Full findings in `PREFLIGHT_2026-07-24.md`. Corrections to §5.1: endpoint is `POST /api/session/{id}/prompt` (not `/session/{id}/message`), body wraps under `prompt` key with `text`/`providerID`/`modelID`/`agent` fields (not `parts` array), execution is ASYNC (SSE stream carries results, not response body). Default config has NO `permission` block and NO `mcp` block — shipped `qb_oc.json` MUST explicitly write both and `OpencodeBackend.prewarm()` MUST verify effective config at boot. No fallback to CLI-subprocess pattern needed.
 
 **D-R2-4 Rollout ordering revised** (revises §11). Correct sequence:
 1. v6.13 (current) baking on GCP VM now (`v613arm` tmux session).
@@ -613,6 +613,7 @@ Same 7 golden queries per edition per arch. Two current ISOs behave like v6.12. 
 - `docs/v6.x_OC/HOT_SWAP_UX.md` — `# model <name>` phrase + UI spec.
 - `docs/v6.x_OC/OPENCODE_BINARY_INTEGRITY.md` — pinned SHA, cross-compile, checksum discipline.
 - `docs/v6.x_OC/RESEARCH_NOTES_2026-07-22.md` — Explore-agent briefs preserved verbatim.
+- `docs/v6.x_OC/PREFLIGHT_2026-07-24.md` — D-R2-3 opencode HTTP mode validation (executed 2026-07-24, GO decision with §5.1 corrections).
 - `docs/v6.x_OC/COMPARISON_matrix.md` — feature-by-feature diff between editions.
 
 ---
