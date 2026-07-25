@@ -60,3 +60,9 @@ tomli-w>=1.0
 # doesn't ship without them.
 langgraph>=1.2,<2.0
 langgraph-checkpoint-sqlite>=2.0
+
+# v6.13_OC Fix R: file-watching for the oc_audit_bridge (mirrors mcpd's
+# audit log into the INV-8 intent-level log). Cross-platform — wraps
+# inotify on Linux, FSEvents on macOS. Used only when
+# cfg.qb.backend == "opencode_oc".
+watchdog>=3.0
