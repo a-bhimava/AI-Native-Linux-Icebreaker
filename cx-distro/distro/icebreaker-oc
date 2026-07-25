@@ -1,0 +1,34 @@
+#!/bin/bash
+# icebreaker-oc — launcher for the OpenCode-edition (v6.13_OC+) AI terminal.
+#
+# Sets the opencode config path to Icebreaker's shipped qb_oc.json,
+# sources API keys from /etc/icebreaker/env.d/qb_oc.conf (writable via
+# `ib-setup-key --env-var ANTHROPIC_API_KEY`), then execs opencode.
+#
+# The `.desktop` entry `icebreaker-ai-terminal.desktop` points at this
+# script. Users can also run it manually from any shell.
+#
+# NOTE: this file ships ONLY in the OC ISO (v6.13_OC-*.iso). The
+# current-edition ISO (v6.13-*.iso) ships the Textual TUI launcher
+# `icebreaker-terminal.desktop` instead.
+
+set -euo pipefail
+
+OC_CONFIG="${ICEBREAKER_OC_CONFIG:-/etc/icebreaker/qb_oc.json}"
+OC_ENV_FILE="${ICEBREAKER_OC_ENV_FILE:-/etc/icebreaker/env.d/qb_oc.conf}"
+
+# Source API keys if the env file exists (BP-8: names not values in config,
+# EnvironmentFile pattern reused from icebreaker-controller.service).
+if [ -f "${OC_ENV_FILE}" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    . "${OC_ENV_FILE}"
+    set +a
+fi
+
+# opencode reads its config from $OPENCODE_CONFIG or the CLI --config flag.
+# Passing --config is more explicit and survives env-scrubbing.
+export OPENCODE_DATA="${OPENCODE_DATA:-$HOME/.local/share/icebreaker-oc}"
+mkdir -p "${OPENCODE_DATA}"
+
+exec opencode --config "${OC_CONFIG}" "$@"

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-opus-4-7",
+
+  "mcp": {
+    "icebreaker": {
+      "type": "local",
+      "command": ["/usr/libexec/icebreaker/mcpd-for-oc.sh"],
+      "enabled": true
+    }
+  },
+
+  "provider": {
+    "anthropic": {},
+    "openai": {},
+    "google": {}
+  },
+
+  "//permission-note": "The `permission` block below is generated at ISO build time by incremental/build/gen-oc-config.sh — it boots the just-built mcpd, calls tools/list, and emits one entry per tool (Tier <= 1 => 'allow', Tier >= 2 => 'ask'). Manually editing this section will be overwritten on the next build. Note: opencode namespaces MCP tools as `<server>_<tool>`, so mcpd's `fs.write` becomes `icebreaker_fs.write` in the permission map. See docs/v6.x_OC/IMPLEMENTATION_PLAN.md § Fix P.",
+  "permission": {
+    "//PLACEHOLDER": "gen-oc-config.sh fills this at build time"
+  }
+}

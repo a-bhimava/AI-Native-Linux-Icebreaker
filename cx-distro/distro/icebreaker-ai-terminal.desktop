@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Icebreaker AI Terminal
+GenericName=AI Terminal
+Comment=Chat-first AI terminal (OpenCode edition) — talks to your OS through Icebreaker's mcpd
+Exec=gnome-terminal --title="Icebreaker AI Terminal" -- icebreaker-oc
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+Categories=System;TerminalEmulator;Development;
+Keywords=ai;terminal;opencode;claude;chat;icebreaker;
+StartupNotify=true
