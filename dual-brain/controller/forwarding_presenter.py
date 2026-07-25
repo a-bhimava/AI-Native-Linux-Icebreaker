@@ -62,7 +62,7 @@ def _hdiag(msg: str) -> None:
         pass
     try:
         _log.info(msg)
-    except Exception:
+    except Exception:  # noqa: BLE001 — _hdiag is best-effort diagnostic (F-96_OC)
         pass
 
 

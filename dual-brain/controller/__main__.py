@@ -9,6 +9,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import logging
 import signal
@@ -43,6 +44,37 @@ from .audit import AuditLog
 from .backends.base import BrainBackend, BrainProviderError, RequestEnvelope
 from .backends.registry import make_backend
 from .config import BackendConfig, ControllerConfig, PromptLoader, SessionConfig, load
+
+
+def _maybe_start_oc_bridge(cfg: ControllerConfig, audit: AuditLog) -> Any:
+    """v6.13_OC Fix Q — start the audit bridge in OC mode.
+
+    Called from each of the 4 CLI subcommands that construct an
+    AuditLog. Returns the bridge (or None); caller keeps a reference
+    so it isn't GC'd. atexit handles shutdown.
+    """
+    if cfg.qb.name != "opencode_oc":
+        return None
+    oc_cfg = cfg.opencode_oc
+    if oc_cfg is None or not oc_cfg.enabled or not oc_cfg.audit_bridge_enabled:
+        _log = logging.getLogger("controller.__main__")
+        _log.info(
+            "oc_audit_bridge NOT started: qb.backend=opencode_oc but "
+            "cfg.opencode_oc is %s (enabled=%s, audit_bridge_enabled=%s)",
+            "None" if oc_cfg is None else "set",
+            None if oc_cfg is None else oc_cfg.enabled,
+            None if oc_cfg is None else oc_cfg.audit_bridge_enabled,
+        )
+        return None
+
+    from .oc_audit_bridge import OCAuditBridge
+    bridge = OCAuditBridge(
+        audit_log=audit,
+        mcpd_audit_path=Path(oc_cfg.mcpd_audit_path),
+    )
+    bridge.start()
+    atexit.register(bridge.stop)
+    return bridge
 from .intent_store import IntentStore
 from .main import Controller
 from .mcpd_client import McpdClient
@@ -179,6 +211,7 @@ def _build_controller(
     """Load config, wire all collaborators, register SIGTERM handler for systemd."""
     cfg = load(config_path)
     audit = AuditLog(Path(cfg.run.audit_log).expanduser())
+    _oc_bridge = _maybe_start_oc_bridge(cfg, audit)  # v6.13_OC Fix Q
 
     original_sigterm = signal.getsignal(signal.SIGTERM)
 
@@ -305,6 +338,7 @@ def _run_daemon(config_path: Path | None) -> int:
             max_size_mb=cfg.debug.max_size_mb,
         )
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
+        _oc_bridge = _maybe_start_oc_bridge(cfg, audit)  # v6.13_OC Fix Q
         mcpd: McpdClient | None = None
         try:
             qb = _build_qb_safe(cfg)
@@ -366,6 +400,7 @@ def _run_terminal(config_path: Path | None) -> int:
     try:
         cfg = load(config_path)
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
+        _oc_bridge = _maybe_start_oc_bridge(cfg, audit)  # v6.13_OC Fix Q
         qb = _build_qb_safe(cfg)
         pb = _build_pb_safe(cfg)
         mcpd = McpdClient.spawn(
@@ -455,6 +490,7 @@ def _run_gui(mode: str, config_path: Path | None) -> int:
     try:
         cfg = load(config_path)
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
+        _oc_bridge = _maybe_start_oc_bridge(cfg, audit)  # v6.13_OC Fix Q
         qb = _build_qb_safe(cfg)
         pb = _build_pb_safe(cfg)
         mcpd = McpdClient.spawn(

@@ -93,6 +93,30 @@ class BackendConfig:
 
 
 @dataclass(frozen=True)
+class OpencodeOcConfig:
+    """v6.13_OC Fix Q — OC edition audit bridge settings.
+
+    Only meaningful when ``cfg.qb.name == "opencode_oc"`` — otherwise
+    the daemon never instantiates :class:`OCAuditBridge`. Fields:
+
+    * ``enabled`` — global on/off for OC integration (opencode+bridge).
+    * ``audit_bridge_enabled`` — whether to start the audit bridge at
+      daemon boot. Defaults True; disable for debugging the daemon
+      in OC mode without INV-8 mirror.
+    * ``mcpd_audit_path`` — path the bridge tails. Defaults to mcpd's
+      own default; override when running mcpd with a non-standard
+      ``MCPD_AUDIT_LOG`` env var.
+    * ``config_path`` — where the ``icebreaker-oc`` launcher looks for
+      the opencode config JSON. Informational only in the daemon;
+      the launcher shell script reads this via its own env var.
+    """
+    enabled: bool = True
+    audit_bridge_enabled: bool = True
+    mcpd_audit_path: str = "/var/log/mcpd/audit.log"
+    config_path: str = "/etc/icebreaker/qb_oc.json"
+
+
+@dataclass(frozen=True)
 class HitlConfig:
     lockout_seconds: int = 3    # INV-6 approve-button lockout
     timeout_seconds: int = 30   # decision timeout → auto-deny
@@ -405,6 +429,9 @@ class ControllerConfig:
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
     gui: GuiConfig = field(default_factory=GuiConfig)
     rpa: RpaConfig = field(default_factory=RpaConfig)
+    # v6.13_OC Fix Q: OC edition settings (audit bridge, etc.). None
+    # unless [qb.opencode_oc] section is present in the TOML.
+    opencode_oc: OpencodeOcConfig | None = None
     # v6.65: ordered list of fully-built fallback backend configs, in the
     # order the runtime should try them after the primary fails on a
     # transport / API error. Empty tuple = no fallback (current behavior).
@@ -513,6 +540,22 @@ def _build_fallback_backends(raw: dict) -> tuple[BackendConfig, ...]:
 def _build_backend_config_for(raw: dict, name: str) -> BackendConfig:
     qb = raw["qb"]
     section = qb.get(name)
+
+    # v6.13_OC Fix Q: `opencode_oc` is a no-op QB — opencode is the real
+    # backend, spawned externally by the user via `icebreaker-oc`. The
+    # Python daemon still needs a resolvable BackendConfig for the
+    # registry lookup, so we return a placeholder with zeroed limits.
+    # The [qb.opencode_oc] TOML section is optional (defaults empty);
+    # the actual bridge configuration lives on `cfg.opencode_oc`
+    # (see OpencodeOcConfig).
+    if name == "opencode_oc":
+        return BackendConfig(
+            name="opencode_oc",
+            model="opencode_oc",
+            max_tokens=0,
+            timeout_seconds=0,
+        )
+
     if section is None:
         raise BrainConfigError(
             f"missing required section [qb.{name}] for backend "
@@ -877,7 +920,29 @@ def _build_config(raw: dict, config_path: Path) -> ControllerConfig:
         desktop=_build_desktop_config(raw),
         gui=_build_gui_config(raw),
         rpa=_build_rpa_config(raw),
+        opencode_oc=_build_opencode_oc_config(raw),
         qb_fallbacks=_build_fallback_backends(raw),
+    )
+
+
+def _build_opencode_oc_config(raw: dict) -> OpencodeOcConfig | None:
+    """v6.13_OC Fix Q: build OC-edition settings if the TOML has a
+    ``[qb.opencode_oc]`` section OR ``qb.backend == "opencode_oc"``.
+
+    Returns None when neither trigger applies so the current-edition
+    daemon (backend=gemini/anthropic/openai/local) sees a null
+    ``cfg.opencode_oc`` — nothing to configure or start.
+    """
+    qb = raw.get("qb", {})
+    section = qb.get("opencode_oc")
+    if section is None and qb.get("backend") != "opencode_oc":
+        return None
+    section = section or {}
+    return OpencodeOcConfig(
+        enabled=bool(section.get("enabled", True)),
+        audit_bridge_enabled=bool(section.get("audit_bridge_enabled", True)),
+        mcpd_audit_path=str(section.get("mcpd_audit_path", "/var/log/mcpd/audit.log")),
+        config_path=str(section.get("config_path", "/etc/icebreaker/qb_oc.json")),
     )
 
 

@@ -202,14 +202,14 @@ class HitlModal(ModalScreen[str]):
                 _now = None
                 try:
                     _now = self.app.focused
-                except Exception:
+                except Exception:  # noqa: BLE001 — HITL modal diag/UI swallow (F-92_OC..F-97_OC)
                     pass
                 _f.write(
                     f"{_time.strftime('%Y-%m-%d %H:%M:%S')} [modal pid={_os.getpid()}] "
                     f"HITL-DIAG HitlModal.on_mount AUTO_FOCUS produced: "
                     f"app.focused={_now!r}\n"
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001 — HITL modal diag/UI swallow (F-92_OC..F-97_OC)
             pass
 
     def on_key(self, event) -> None:  # type: ignore[override]
@@ -225,7 +225,7 @@ class HitlModal(ModalScreen[str]):
             with open("/tmp/hitl-diag.log", "a") as _f:
                 _f.write(f"{_time.strftime('%Y-%m-%d %H:%M:%S')} [modal pid={_os.getpid()}] "
                          f"HITL-DIAG HitlModal.on_key: key={event.key!r} name={event.name!r}\n")
-        except Exception:
+        except Exception:  # noqa: BLE001 — HITL modal diag/UI swallow (F-92_OC..F-97_OC)
             pass
 
         k = event.key
@@ -238,7 +238,7 @@ class HitlModal(ModalScreen[str]):
                 return
             try:
                 event.stop()
-            except Exception:
+            except Exception:  # noqa: BLE001 — HITL modal diag/UI swallow (F-92_OC..F-97_OC)
                 pass
             self.dismiss("approved")
             return
@@ -246,28 +246,28 @@ class HitlModal(ModalScreen[str]):
         if k in ("d", "n", "2", "escape", "ctrl+c", "ctrl+d"):
             try:
                 event.stop()
-            except Exception:
+            except Exception:  # noqa: BLE001 — HITL modal diag/UI swallow (F-92_OC..F-97_OC)
                 pass
             self.dismiss("denied")
             return
         if k in ("m", "3"):
             try:
                 event.stop()
-            except Exception:
+            except Exception:  # noqa: BLE001 — HITL modal diag/UI swallow (F-92_OC..F-97_OC)
                 pass
             self.dismiss("modify")
             return
         if k in ("e", "4"):
             try:
                 event.stop()
-            except Exception:
+            except Exception:  # noqa: BLE001 — HITL modal diag/UI swallow (F-92_OC..F-97_OC)
                 pass
             self.dismiss("explain")
             return
         if k in ("t", "5"):
             try:
                 event.stop()
-            except Exception:
+            except Exception:  # noqa: BLE001 — HITL modal diag/UI swallow (F-92_OC..F-97_OC)
                 pass
             self.dismiss("trust")
             return
@@ -287,14 +287,14 @@ class HitlModal(ModalScreen[str]):
             focused = "None"
             try:
                 focused = repr(self.app.focused) if self.app else "None"
-            except Exception:
+            except Exception:  # noqa: BLE001 — HITL modal diag/UI swallow (F-92_OC..F-97_OC)
                 pass
             with open("/tmp/hitl-diag.log", "a") as _f:
                 _f.write(
                     f"{time.strftime('%Y-%m-%d %H:%M:%S')} [modal pid={_os.getpid()}] "
                     f"HITL-DIAG heartbeat t={elapsed:.2f}s focused={focused}\n"
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001 — HITL modal diag/UI swallow (F-92_OC..F-97_OC)
             pass
 
     def _tick_countdown(self) -> None:

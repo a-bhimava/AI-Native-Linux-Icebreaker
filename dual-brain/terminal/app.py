@@ -48,16 +48,16 @@ def _hdiag(msg: str) -> None:
                 os.chmod(_HDIAG_PATH, 0o666)
                 with open(_HDIAG_PATH, "a") as f:
                     f.write(line)
-            except Exception:
+            except Exception:  # noqa: BLE001 — _hdiag chmod-then-retry best-effort (F-96_OC)
                 # Fallback: per-user path so the diagnostic still lands
                 # somewhere the terminal can read after the fact.
                 try:
                     alt = f"/tmp/hitl-diag-{os.getuid()}.log"
                     with open(alt, "a") as f:
                         f.write(line)
-                except Exception:
+                except Exception:  # noqa: BLE001 — _hdiag last-resort fallback swallow
                     pass
-    except Exception:
+    except Exception:  # noqa: BLE001 — _hdiag never crashes the terminal (F-96_OC)
         pass
 
 
@@ -177,12 +177,12 @@ class AiTerminalApp(App):
             focused_repr = "None"
             try:
                 focused_repr = repr(self.focused)
-            except Exception:
+            except Exception:  # noqa: BLE001 — App.on_key diagnostic swallow (F-96_OC)
                 pass
             screen_repr = "None"
             try:
                 screen_repr = type(self.screen).__name__
-            except Exception:
+            except Exception:  # noqa: BLE001 — App.on_key diagnostic swallow (F-96_OC)
                 pass
             with open("/tmp/hitl-diag.log", "a") as _f:
                 _f.write(
@@ -190,7 +190,7 @@ class AiTerminalApp(App):
                     f"HITL-DIAG App.on_key: key={event.key!r} "
                     f"screen={screen_repr} focused={focused_repr}\n"
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001 — App.on_key never crashes the terminal
             pass
         # Do NOT stop the event — let it continue to screen bindings.
 

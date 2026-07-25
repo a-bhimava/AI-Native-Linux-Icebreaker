@@ -36,6 +36,11 @@ dependencies = [
     # source for prompts + tests + risk classifier; export_mcpd_catalogue.py
     # loads it via yaml.safe_load.
     "PyYAML>=6.0",
+    # v6.13_OC Fix R (2026-07-25): file-watching for oc_audit_bridge — mirrors
+    # mcpd's audit log into the INV-8 intent-level log. Used only when
+    # cfg.qb.backend == "opencode_oc"; local import inside OCAuditBridge.start()
+    # keeps it off the critical import path for the current-edition daemon.
+    "watchdog>=3.0",
 ]
 
 [project.scripts]

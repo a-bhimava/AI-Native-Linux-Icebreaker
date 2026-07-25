@@ -41,6 +41,11 @@ from .sanitize import (
     install_root_redaction_filter,
     sanitize_exception,
 )
+# v6.13_OC Fix Q: import so @register_backend("opencode_oc") fires.
+# The class itself is a no-op (opencode is the real QB, spawned
+# externally); importing at package load is safe because the module
+# has no heavy deps.
+from . import opencode_oc  # noqa: F401
 
 __all__ = [
     "MAX_RETRY_HARD_CAP",

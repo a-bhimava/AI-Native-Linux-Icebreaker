@@ -13,19 +13,21 @@
       "properties": {
         "backend": {
           "type": "string",
-          "enum": ["local", "anthropic", "gemini", "openai"]
+          "enum": ["local", "anthropic", "gemini", "openai", "opencode_oc"],
+          "description": "Primary QB backend. `opencode_oc` (v6.13_OC) is a no-op — opencode runs externally as the user-facing TUI and speaks MCP to mcpd directly. In OC mode the Python daemon starts the oc_audit_bridge instead of dispatching turns."
         },
         "fallback_chain": {
           "type": "array",
           "items": {"type": "string", "enum": ["local", "anthropic", "gemini", "openai"]},
           "maxItems": 4,
           "uniqueItems": true,
-          "description": "v6.65: ordered list of QB backends to try after the primary fails on transport/API error. Skipped on schema-validation failures (those are prompt issues that retrying the same backend won't fix). Empty = current behavior (no fallback)."
+          "description": "v6.65: ordered list of QB backends to try after the primary fails on transport/API error. Skipped on schema-validation failures (those are prompt issues that retrying the same backend won't fix). Empty = current behavior (no fallback). opencode_oc is NOT valid in the fallback chain — it's a no-op that can't do work."
         },
         "local": {"$ref": "#/definitions/local_section"},
         "anthropic": {"$ref": "#/definitions/api_section"},
         "gemini": {"$ref": "#/definitions/api_section"},
-        "openai": {"$ref": "#/definitions/api_section"}
+        "openai": {"$ref": "#/definitions/api_section"},
+        "opencode_oc": {"$ref": "#/definitions/opencode_oc_section"}
       }
     },
     "hitl": {
@@ -583,6 +585,31 @@
         },
         "max_tokens": {"type": "integer", "minimum": 1, "maximum": 1000000},
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 7200}
+      }
+    },
+    "opencode_oc_section": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "v6.13_OC Fix Q — OC edition settings. All fields optional; sensible defaults ship for the common ISO layout.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Global on/off for OC integration. Setting false makes the daemon act as if the OC edition wasn't installed even if qb.backend=opencode_oc. Default: true."
+        },
+        "audit_bridge_enabled": {
+          "type": "boolean",
+          "description": "Whether the daemon starts oc_audit_bridge at boot. When false, mcpd's audit log is not mirrored into the INV-8 log — useful only for debugging. Default: true."
+        },
+        "mcpd_audit_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path the audit bridge tails. Must match mcpd's MCPD_AUDIT_LOG env var. Default: /var/log/mcpd/audit.log."
+        },
+        "config_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to opencode's config JSON. Informational only in the daemon; the icebreaker-oc launcher script reads this via OPENCODE_CONFIG env var. Default: /etc/icebreaker/qb_oc.json."
+        }
       }
     }
   }
