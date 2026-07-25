@@ -32,14 +32,23 @@ COMPRESS_ARGS=(-comp zstd -Xcompression-level 3)
 LABEL=""
 # V6.6: --arch defaults to amd64 for backwards compat with V0-V6.51.
 ARCH="${ARCH:-amd64}"
+# v6.13_OC Fix L' Commit 1: --edition selects which content lands in
+# the chroot. current (default) = Textual TUI + Gemini. oc = opencode
+# TUI + qb_oc.json + no Textual. Also drives the _OC filename suffix.
+EDITION="${EDITION:-current}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-compress) COMPRESS_ARGS=(-noI -noD -noF -noX); shift ;;  # D-1 escape hatch
         --label)       LABEL="$2"; shift 2 ;;  # override version marker + ISO filename (e.g. "v6.1")
         --arch)        ARCH="$2"; shift 2 ;;   # V6.6: target CPU arch (amd64 or arm64)
+        --edition)     EDITION="$2"; shift 2 ;; # v6.13_OC: current|oc
         *) die "unknown arg: $1" ;;
     esac
 done
+case "$EDITION" in
+    current|oc) ;;
+    *) die "--edition must be current|oc, got: $EDITION" ;;
+esac
 # LABEL defaults to plain vN when not overridden (backwards-compatible).
 [ -z "$LABEL" ] && LABEL="v${VN}"
 # Widened 2026-07-20 (v6.10b build): accept revision suffixes so patch
@@ -168,10 +177,15 @@ OUT_DIR="${BUILD_DIR}/out"
 # `v6.10b` (trailing letter suffix). Widened both v6 alternations to
 # accept an optional `[a-z]?` suffix so revision ISOs (v6.10b, v6.10c...)
 # get the arch suffix too.
+# v6.13_OC Fix L' Commit 1: EDITION=oc appends _OC before the arch suffix
+# so both editions can coexist in out/ (`v6.13-arm64.iso` +
+# `v6.13_OC-arm64.iso`). The suffix is empty for the current edition.
+EDITION_SUFFIX=""
+[ "$EDITION" = "oc" ] && EDITION_SUFFIX="_OC"
 if [[ "$LABEL" =~ ^v6\.[6-9][a-z]?$ ]] || [[ "$LABEL" =~ ^v6\.[1-9][0-9]+[a-z]?$ ]] || [[ "$LABEL" =~ ^v[7-9] ]] || [ "$ARCH" != "amd64" ]; then
-    ISO_FILE="${OUT_DIR}/${LABEL}-${ARCH}.iso"
+    ISO_FILE="${OUT_DIR}/${LABEL}${EDITION_SUFFIX}-${ARCH}.iso"
 else
-    ISO_FILE="${OUT_DIR}/${LABEL}.iso"
+    ISO_FILE="${OUT_DIR}/${LABEL}${EDITION_SUFFIX}.iso"
 fi
 
 cleanup() {

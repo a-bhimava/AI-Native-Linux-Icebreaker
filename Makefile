@@ -41,9 +41,13 @@ base-amd64 base-arm64: base-%:
 # ISO targets depend on base cache existing (the script will build the
 # cache if missing, so `make iso-arm64` alone is sufficient — the
 # base-% dependency is included for parallelism and clarity).
+# v6.13_OC Fix L' Commit 1: forward EDITION={current,oc} to build-iso.sh
+# so the OC-edition build ships opencode + qb_oc.json instead of the
+# Textual TUI. Default `current` preserves the v6.12 shape.
+EDITION ?= current
 iso-amd64 iso-arm64: iso-%: base-%
-	@echo "── build-iso.sh $(VN) --arch $* --label $(LABEL) ──"
-	sudo env ARCH=$* bash incremental/build/build-iso.sh $(VN) --arch $* --label $(LABEL)
+	@echo "── build-iso.sh $(VN) --arch $* --label $(LABEL) --edition $(EDITION) ──"
+	sudo env ARCH=$* EDITION=$(EDITION) bash incremental/build/build-iso.sh $(VN) --arch $* --label $(LABEL) --edition $(EDITION)
 
 # QEMU gate. Uses the arch-suffixed ISO name from build-iso.sh.
 qemu-amd64 qemu-arm64: qemu-%:

@@ -27,6 +27,15 @@ LABEL="${LABEL:-v6.7}"
 VN="${VN:-6}"
 V67_INCLUDE_ARM64="${V67_INCLUDE_ARM64:-1}"
 V67_LOG="${V67_LOG:-${HOME}/v67-build.log}"
+# v6.13_OC Fix L' Commit 1: EDITION plumbing.
+#   current — Textual TUI is the AI Terminal (v6.12 shape, default).
+#   oc      — opencode's TUI is the AI Terminal; mcpd exposed via MCP.
+#   both    — build both editions sequentially, 4 ISOs total.
+V67_EDITION="${V67_EDITION:-current}"
+case "$V67_EDITION" in
+    current|oc|both) ;;
+    *) echo "FATAL: V67_EDITION must be current|oc|both, got: $V67_EDITION" >&2; exit 1 ;;
+esac
 DOCKER_TAG="icebreaker-build:${LABEL}"
 
 # fail-fast trap
@@ -36,6 +45,7 @@ exec > >(tee -a "$V67_LOG") 2>&1
 echo "══════════════════════════════════════════════════════════════════"
 echo "═══ Icebreaker ${LABEL} canonical build @ $(date -u) ═══"
 echo "═══ arm64 included: ${V67_INCLUDE_ARM64}                         ═══"
+echo "═══ edition:        ${V67_EDITION}                                    ═══"
 echo "══════════════════════════════════════════════════════════════════"
 
 cd "$REPO"
@@ -110,41 +120,60 @@ echo "▶ Step 4: mcpd-harvest.sh on fresh amd64 mcpd $(date -u)"
 sudo bash incremental/build/mcpd-harvest.sh
 echo "✓ Step 4: harvest gate GREEN"
 
-# ── Step 5: amd64 ISO ────────────────────────────────────────────────────
-echo ""
-echo "▶ Step 5: make iso-amd64 $(date -u)"
-sudo make iso-amd64 LABEL="$LABEL" VN="$VN"
-
-AMD64_ISO="incremental/.build/out/${LABEL}-amd64.iso"
-[ -f "$AMD64_ISO" ] || { echo "FATAL: expected $AMD64_ISO missing"; exit 1; }
-echo "✓ Step 5: ${AMD64_ISO} produced ($(du -h "$AMD64_ISO" | awk '{print $1}'))"
-
-# ── Step 6 (optional): arm64 ISO ─────────────────────────────────────────
-if [ "$V67_INCLUDE_ARM64" = "1" ]; then
+# v6.13_OC Fix L' Commit 1: build one arch × one edition. Called once per
+# edition when V67_EDITION=current|oc, or twice when V67_EDITION=both.
+# ISO filename gains _OC suffix when EDITION=oc — see build-iso.sh.
+_build_arch() {
+    local arch="$1"
+    local edition="$2"
+    local step="$3"
+    local iso_suffix=""
+    [ "$edition" = "oc" ] && iso_suffix="_OC"
+    local iso_path="incremental/.build/out/${LABEL}${iso_suffix}-${arch}.iso"
     echo ""
-    echo "▶ Step 6: make iso-arm64 (this takes ~70 min under qemu-user) $(date -u)"
-    sudo make iso-arm64 LABEL="$LABEL" VN="$VN"
+    echo "▶ Step ${step}: make iso-${arch} EDITION=${edition} $(date -u)"
+    sudo make "iso-${arch}" LABEL="$LABEL" VN="$VN" EDITION="$edition"
+    [ -f "$iso_path" ] || { echo "FATAL: expected $iso_path missing"; exit 1; }
+    echo "✓ Step ${step}: ${iso_path} produced ($(du -h "$iso_path" | awk '{print $1}'))"
+}
 
-    ARM64_ISO="incremental/.build/out/${LABEL}-arm64.iso"
-    [ -f "$ARM64_ISO" ] || { echo "FATAL: expected $ARM64_ISO missing"; exit 1; }
-    echo "✓ Step 6: ${ARM64_ISO} produced ($(du -h "$ARM64_ISO" | awk '{print $1}'))"
-else
-    echo ""
-    echo "▶ Step 6: arm64 skipped (V67_INCLUDE_ARM64=0)"
-fi
+# Editions to build, in order.
+_editions_to_build=()
+case "$V67_EDITION" in
+    current) _editions_to_build=(current) ;;
+    oc)      _editions_to_build=(oc) ;;
+    both)    _editions_to_build=(current oc) ;;
+esac
+
+_step=5
+for _ed in "${_editions_to_build[@]}"; do
+    # ── amd64 ISO for this edition ───────────────────────────────────────
+    _build_arch amd64 "$_ed" "$_step"
+    _step=$((_step + 1))
+
+    # ── arm64 ISO for this edition (optional) ────────────────────────────
+    if [ "$V67_INCLUDE_ARM64" = "1" ]; then
+        _build_arch arm64 "$_ed" "$_step"
+    else
+        echo ""
+        echo "▶ Step ${_step}: arm64 skipped (V67_INCLUDE_ARM64=0) [edition=${_ed}]"
+    fi
+    _step=$((_step + 1))
+done
 
 # ── Step 7: SHA-256 + report ─────────────────────────────────────────────
+# Glob covers both editions: "${LABEL}-*.iso" (current) + "${LABEL}_OC-*.iso" (oc).
 echo ""
 echo "▶ Step 7: SHA-256s"
-sha256sum "incremental/.build/out/${LABEL}"-*.iso 2>&1
+sha256sum "incremental/.build/out/${LABEL}"-*.iso "incremental/.build/out/${LABEL}_OC-"*.iso 2>/dev/null || true
 
 echo ""
 echo "══════════════════════════════════════════════════════════════════"
-echo "═══ ${LABEL} build COMPLETE at $(date -u) ═══"
+echo "═══ ${LABEL} build COMPLETE at $(date -u) [edition=${V67_EDITION}] ═══"
 echo "══════════════════════════════════════════════════════════════════"
 echo ""
 echo "Artifacts on VM:"
-ls -lh "incremental/.build/out/${LABEL}"-*.iso 2>&1
+ls -lh "incremental/.build/out/${LABEL}"-*.iso "incremental/.build/out/${LABEL}_OC-"*.iso 2>/dev/null || true
 echo ""
 echo "Next steps:"
 echo ""
