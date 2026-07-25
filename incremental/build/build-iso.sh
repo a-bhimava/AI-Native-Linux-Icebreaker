@@ -262,7 +262,41 @@ if [ "$EDITION" = "oc" ]; then
         "${CHROOT}/usr/share/applications/icebreaker-ai-terminal.desktop"
     info "[oc] AI Terminal launcher → icebreaker-ai-terminal.desktop (opencode)"
 
-    info "── OC edition overlay: commit 2/5 done ──"
+    # 3 — opencode + Node.js install (v6.13_OC Fix L' Commit 3/5).
+    # opencode ships as an npm package (@opencode-ai). We install it
+    # globally inside the chroot so /usr/bin/opencode is available to
+    # the icebreaker-oc launcher (Fix P).
+    #
+    # Pinned to 1.18.4 — the exact version verified end-to-end in the
+    # D-R2-3 preflight (opencode mcp list showed ✓ icebreaker connected).
+    # Bumping this version requires a full preflight re-run — see
+    # docs/v6.x_OC/PREFLIGHT_2026-07-24.md.
+    _OC_OPENCODE_VERSION="1.18.4"
+    info "[oc] installing nodejs + npm + opencode-ai@${_OC_OPENCODE_VERSION}..."
+    chroot "$CHROOT" bash -c "
+        set -e
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -qq
+        apt-get install -y --no-install-recommends nodejs npm ca-certificates
+        # Suppress npm funding/audit noise inside the chroot — release-time
+        # builds don't need these.
+        npm config set fund false --global
+        npm config set audit false --global
+        npm install -g opencode-ai@${_OC_OPENCODE_VERSION} 2>&1 | tail -5
+        apt-get clean && rm -rf /var/lib/apt/lists/*
+    " < /dev/null
+    # Sanity: opencode binary must land at /usr/bin/opencode (npm's global
+    # bin path inside the chroot). If npm's global prefix differs, symlink.
+    if [ ! -x "${CHROOT}/usr/bin/opencode" ]; then
+        _OC_BIN="$(chroot "$CHROOT" bash -c 'command -v opencode || true')"
+        [ -n "$_OC_BIN" ] || die "opencode binary not found in chroot after npm install"
+        info "[oc] symlinking opencode → /usr/bin/opencode (was at ${_OC_BIN})"
+        ln -sf "$_OC_BIN" "${CHROOT}/usr/bin/opencode"
+    fi
+    _OC_VER="$(chroot "$CHROOT" opencode --version 2>&1 | tail -1)"
+    info "[oc] opencode installed: ${_OC_VER}"
+
+    info "── OC edition overlay: commit 2/5 + 3/5 done ──"
 fi
 
 echo "${LABEL}" > "${CHROOT}/etc/icebreaker-version"
