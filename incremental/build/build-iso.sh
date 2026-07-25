@@ -296,7 +296,34 @@ if [ "$EDITION" = "oc" ]; then
     _OC_VER="$(chroot "$CHROOT" opencode --version 2>&1 | tail -1)"
     info "[oc] opencode installed: ${_OC_VER}"
 
-    info "── OC edition overlay: commit 2/5 + 3/5 done ──"
+    # 4 — qb_oc.json + icebreaker-oc launcher + mcpd-for-oc.sh wrapper
+    # (v6.13_OC Fix L' Commit 4/5). All source files were created in Fix P
+    # (commit 9989132). This commit wires them into the build.
+    #
+    # gen-oc-config.sh boots the just-built mcpd + calls tools/list to
+    # generate the permission map (Tier ≤ 1 → allow; writes → ask). We
+    # always use the amd64 mcpd binary for tools/list because the tool
+    # set is arch-independent (compile-time embedded schemas) — avoids
+    # needing qemu-user-static to run mcpd-arm64 on an amd64 build host.
+    _OC_MCPD_HOST="${REPO_ROOT}/cx-distro/.build/mcpd-amd64"
+    [ -x "$_OC_MCPD_HOST" ] || _OC_MCPD_HOST="${REPO_ROOT}/cx-distro/.build/mcpd"
+    [ -x "$_OC_MCPD_HOST" ] || die "gen-oc-config: cannot find host mcpd at ${REPO_ROOT}/cx-distro/.build/mcpd(-amd64)"
+
+    info "[oc] installing icebreaker-oc launcher + mcpd-for-oc.sh wrapper..."
+    install -Dm755 "${REPO_ROOT}/cx-distro/distro/icebreaker-oc" \
+        "${CHROOT}/usr/bin/icebreaker-oc"
+    install -Dm755 "${REPO_ROOT}/cx-distro/distro/mcpd-for-oc.sh" \
+        "${CHROOT}/usr/libexec/icebreaker/mcpd-for-oc.sh"
+
+    info "[oc] generating qb_oc.json from mcpd tools/list..."
+    MCPD_BIN="$_OC_MCPD_HOST" \
+        TEMPLATE="${REPO_ROOT}/cx-distro/distro/qb_oc.json.template" \
+        OUTPUT="${CHROOT}/etc/icebreaker/qb_oc.json" \
+        bash "${INC_ROOT}/build/gen-oc-config.sh" \
+        || die "gen-oc-config.sh failed — see stderr above"
+    chmod 644 "${CHROOT}/etc/icebreaker/qb_oc.json"
+
+    info "── OC edition overlay: commit 2/5 + 3/5 + 4/5 done ──"
 fi
 
 echo "${LABEL}" > "${CHROOT}/etc/icebreaker-version"
