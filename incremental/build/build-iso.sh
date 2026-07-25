@@ -229,6 +229,42 @@ for (( i=1; i<=VN; i++ )); do
     unset -f version_overlay
 done
 
+# ── v6.13_OC Fix L' Commit 2/5: edition overlay ─────────────────────────
+# Applied AFTER v1..vN cumulative manifests. Each commit in the L' series
+# adds one edition-specific piece:
+#   Commit 2: TUI removal + .desktop swap
+#   Commit 3: opencode npm install
+#   Commit 4: qb_oc.json generation + launcher/wrapper install
+#   Commit 5: controller.toml OC-edition override
+# EDITION=current is a no-op — the chroot after v1..vN is exactly the
+# byte-for-byte v6.12 shape it was before this file existed.
+if [ "$EDITION" = "oc" ]; then
+    info "── Applying OC edition overlay ──"
+
+    # 2.a — remove Textual TUI from venv site-packages (~8k LOC deleted).
+    # OC edition uses opencode's native TUI (installed in Commit 3); the
+    # Icebreaker Textual terminal is inapplicable + confusing to ship.
+    _TERM_SP="$(find "${CHROOT}/opt/icebreaker/venv/lib" -maxdepth 4 -type d -name terminal 2>/dev/null | head -1)"
+    if [ -n "$_TERM_SP" ]; then
+        info "[oc] removing Textual TUI from venv: ${_TERM_SP#${CHROOT}}"
+        rm -rf "$_TERM_SP"
+    else
+        info "[oc] Textual TUI not found in venv (already removed?)"
+    fi
+
+    # 2.b — swap the AI Terminal .desktop entry. Current-edition v3.manifest
+    # installed icebreaker-terminal.desktop → the Textual launcher. Replace
+    # with icebreaker-ai-terminal.desktop → the opencode wrapper (Fix P).
+    # Other .desktop files (control, chatbot, settings, audit) stay in
+    # both editions — they call the Python daemon which stays alive in OC.
+    rm -f "${CHROOT}/usr/share/applications/icebreaker-terminal.desktop"
+    install -Dm644 "${REPO_ROOT}/cx-distro/distro/icebreaker-ai-terminal.desktop" \
+        "${CHROOT}/usr/share/applications/icebreaker-ai-terminal.desktop"
+    info "[oc] AI Terminal launcher → icebreaker-ai-terminal.desktop (opencode)"
+
+    info "── OC edition overlay: commit 2/5 done ──"
+fi
+
 echo "${LABEL}" > "${CHROOT}/etc/icebreaker-version"
 
 # ── Smoke gate — build aborts on failure ────────────────────────────────
