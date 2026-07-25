@@ -165,6 +165,50 @@ async fn dispatch(mut req: JsonRpcRequest) -> Result<JsonRpcResponse> {
     let id = req.id.clone().unwrap_or(Value::Null);
     info!("method={} id={}", req.method, id);
 
+    // v6.13_OC Fix K' — MCP protocol: `initialize` returns capabilities.
+    // Short-circuits before every downstream check; no schema, no side effects.
+    if req.method == "initialize" {
+        return Ok(JsonRpcResponse::ok(id, serde_json::json!({
+            "protocolVersion": "2025-06-18",
+            "capabilities": {"tools": {"listChanged": false}},
+            "serverInfo": {
+                "name": "icebreaker-mcpd",
+                "version": env!("CARGO_PKG_VERSION"),
+            },
+        })));
+    }
+
+    // v6.13_OC Fix K' — MCP protocol: `tools/call` envelope unwrap.
+    // Set mcp_wrap so the exit paths wrap the tool result in MCP shape.
+    // Method + params are mutated in place; the rest of dispatch runs
+    // against the inner tool name (goes through is_known_method,
+    // schema validate, and the existing match). Manifest tools are
+    // reachable through this path for free.
+    let mcp_wrap = if req.method == "tools/call" {
+        let name = match req.params.get("name").and_then(|v| v.as_str()) {
+            Some(n) if n != "tools/call" && n != "initialize" => n.to_string(),
+            Some(_) => {
+                return Ok(JsonRpcResponse::err(
+                    id, -32602,
+                    "tools/call cannot wrap protocol methods (initialize, tools/call)",
+                ));
+            }
+            None => {
+                return Ok(JsonRpcResponse::err(
+                    id, -32602,
+                    "tools/call: 'name' missing or not a string",
+                ));
+            }
+        };
+        let args = req.params.get("arguments").cloned()
+            .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
+        req.method = name;
+        req.params = args;
+        true
+    } else {
+        false
+    };
+
     // Sequence matters: known-method check FIRST (so unknown methods return
     // -32601 Method not found), then schema validation (-32602 Invalid params),
     // then execution. This keeps error codes faithful to JSON-RPC 2.0 §5.1.
@@ -204,9 +248,11 @@ async fn dispatch(mut req: JsonRpcRequest) -> Result<JsonRpcResponse> {
         let result = crate::manifest_loader::impl_kinds::dispatch(
             &entry.manifest, &req.params,
         ).await;
-        return Ok(match result {
-            Ok(v) => JsonRpcResponse::ok(id, v),
-            Err(e) => JsonRpcResponse::err(id, -32603, format!("Internal error: {}", e)),
+        return Ok(match (result, mcp_wrap) {
+            (Ok(v), true)  => JsonRpcResponse::ok(id, mcp_content(&v)),
+            (Ok(v), false) => JsonRpcResponse::ok(id, v),
+            (Err(e), true)  => JsonRpcResponse::ok(id, mcp_error(&format!("Internal error: {}", e))),
+            (Err(e), false) => JsonRpcResponse::err(id, -32603, format!("Internal error: {}", e)),
         });
     }
     if let Err(e) = crate::schema::validate(&req.method, &req.params) {
@@ -313,10 +359,39 @@ async fn dispatch(mut req: JsonRpcRequest) -> Result<JsonRpcResponse> {
         other => unreachable!("dispatch reached unknown method '{}' after is_known_method check", other),
     };
 
-    match result {
-        Ok(value) => Ok(JsonRpcResponse::ok(id, value)),
-        Err(e) => Ok(JsonRpcResponse::err(id, -32603, e.to_string())),
+    match (result, mcp_wrap) {
+        (Ok(value), true)  => Ok(JsonRpcResponse::ok(id, mcp_content(&value))),
+        (Ok(value), false) => Ok(JsonRpcResponse::ok(id, value)),
+        (Err(e), true)  => Ok(JsonRpcResponse::ok(id, mcp_error(&e.to_string()))),
+        (Err(e), false) => Ok(JsonRpcResponse::err(id, -32603, e.to_string())),
     }
+}
+
+/// v6.13_OC Fix K' — wrap a tool result in MCP `tools/call` response shape.
+/// Serialization failure is very rare (would need a Value with a bad float
+/// or non-string-key map); we substitute a diagnostic string rather than
+/// letting `?` propagate, since the caller has no way to recover.
+fn mcp_content(value: &Value) -> Value {
+    let text = serde_json::to_string(value).unwrap_or_else(|e| {
+        format!("{{\"__serialize_error\":\"{}\"}}", e)
+    });
+    serde_json::json!({
+        "content": [{"type": "text", "text": text}],
+        "isError": false,
+    })
+}
+
+/// v6.13_OC Fix K' — wrap a tool error in MCP `tools/call` response shape.
+/// Note: MCP spec allows both JSON-RPC error and isError:true; we use
+/// isError only for tool-execution failures (-32603 class). Schema
+/// validation (-32602) and method-not-found (-32601) still return
+/// proper JSON-RPC errors so opencode can distinguish protocol errors
+/// from tool errors.
+fn mcp_error(msg: &str) -> Value {
+    serde_json::json!({
+        "content": [{"type": "text", "text": msg}],
+        "isError": true,
+    })
 }
 
 /// Returns true if `method` is one of the methods this dispatcher routes.

@@ -85,6 +85,11 @@ const TOOLS: &[ToolDescriptor] = &[
 /// `read_only` = (tier <= 1) heuristic (no dedicated field in the
 /// manifest today; matches the ToolDescriptor convention above).
 pub fn list_all() -> anyhow::Result<Value> {
+    // v6.13_OC Fix K' — dual descriptor keys: legacy `params_schema` for the
+    // Python controller's existing McpdClient consumers, `inputSchema` for
+    // MCP-protocol clients (opencode). Both keys carry the same JSON Schema;
+    // shipping both is zero-cost and preserves backward compat. `params_schema`
+    // can be removed in v6.14 once the Python side flips.
     let mut tools: Vec<Value> = TOOLS.iter().map(|t| {
         let params_schema = schema::schema_json(t.name).cloned().unwrap_or_else(|| json!({}));
         json!({
@@ -93,7 +98,8 @@ pub fn list_all() -> anyhow::Result<Value> {
             "category": t.category,
             "tier": t.tier,
             "read_only": t.read_only,
-            "params_schema": params_schema,
+            "params_schema": params_schema.clone(),
+            "inputSchema": params_schema,
         })
     }).collect();
 
@@ -105,7 +111,8 @@ pub fn list_all() -> anyhow::Result<Value> {
             "category": category_from_name(&m.name),
             "tier": m.tier,
             "read_only": m.tier <= 1,
-            "params_schema": m.param_schema,
+            "params_schema": m.param_schema.clone(),
+            "inputSchema": m.param_schema,
             "source": "manifest",
         }));
     }

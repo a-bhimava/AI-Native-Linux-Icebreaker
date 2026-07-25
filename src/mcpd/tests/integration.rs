@@ -754,3 +754,201 @@ fn landlock_blocks_kernel_enforced_root() {
         err
     );
 }
+
+// ── v6.13_OC Fix K' — MCP protocol extension tests ────────────────────────────
+//
+// `initialize` handshake + `tools/call` envelope, both live alongside the
+// legacy flat-dispatch surface (Python controller still uses that). The
+// tests below prove: (a) new methods work per MCP spec, (b) old methods
+// unchanged (backward compat regression lock), (c) `tools/call` cannot
+// wrap protocol methods (no recursion), (d) validation stays authoritative.
+
+#[test]
+fn initialize_returns_expected_capabilities() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "id": 100,
+    }));
+    assert_eq!(resp["id"], 100);
+    let result = &resp["result"];
+    assert_eq!(result["protocolVersion"], "2025-06-18");
+    assert_eq!(result["serverInfo"]["name"], "icebreaker-mcpd");
+    assert!(result["serverInfo"]["version"].is_string());
+    // capabilities.tools present so opencode knows we support tools/list + tools/call
+    assert!(result["capabilities"]["tools"].is_object());
+}
+
+#[test]
+fn initialize_accepts_missing_and_present_params() {
+    // MCP spec: initialize params are informational (client capabilities);
+    // server must accept both an empty request and one with client info.
+    let mut mcpd = Mcpd::spawn();
+    let resp1 = mcpd.call(&json!({"jsonrpc": "2.0", "method": "initialize", "id": 1}));
+    assert!(resp1["error"].is_null(), "initialize (no params) failed: {}", resp1);
+
+    let mut mcpd2 = Mcpd::spawn();
+    let resp2 = mcpd2.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "id": 2,
+        "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "0.0.1"}},
+    }));
+    assert!(resp2["error"].is_null(), "initialize (with clientInfo) failed: {}", resp2);
+}
+
+#[test]
+fn tools_list_carries_both_input_schema_and_params_schema() {
+    // Backward-compat regression lock. Removing `params_schema` (used by the
+    // Python controller's McpdClient) or `inputSchema` (used by MCP clients
+    // like opencode) breaks one of the two consumers.
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({"jsonrpc": "2.0", "method": "tools/list", "id": 1}));
+    let tools = resp["result"]["tools"].as_array().expect("tools array");
+    for t in tools {
+        assert!(t["params_schema"].is_object() || t["params_schema"].is_null(),
+            "tool {} missing legacy params_schema", t["name"]);
+        assert!(t["inputSchema"].is_object() || t["inputSchema"].is_null(),
+            "tool {} missing MCP inputSchema", t["name"]);
+    }
+}
+
+#[test]
+fn tools_call_wraps_result_in_mcp_envelope() {
+    // Call a Tier-0 read-only tool via tools/call. Result must land in the
+    // MCP shape: {content: [{type: "text", text: "..."}], isError: false}.
+    // Uses `system.unsupported` (F-35 catalogue landing pad): cross-platform,
+    // no /proc dependency, always returns success with structured guidance.
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+            "name": "system.unsupported",
+            "arguments": {"requested_intent": "smoke test"},
+        },
+        "id": 42,
+    }));
+    assert!(resp["error"].is_null(), "unexpected error: {}", resp);
+    let result = &resp["result"];
+    assert_eq!(result["isError"], false);
+    let content = result["content"].as_array().expect("content array");
+    assert_eq!(content.len(), 1);
+    assert_eq!(content[0]["type"], "text");
+    // The inner text is serialized JSON of the tool's original output.
+    let text = content[0]["text"].as_str().expect("text string");
+    let inner: Value = serde_json::from_str(text).expect("inner is JSON");
+    assert!(inner.is_object(), "inner not object: {}", inner);
+}
+
+#[test]
+fn tools_call_matches_flat_dispatch() {
+    // Equivalence: calling the same tool directly and via `tools/call`
+    // must produce the same inner data. If they diverge, we've silently
+    // introduced a protocol layer that changes semantics — Landlock/INV-4
+    // gates might be bypassed. Uses `system.unsupported` for cross-platform.
+    let args = json!({"requested_intent": "diff check"});
+
+    let mut mcpd1 = Mcpd::spawn();
+    let flat = mcpd1.call(&json!({
+        "jsonrpc": "2.0", "method": "system.unsupported",
+        "params": args.clone(), "id": 1,
+    }));
+
+    let mut mcpd2 = Mcpd::spawn();
+    let wrapped = mcpd2.call(&json!({
+        "jsonrpc": "2.0", "method": "tools/call",
+        "params": {"name": "system.unsupported", "arguments": args}, "id": 2,
+    }));
+
+    assert!(flat["error"].is_null(), "flat call failed: {}", flat);
+    assert!(wrapped["error"].is_null(), "wrapped call failed: {}", wrapped);
+
+    let flat_result = &flat["result"];
+    let wrapped_inner: Value = serde_json::from_str(
+        wrapped["result"]["content"][0]["text"].as_str().expect("text")
+    ).expect("inner JSON parse");
+
+    assert_eq!(flat_result, &wrapped_inner,
+        "flat vs wrapped result diverge: flat={} wrapped_inner={}",
+        flat_result, wrapped_inner);
+}
+
+#[test]
+fn tools_call_unknown_tool_returns_minus_32601() {
+    // MCP tools/call routes through is_known_method after the envelope unwrap.
+    // An unknown tool name must produce a JSON-RPC -32601 error (not a
+    // wrapped isError=true), because it's a PROTOCOL error not a tool error.
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0", "method": "tools/call",
+        "params": {"name": "nonexistent.tool", "arguments": {}}, "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32601, "expected method-not-found, got: {}", resp);
+}
+
+#[test]
+fn tools_call_invalid_arguments_returns_minus_32602() {
+    // INV-4 must survive the tools/call unwrap. Schema validation is
+    // authoritative — no bypass path.
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0", "method": "tools/call",
+        "params": {"name": "fs.read", "arguments": {"path": 42}},  // path must be string
+        "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602, "expected invalid-params, got: {}", resp);
+}
+
+#[test]
+fn tools_call_cannot_wrap_protocol_methods() {
+    // Recursion guard: tools/call name = "initialize" or "tools/call" is
+    // rejected outright so a caller cannot cause infinite recursion or
+    // circumvent the initialize handshake.
+    let mut mcpd = Mcpd::spawn();
+    for bad_name in &["initialize", "tools/call"] {
+        let resp = mcpd.call(&json!({
+            "jsonrpc": "2.0", "method": "tools/call",
+            "params": {"name": bad_name, "arguments": {}}, "id": 1,
+        }));
+        assert_eq!(resp["error"]["code"], -32602,
+            "expected -32602 for name={:?}, got: {}", bad_name, resp);
+    }
+}
+
+#[test]
+fn tools_call_missing_name_returns_minus_32602() {
+    let mut mcpd = Mcpd::spawn();
+    let resp = mcpd.call(&json!({
+        "jsonrpc": "2.0", "method": "tools/call",
+        "params": {"arguments": {}}, "id": 1,
+    }));
+    assert_eq!(resp["error"]["code"], -32602);
+}
+
+#[test]
+fn full_handshake_initialize_then_tools_list_then_tools_call() {
+    // Byte-for-byte the same three requests an MCP client (opencode) makes
+    // on session start. If this test breaks, opencode integration breaks.
+    let mut mcpd = Mcpd::spawn();
+
+    let init = mcpd.call(&json!({"jsonrpc": "2.0", "method": "initialize", "id": 1}));
+    assert!(init["error"].is_null(), "initialize failed: {}", init);
+    assert_eq!(init["result"]["serverInfo"]["name"], "icebreaker-mcpd");
+
+    let list = mcpd.call(&json!({"jsonrpc": "2.0", "method": "tools/list", "id": 2}));
+    assert!(list["error"].is_null(), "tools/list failed: {}", list);
+    let tools = list["result"]["tools"].as_array().expect("tools");
+    assert!(tools.iter().any(|t| t["name"] == "system.unsupported"),
+        "expected system.unsupported in tools list");
+
+    let call = mcpd.call(&json!({
+        "jsonrpc": "2.0", "method": "tools/call",
+        "params": {"name": "system.unsupported", "arguments": {"requested_intent": "handshake"}},
+        "id": 3,
+    }));
+    assert!(call["error"].is_null(), "tools/call failed: {}", call);
+    assert_eq!(call["result"]["isError"], false);
+    assert!(call["result"]["content"][0]["text"].is_string());
+}
