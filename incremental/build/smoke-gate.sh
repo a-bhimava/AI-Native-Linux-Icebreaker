@@ -12,6 +12,16 @@ set -uo pipefail
 CHROOT="${1:?usage: smoke-gate.sh <chroot> <level>}"
 LEVEL="${2:?usage: smoke-gate.sh <chroot> <level>}"
 
+# v6.13_OC Fix L' Commit 6: edition-aware smoke gate.
+#   current — Textual TUI is the AI Terminal; gemini QB backend (v6.12 shape).
+#   oc      — opencode's TUI is the AI Terminal; opencode_oc QB backend; no TUI package.
+# Some L3 (terminal) and L5 (QB) checks are edition-specific — see per-check branches.
+EDITION="${EDITION:-current}"
+case "$EDITION" in
+    current|oc) ;;
+    *) echo "FATAL: EDITION must be current|oc, got: $EDITION" >&2; exit 2 ;;
+esac
+
 FAILURES=0
 pass() { echo -e "  \033[0;32m[PASS]\033[0m $*"; }
 fail() { echo -e "  \033[0;31m[FAIL]\033[0m $*"; FAILURES=$((FAILURES+1)); }
@@ -21,7 +31,7 @@ in_chroot()  { chroot "$CHROOT" bash -c "$1" >/dev/null 2>&1; }
 
 VENV_PY="/opt/icebreaker/venv/bin/python3"
 
-echo "── Smoke gate: level ${LEVEL} ──"
+echo "── Smoke gate: level ${LEVEL}, edition=${EDITION} ──"
 
 # ═══ Level 0: bootable GNOME base ═══
 echo "[L0] Base system"
@@ -83,17 +93,40 @@ if [ "$LEVEL" -ge 2 ]; then
         && pass "authorized_keys baked (inner loop)" || echo "  [WARN] no authorized_keys — ib-update needs a password"
 fi
 
-# ═══ Level 3: terminal TUI ═══
+# ═══ Level 3: AI Terminal (edition-branched) ═══
 if [ "$LEVEL" -ge 3 ]; then
-    echo "[L3] Terminal TUI"
-    in_chroot "$VENV_PY -c 'import terminal'" \
-        && pass "import terminal" || fail "terminal package not importable"
-    in_chroot "$VENV_PY -c 'import textual'" \
-        && pass "import textual" || fail "textual not in venv"
-    TSP="$(chroot "$CHROOT" bash -c "$VENV_PY -c 'import terminal,os;print(os.path.dirname(terminal.__file__))'" 2>/dev/null || true)"
-    [ -n "$TSP" ] && [ -f "${CHROOT}${TSP}/styles.tcss" ] \
-        && pass "styles.tcss present" || echo "  [WARN] styles.tcss missing (fallback CSS covers it — F-8 area)"
-    check_file /usr/share/applications/icebreaker-terminal.desktop "terminal .desktop missing"
+    echo "[L3] AI Terminal (edition=${EDITION})"
+    if [ "$EDITION" = "current" ]; then
+        # Current edition: Textual TUI ships as the AI Terminal.
+        in_chroot "$VENV_PY -c 'import terminal'" \
+            && pass "import terminal" || fail "terminal package not importable"
+        in_chroot "$VENV_PY -c 'import textual'" \
+            && pass "import textual" || fail "textual not in venv"
+        TSP="$(chroot "$CHROOT" bash -c "$VENV_PY -c 'import terminal,os;print(os.path.dirname(terminal.__file__))'" 2>/dev/null || true)"
+        [ -n "$TSP" ] && [ -f "${CHROOT}${TSP}/styles.tcss" ] \
+            && pass "styles.tcss present" || echo "  [WARN] styles.tcss missing (fallback CSS covers it — F-8 area)"
+        check_file /usr/share/applications/icebreaker-terminal.desktop "terminal .desktop missing"
+    else
+        # OC edition: opencode TUI ships as the AI Terminal; Textual removed.
+        check_exec /usr/bin/opencode "opencode binary missing (Fix L' Commit 3)"
+        # opencode --version prints a bare version string; require the pinned 1.18.4.
+        OC_VER="$(chroot "$CHROOT" bash -c 'opencode --version 2>/dev/null | tr -d "[:space:]"' || true)"
+        [ "$OC_VER" = "1.18.4" ] \
+            && pass "opencode pinned at 1.18.4" \
+            || fail "opencode --version = '$OC_VER' (expected 1.18.4 per Fix L' Commit 3)"
+        # Textual TUI must be ABSENT in OC edition (Fix L' Commit 2).
+        in_chroot "$VENV_PY -c 'import terminal' 2>/dev/null" \
+            && fail "terminal package still present in OC edition — Fix L' Commit 2 regression" \
+            || pass "terminal package removed from OC venv (Fix L' Commit 2)"
+        [ -f "${CHROOT}/usr/share/applications/icebreaker-terminal.desktop" ] \
+            && fail "old icebreaker-terminal.desktop still present in OC edition — Fix L' Commit 2 regression" \
+            || pass "old icebreaker-terminal.desktop removed from OC edition"
+        check_file /usr/share/applications/icebreaker-ai-terminal.desktop "OC AI Terminal .desktop missing"
+        check_exec /usr/libexec/icebreaker/mcpd-for-oc.sh "mcpd-for-oc.sh wrapper missing (Fix L' Commit 4)"
+        check_file /etc/icebreaker/qb_oc.json "qb_oc.json missing (Fix L' Commit 4)"
+        in_chroot "python3 -c \"import json;json.load(open('/etc/icebreaker/qb_oc.json'))\"" \
+            && pass "qb_oc.json parses as JSON" || fail "qb_oc.json is not valid JSON"
+    fi
     check_exec /usr/libexec/icebreaker/ib-wait-sock "ib-wait-sock helper missing (F-9)"
     if in_chroot "command -v desktop-file-validate"; then
         in_chroot "desktop-file-validate /usr/share/applications/icebreaker-*.desktop" \
@@ -116,11 +149,21 @@ if [ "$LEVEL" -ge 4 ]; then
         && pass "icebreaker .bashrc sources trigger (F-6)" || fail "F-6: trigger not in /home/icebreaker/.bashrc — skel was copied at useradd time"
 fi
 
-# ═══ Level 5: QB Gemini ═══
+# ═══ Level 5: QB backend (edition-branched) ═══
 if [ "$LEVEL" -ge 5 ]; then
-    echo "[L5] QB backend"
-    grep -q 'backend *= *"gemini"' "${CHROOT}/etc/icebreaker/controller.toml" 2>/dev/null \
-        && pass "QB backend=gemini configured" || fail "controller.toml missing gemini QB config"
+    echo "[L5] QB backend (edition=${EDITION})"
+    if [ "$EDITION" = "current" ]; then
+        grep -q 'backend *= *"gemini"' "${CHROOT}/etc/icebreaker/controller.toml" 2>/dev/null \
+            && pass "QB backend=gemini configured" || fail "controller.toml missing gemini QB config"
+    else
+        # OC edition: controller flips QB to the no-op opencode_oc backend (Fix Q + Fix L' Commit 5).
+        grep -q 'backend *= *"opencode_oc"' "${CHROOT}/etc/icebreaker/controller.toml" 2>/dev/null \
+            && pass "QB backend=opencode_oc configured (Fix L' Commit 5)" \
+            || fail "controller.toml missing opencode_oc backend (Fix L' Commit 5)"
+        grep -q '^\[qb\.opencode_oc\]' "${CHROOT}/etc/icebreaker/controller.toml" 2>/dev/null \
+            && pass "[qb.opencode_oc] section present" \
+            || fail "[qb.opencode_oc] section missing from controller.toml (Fix Q)"
+    fi
     check_file /etc/icebreaker/locations.env "locations.env missing (API key env file)"
     check_exec /usr/local/bin/ib-setup-key "ib-setup-key not installed"
     PERMS="$(stat -c '%a' "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null || echo '')"

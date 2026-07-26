@@ -388,8 +388,8 @@ fi
 echo "${LABEL}" > "${CHROOT}/etc/icebreaker-version"
 
 # ── Smoke gate — build aborts on failure ────────────────────────────────
-info "Running smoke gate (level ${VN})..."
-bash "${SCRIPT_DIR}/smoke-gate.sh" "$CHROOT" "$VN" || \
+info "Running smoke gate (level ${VN}, edition=${EDITION})..."
+EDITION="$EDITION" bash "${SCRIPT_DIR}/smoke-gate.sh" "$CHROOT" "$VN" || \
     die "SMOKE GATE FAILED — not producing an ISO from a broken tree (R6). Fix and rebuild."
 
 # ── Kernel + initrd ─────────────────────────────────────────────────────
