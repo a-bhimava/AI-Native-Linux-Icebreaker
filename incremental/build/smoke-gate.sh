@@ -108,7 +108,14 @@ if [ "$LEVEL" -ge 3 ]; then
         check_file /usr/share/applications/icebreaker-terminal.desktop "terminal .desktop missing"
     else
         # OC edition: opencode TUI ships as the AI Terminal; Textual removed.
-        check_exec /usr/bin/opencode "opencode binary missing (Fix L' Commit 3)"
+        # NB: opencode's binary at /usr/bin/opencode is a symlink to an npm
+        # global-prefix path (e.g. /usr/lib/node_modules/.bin/opencode). That
+        # target resolves correctly inside the chroot but NOT from the operator
+        # rootfs, so a plain `[ -x ${CHROOT}/usr/bin/opencode ]` (check_exec)
+        # false-fails. Test executability INSIDE the chroot instead.
+        in_chroot "[ -x /usr/bin/opencode ] || command -v opencode >/dev/null" \
+            && pass "opencode binary present on PATH" \
+            || fail "opencode binary missing (Fix L' Commit 3)"
         # opencode --version prints a bare version string; require the pinned 1.18.4.
         OC_VER="$(chroot "$CHROOT" bash -c 'opencode --version 2>/dev/null | tr -d "[:space:]"' || true)"
         [ "$OC_VER" = "1.18.4" ] \
