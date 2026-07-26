@@ -323,7 +323,66 @@ if [ "$EDITION" = "oc" ]; then
         || die "gen-oc-config.sh failed — see stderr above"
     chmod 644 "${CHROOT}/etc/icebreaker/qb_oc.json"
 
-    info "── OC edition overlay: commit 2/5 + 3/5 + 4/5 done ──"
+    # 5 — controller.toml OC override (v6.13_OC Fix L' Commit 5/5).
+    # v2.manifest installed cx-distro/distro/controller.toml with
+    # backend = "gemini" as the default. On OC ISOs we flip the
+    # backend to "opencode_oc" so the daemon boots straight into OC
+    # mode (starts oc_audit_bridge per Fix Q, skips OpencodeBackend
+    # prewarm, NoOpBrainBackend registered but never called).
+    #
+    # We do a targeted sed rather than shipping a duplicate
+    # controller.oc.toml because the file has ~15 sections (hitl, cost,
+    # limits, agent_graph, ...) and drift between the two copies would
+    # break subtly. Only the [qb] section differs by edition.
+    info "[oc] rewriting controller.toml [qb] block for opencode_oc backend..."
+    _OC_CTL_TOML="${CHROOT}/etc/icebreaker/controller.toml"
+    [ -f "$_OC_CTL_TOML" ] || die "[oc] controller.toml missing — v2.manifest didn't install it?"
+    # Python is portable (GNU sed + BSD sed differ on `0,/pat/` range
+    # anchoring — Python's re works identically everywhere). Rewrites
+    # the FIRST `backend = "..."` line (which is inside the [qb] block
+    # before any [qb.gemini] sub-header) and appends the OC section
+    # if not already present.
+    python3 - "$_OC_CTL_TOML" <<'OC_TOML_PY'
+import re, sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+
+# 1. Flip the primary backend = "..." (first occurrence only — must be
+# inside the [qb] top-level block, before any [qb.<name>] sub-header).
+new_content, n = re.subn(
+    r'^backend\s*=\s*"[^"]*"',
+    'backend = "opencode_oc"',
+    content,
+    count=1,
+    flags=re.MULTILINE,
+)
+if n != 1:
+    raise SystemExit(f"controller.toml: expected 1 backend= line, replaced {n}")
+
+# 2. Append [qb.opencode_oc] if absent.
+if not re.search(r'^\[qb\.opencode_oc\]', new_content, re.MULTILINE):
+    new_content += (
+        "\n# v6.13_OC Fix L' Commit 5: OC-edition daemon config.\n"
+        "# Populated at build time via incremental/build/build-iso.sh.\n"
+        "# See Fix Q's OpencodeOcConfig dataclass for field semantics.\n"
+        "# All fields have sensible defaults — this empty section is\n"
+        "# enough to make _build_opencode_oc_config return a config\n"
+        "# object rather than None (Fix Q gate).\n"
+        "[qb.opencode_oc]\n"
+    )
+
+with open(path, "w") as f:
+    f.write(new_content)
+OC_TOML_PY
+    # Sanity: verify the backend flip landed + section present.
+    grep -q '^backend\s*=\s*"opencode_oc"' "$_OC_CTL_TOML" || \
+        die "[oc] controller.toml backend rewrite failed — check sed pattern"
+    grep -q '^\[qb\.opencode_oc\]' "$_OC_CTL_TOML" || \
+        die "[oc] controller.toml [qb.opencode_oc] section missing after append"
+    info "[oc] controller.toml: backend=opencode_oc, [qb.opencode_oc] present"
+
+    info "── OC edition overlay: all 4 content commits done (2/5..5/5) ──"
 fi
 
 echo "${LABEL}" > "${CHROOT}/etc/icebreaker-version"
