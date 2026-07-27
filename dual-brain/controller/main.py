@@ -489,8 +489,58 @@ class Controller:
             )
         return self._agent_graph
 
+    # F-92: OC-edition short-circuit. In OC mode, `cfg.qb.name == "opencode_oc"`
+    # binds a NoOp backend that raises RuntimeError on any `.complete()` call
+    # ("opencode_oc backend has no in-process LLM…"). Every entry into the
+    # planner path — the shell `#`-trigger, the GUI chatbot, the audit viewer's
+    # replay — currently reaches that stack trace and surfaces it as `[error]`
+    # to the user. The correct semantic in OC mode is: **the Python controller
+    # is not the primary UX; opencode is.** Emit a soft UNSUPPORTED result
+    # pointing the user at `icebreaker-oc`. Same soft-error pattern as F-86
+    # (ib_run.py renders UNSUPPORTED as normal output, not red banner).
+    _OPENCODE_OC_REDIRECT_MESSAGE = (
+        "This OC-edition build routes AI turns through opencode, not the "
+        "Python controller. Launch the Icebreaker AI Terminal from the app "
+        "menu, or run `icebreaker-oc` from any shell."
+    )
+
+    def _is_opencode_oc(self) -> bool:
+        return getattr(getattr(self._cfg, "qb", None), "name", "") == "opencode_oc"
+
+    def _opencode_oc_short_circuit(
+        self, session: Any, t0: float,
+    ) -> TurnResult:
+        duration = (time.monotonic() - t0) * 1000
+        result = TurnResult(
+            success=True,
+            output=self._OPENCODE_OC_REDIRECT_MESSAGE,
+            outcome=Outcome.UNSUPPORTED,
+            tier=0,
+            backend="opencode_oc",
+            duration_ms=duration,
+        )
+        # INV-8 R18: audit even the short-circuit. Best-effort per BP-10.
+        try:
+            self._audit.write_fields(AuditFields(
+                session_id=session.session_id,
+                turn_index=session.turn_count,
+                intent_id="", action="system.unsupported", target="",
+                tier=0, reason="OC-edition planner short-circuit (F-92)",
+                risk_level="low", outcome=Outcome.UNSUPPORTED,
+                duration_ms=duration, backend="opencode_oc", model="",
+                tokens_in=0, tokens_out=0, cost_estimate_usd=0.0,
+                user=self._cfg.session.user_name,
+            ))
+        except Exception as audit_exc:
+            _log_exception(self._system_logger, "controller.audit_write", audit_exc)
+        session.touch()
+        return result
+
     def run_turn(self, user_input: str, session: Any) -> TurnResult:
         t0 = time.monotonic()
+        # F-92: OC-edition — never invoke the NoOp QB.
+        if self._is_opencode_oc():
+            return self._opencode_oc_short_circuit(session, t0)
         try:
             result = self._run_turn_inner(user_input, session, t0)
         except Exception as exc:
@@ -518,6 +568,20 @@ class Controller:
 
         The existing ``run_turn()`` is unchanged (BP-2 backward compat).
         """
+        # F-92: OC-edition — short-circuit before ANY planner branch (AgentGraph
+        # or legacy). See `_opencode_oc_short_circuit` for full rationale.
+        if self._is_opencode_oc():
+            from .turn_events import ResultEvent, TokenEvent
+            t0 = time.monotonic()
+            result = self._opencode_oc_short_circuit(session, t0)
+            # Emit a TokenEvent so streaming clients (TUI, GUI) get the text
+            # through the same channel they always do; the ResultEvent
+            # carries the structured outcome so the shell/RPC renders
+            # success rather than [error] (F-86 soft-outcome pattern).
+            yield TokenEvent(token=result.output, accumulated=result.output, final=True)
+            yield ResultEvent(result=result)
+            return
+
         # v6.8 Task #147 (2026-07-13): AgentGraph migration branch. When
         # `cfg.agent_graph.enabled` is True (default False), delegate to
         # the LangGraph runtime via the bridge. Old pipeline stays

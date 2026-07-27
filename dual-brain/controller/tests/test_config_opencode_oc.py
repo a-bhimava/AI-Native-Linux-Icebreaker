@@ -204,3 +204,131 @@ audit_log = "/tmp/audit.log"
 
     with pytest.raises(BrainConfigError):
         _load_config_from_text(bad_toml)
+
+
+# ── F-92 regression: OC-edition planner short-circuit ─────────────────
+# v6.13_OC arm64 UTM live test 2026-07-27: after F-91 unblocked the
+# daemon crash-loop, direct RPC via /usr/share/icebreaker/shell/ib_run.py
+# hit `agent_graph_nodes._run` → `collab["qb"].complete(...)` → NoOp
+# backend RuntimeError → `[error] opencode_oc backend has no in-process
+# LLM...` in the user's shell. Same shape for `run_turn` (GUI chatbot
+# path). Every planner entry needs to short-circuit BEFORE touching QB
+# in OC mode.
+
+
+class _StubSession:
+    """Minimal SessionState-shaped fake for the short-circuit tests."""
+
+    def __init__(self):
+        self.session_id = "test-session"
+        self.turn_count = 0
+        self.backend = "opencode_oc"
+        self.touched = 0
+
+    def touch(self):
+        self.touched += 1
+
+
+def _oc_controller():
+    """Build a Controller wired to opencode_oc + capture audit writes.
+
+    Uses a minimal cfg stub so we don't have to load a full TOML; the
+    short-circuit only reads `cfg.qb.name` and `cfg.session.user_name`.
+    """
+    from controller.main import Controller
+
+    class _Cfg:
+        class qb:
+            name = "opencode_oc"
+        class session:
+            user_name = "icebreaker"
+    class _Audit:
+        def __init__(self): self.rows = []
+        def write_fields(self, fields): self.rows.append(fields)
+    controller = Controller.__new__(Controller)  # bypass __init__
+    controller._cfg = _Cfg
+    controller._audit = _Audit()
+    controller._system_logger = None  # _log_exception tolerates None
+    return controller
+
+
+def test_run_turn_short_circuits_in_oc_edition():
+    """F-92: `run_turn` must NOT invoke QB when cfg.qb.name == 'opencode_oc'.
+    Instead returns a soft UNSUPPORTED TurnResult pointing at icebreaker-oc."""
+    from controller.audit import Outcome
+
+    ctrl = _oc_controller()
+    session = _StubSession()
+    # Sabotage _run_turn_inner so if the gate fails, the test blows up
+    # loudly instead of quietly walking down the QB path.
+    def _explode(*a, **kw):
+        raise AssertionError("_run_turn_inner should NOT be reached in OC mode")
+    ctrl._run_turn_inner = _explode
+
+    result = ctrl.run_turn("what time is it", session)
+
+    assert result.success is True, "soft outcome — not a hard error"
+    assert result.outcome == Outcome.UNSUPPORTED
+    assert result.backend == "opencode_oc"
+    assert "icebreaker-oc" in result.output.lower() \
+        or "opencode" in result.output.lower(), \
+        f"redirect message must name the correct entry point; got: {result.output!r}"
+    assert session.touched == 1
+    # INV-8 R18: even the short-circuit gets audited.
+    assert len(ctrl._audit.rows) == 1
+    assert ctrl._audit.rows[0].outcome == Outcome.UNSUPPORTED
+    assert ctrl._audit.rows[0].backend == "opencode_oc"
+
+
+def test_run_turn_streaming_short_circuits_in_oc_edition():
+    """F-92 streaming twin. Yields TokenEvent + ResultEvent (F-86 soft
+    outcome pattern) so shell/GUI clients render text, not an [error]."""
+    from controller.audit import Outcome
+    from controller.turn_events import ResultEvent, TokenEvent
+
+    ctrl = _oc_controller()
+    session = _StubSession()
+
+    events = list(ctrl.run_turn_streaming("what time is it", session))
+
+    token_events = [e for e in events if isinstance(e, TokenEvent)]
+    result_events = [e for e in events if isinstance(e, ResultEvent)]
+    assert len(token_events) == 1, f"expected 1 TokenEvent, got {events!r}"
+    assert token_events[0].final is True
+    assert len(result_events) == 1
+    r = result_events[0].result
+    assert r.success is True
+    assert r.outcome == Outcome.UNSUPPORTED
+    assert r.backend == "opencode_oc"
+    # INV-8 audit fired exactly once (BP-13: prevents F-82-style silent regression
+    # where a new short-circuit path forgets to write audit).
+    assert len(ctrl._audit.rows) == 1
+
+
+def test_run_turn_does_NOT_short_circuit_when_qb_is_gemini():
+    """Negative test: current edition daemon must still hit the QB path.
+    Guards against a gate that accidentally fires for every backend."""
+    from controller.main import Controller
+
+    class _Cfg:
+        class qb:
+            name = "gemini"
+        class session:
+            user_name = "icebreaker"
+    ctrl = Controller.__new__(Controller)
+    ctrl._cfg = _Cfg
+    ctrl._audit = type("_", (), {"write_fields": lambda *a, **kw: None})()
+
+    called = {"n": 0}
+    def _inner(*a, **kw):
+        called["n"] += 1
+        from controller.main import TurnResult
+        from controller.audit import Outcome
+        return TurnResult(success=True, output="ok", outcome=Outcome.EXECUTED)
+    ctrl._run_turn_inner = _inner
+
+    session = _StubSession()
+    session.backend = "gemini"
+    result = ctrl.run_turn("hello", session)
+    assert called["n"] == 1, "gemini backend must still route through _run_turn_inner"
+    assert result.output == "ok"

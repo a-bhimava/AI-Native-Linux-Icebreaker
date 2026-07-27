@@ -225,9 +225,21 @@ def test_controller_has_exec_start_pre():
 
 
 def test_controller_has_logs_directory():
+    """The controller service must own /var/log/icebreaker.
+
+    F-91 (2026-07-27): `mcpd` was added alongside `icebreaker` so systemd
+    creates /var/log/mcpd + adds it to the service's private mount
+    namespace as writable (required by oc_audit_bridge in the OC edition,
+    harmless in the current edition). Test now asserts both are present
+    but doesn't require a specific order or reject additional entries.
+    """
     cp = _parse_unit("icebreaker-controller.service")
     logs_dir = cp.get("Service", "LogsDirectory", fallback="")
-    assert logs_dir == "icebreaker"
+    entries = set(logs_dir.split())
+    assert "icebreaker" in entries, \
+        f"LogsDirectory must include 'icebreaker'; got: {logs_dir!r}"
+    assert "mcpd" in entries, \
+        f"F-91: LogsDirectory must include 'mcpd' (OC audit bridge); got: {logs_dir!r}"
 
 
 # ── start-qbd handles non-local backends ──────────────────────────────
