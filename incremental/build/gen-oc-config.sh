@@ -88,15 +88,26 @@ ALWAYS_ASK = {
     "process.inspect", # reads /proc/<pid> — usually fine but can leak
 }
 
-permissions = {}
+# F-98 (2026-07-27): opencode 1.18.4 takes `permission` as a nested
+# object shape: `{"<kind>": {"<pattern>": "<action>"}}` — where <kind>
+# is one of `mcp`, `bash`, `edit`, `question`, `plan_enter`, `plan_exit`
+# (per opencode strings dump). The flat object shape `{"<tool>":
+# "<action>"}` we shipped in v6.13_OC was SILENTLY IGNORED — MCP tool
+# calls silently denied in the GUI TUI. Live-verified via v6.13_OC
+# arm64 UTM: bare `icebreaker_system.uptime` prompt returned empty +
+# $0.00 + 0 tokens. Live-verified fix: nested shape returns real tool
+# output ("The system has been up for 5 hours and 7 minutes.").
+#
+# MCP tool names live under the `mcp` kind, keyed by their
+# `<server>_<tool>` name (opencode's namespace).
+mcp_perms = {}
 for t in tools:
     name = t['name']
     tier = int(t.get('tier', 0))
-    key = f"icebreaker_{name}"
-    if tier >= 2 or name in ALWAYS_ASK:
-        permissions[key] = "ask"
-    else:
-        permissions[key] = "allow"
+    pattern = f"icebreaker_{name}"
+    action = "ask" if (tier >= 2 or name in ALWAYS_ASK) else "allow"
+    mcp_perms[pattern] = action
+permissions = {"mcp": mcp_perms}
 
 # Read template + strip comment fields (opencode's parser is strict JSON).
 with open(template_file) as f:

@@ -157,6 +157,25 @@ if [ "$LEVEL" -ge 3 ]; then
         check_file /etc/icebreaker/qb_oc.json "qb_oc.json missing (Fix L' Commit 4)"
         in_chroot "python3 -c \"import json;json.load(open('/etc/icebreaker/qb_oc.json'))\"" \
             && pass "qb_oc.json parses as JSON" || fail "qb_oc.json is not valid JSON"
+        # F-98 regression guard: opencode 1.18.4 requires nested-object
+        # permission shape `{"mcp": {"<pattern>": "<action>"}}`. The flat
+        # shape `{"<pattern>": "<action>"}` from gen-oc-config.sh v1 was
+        # silently ignored → MCP tool calls failed silently in the GUI TUI.
+        in_chroot "python3 -c \"
+import json, sys
+d = json.load(open('/etc/icebreaker/qb_oc.json'))
+p = d.get('permission')
+assert isinstance(p, dict), f'F-98: permission must be object, got {type(p).__name__}'
+mcp = p.get('mcp')
+assert isinstance(mcp, dict) and mcp, f'F-98: permission.mcp must be non-empty object, got {type(mcp).__name__}'
+ib = [k for k in mcp if k.startswith('icebreaker_')]
+assert ib, 'F-98: no icebreaker_* patterns in permission.mcp — gen-oc-config.sh output shape regression'
+for k, v in mcp.items():
+    assert v in ('allow', 'ask', 'deny'), f'F-98: bad action {v!r} for {k}'
+sys.exit(0)
+\"" \
+            && pass "F-98: qb_oc.json permission shape (nested object under 'mcp')" \
+            || fail "F-98 regression: qb_oc.json permission shape is wrong — opencode will silently deny MCP tool calls"
     fi
     check_exec /usr/libexec/icebreaker/ib-wait-sock "ib-wait-sock helper missing (F-9)"
     if in_chroot "command -v desktop-file-validate"; then
