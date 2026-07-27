@@ -529,7 +529,9 @@ class Controller:
                 risk_level="low", outcome=Outcome.UNSUPPORTED,
                 duration_ms=duration, backend="opencode_oc", model="",
                 tokens_in=0, tokens_out=0, cost_estimate_usd=0.0,
-                user=self._cfg.session.user_name,
+                # user=None → AuditLog auto-derives via _current_user()
+                # (SessionConfig doesn't expose the user; effective UID is
+                # authoritative here and needs no plumbing).
             ))
         except Exception as audit_exc:
             _log_exception(self._system_logger, "controller.audit_write", audit_exc)
