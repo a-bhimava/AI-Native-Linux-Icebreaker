@@ -1,12 +1,14 @@
 #!/bin/bash
 # icebreaker-oc — launcher for the OpenCode-edition (v6.13_OC+) AI terminal.
 #
-# Sets the opencode config path to Icebreaker's shipped qb_oc.json,
-# sources API keys from /etc/icebreaker/env.d/qb_oc.conf (writable via
-# `ib-setup-key --env-var ANTHROPIC_API_KEY`), then execs opencode.
+# Points opencode at Icebreaker's shipped qb_oc.json via OPENCODE_CONFIG,
+# sources API keys from /etc/icebreaker/locations.env (the same file
+# `ib-setup-key` writes), then execs opencode.
 #
 # The `.desktop` entry `icebreaker-ai-terminal.desktop` points at this
-# script. Users can also run it manually from any shell.
+# script through a bash wrapper that pauses on non-zero exit — so an
+# API-key-missing error is READ by the user rather than flashing past
+# a closing terminal (F-93/F-94/F-95 user report).
 #
 # NOTE: this file ships ONLY in the OC ISO (v6.13_OC-*.iso). The
 # current-edition ISO (v6.13-*.iso) ships the Textual TUI launcher
@@ -15,20 +17,70 @@
 set -euo pipefail
 
 OC_CONFIG="${ICEBREAKER_OC_CONFIG:-/etc/icebreaker/qb_oc.json}"
-OC_ENV_FILE="${ICEBREAKER_OC_ENV_FILE:-/etc/icebreaker/env.d/qb_oc.conf}"
+# F-95: `ib-setup-key` writes to /etc/icebreaker/locations.env. The v1
+# launcher sourced /etc/icebreaker/env.d/qb_oc.conf — a path that no
+# component in the shipped ISO ever creates. Result: even after
+# `sudo ib-setup-key --env-var ANTHROPIC_API_KEY`, opencode still saw
+# no key. Now we source the same file the setup tool writes.
+OC_ENV_FILE="${ICEBREAKER_OC_ENV_FILE:-/etc/icebreaker/locations.env}"
 
-# Source API keys if the env file exists (BP-8: names not values in config,
-# EnvironmentFile pattern reused from icebreaker-controller.service).
-if [ -f "${OC_ENV_FILE}" ]; then
+# Source API keys if the env file exists (BP-8: names not values in config).
+if [ -f "${OC_ENV_FILE}" ] && [ -r "${OC_ENV_FILE}" ]; then
     set -a
     # shellcheck source=/dev/null
     . "${OC_ENV_FILE}"
     set +a
 fi
 
-# opencode reads its config from $OPENCODE_CONFIG or the CLI --config flag.
-# Passing --config is more explicit and survives env-scrubbing.
+# F-94: preflight — the shipped qb_oc.json defaults to
+# `anthropic/claude-opus-4-7`. Without an ANTHROPIC_API_KEY, opencode
+# spawns fine but its first turn errors with:
+#   "Anthropic API key is missing."
+# We detect this UP FRONT and print an actionable message that names
+# both the fix command and the .conf file — otherwise the terminal
+# window closes so fast the user reads it as "the app crashed."
+#
+# Model → required env-var mapping matches the sst/opencode provider
+# key names. Extend when qb_oc.json.template adds new default models.
+_oc_required_key_for_model() {
+    case "${1:-}" in
+        anthropic/*) echo "ANTHROPIC_API_KEY" ;;
+        openai/*|gpt-*) echo "OPENAI_API_KEY" ;;
+        google/*|gemini*) echo "GEMINI_API_KEY" ;;
+        *) echo "" ;;
+    esac
+}
+
+_oc_default_model="$(python3 -c "import json,sys
+try:
+    d=json.load(open('${OC_CONFIG}'))
+    print(d.get('model',''))
+except Exception:
+    print('')" 2>/dev/null || echo "")"
+_oc_required_key="$(_oc_required_key_for_model "${_oc_default_model}")"
+if [ -n "${_oc_required_key}" ] && [ -z "${!_oc_required_key:-}" ]; then
+    cat >&2 <<EOF
+
+  Icebreaker AI Terminal — API key missing
+  ────────────────────────────────────────
+  Model:     ${_oc_default_model:-<none configured>}
+  Required:  ${_oc_required_key}
+  Not found in: ${OC_ENV_FILE}
+
+  Fix (one time):
+      sudo ib-setup-key --env-var ${_oc_required_key}
+
+  Then re-launch this terminal.
+
+EOF
+    exit 2
+fi
+
+# opencode reads its config from \$OPENCODE_CONFIG. It does NOT accept
+# a --config CLI flag in 1.18.4 (yargs prints help + exits 0 when the
+# flag is unknown — the v1 launcher hit exactly that F-93 trap).
+export OPENCODE_CONFIG="${OC_CONFIG}"
 export OPENCODE_DATA="${OPENCODE_DATA:-$HOME/.local/share/icebreaker-oc}"
 mkdir -p "${OPENCODE_DATA}"
 
-exec opencode --config "${OC_CONFIG}" "$@"
+exec opencode "$@"
