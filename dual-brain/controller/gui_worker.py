@@ -28,6 +28,7 @@ Invoked by ``agent_graph_nodes.py::_dispatch_in_subprocess`` via
 
 from __future__ import annotations
 
+import io
 import json
 import sys
 import traceback
@@ -57,29 +58,48 @@ def _dispatch(kind: str, tool: str, params: dict, config: dict) -> dict:
 
 
 def main() -> int:
+    # F-101 Prereq 2 (2026-07-27): RpaBridge._emit_notification writes
+    # rpa.keyword_progress / rpa.no_effect / rpa.step_screenshot_error
+    # JSON-RPC notifications directly to sys.stdout during
+    # handle_request. Without redirection, those lines land in the
+    # parent's stdout buffer BEFORE our envelope, corrupting the
+    # single-blob json.loads(stdout) the parent does. Redirect
+    # sys.stdout to an in-memory buffer during dispatch and write the
+    # envelope to the SAVED real stdout after. Notifications are
+    # discarded — the final RpaBridge return dict carries the same
+    # progress information in `keyword_results[]` (per bridge.py's
+    # handle_execute_workflow shape).
+    real_stdout = sys.stdout
     try:
         raw = sys.stdin.read()
         if not raw.strip():
             envelope = {"ok": False, "error": "gui_worker: empty stdin"}
-            print(json.dumps(envelope))
+            print(json.dumps(envelope), file=real_stdout, flush=True)
             return 0
         req = json.loads(raw)
         kind = str(req.get("kind", ""))
         tool = str(req.get("tool", ""))
         params = req.get("params") or {}
         config = req.get("config") or {}
-        result = _dispatch(kind, tool, params, config)
+        # Swap stdout for a discard buffer for the dispatch call so
+        # RpaBridge notifications don't reach the parent.
+        sys.stdout = io.StringIO()
+        try:
+            result = _dispatch(kind, tool, params, config)
+        finally:
+            sys.stdout = real_stdout
         envelope = {"ok": True, "result": result}
     except Exception as exc:  # noqa: BLE001 — worker MUST NOT propagate
+        sys.stdout = real_stdout  # ensure restore even on early raise
         envelope = {
             "ok": False,
             "error": f"{type(exc).__name__}: {exc}",
             "traceback": traceback.format_exc()[-2000:],
         }
-    # Always print exactly one JSON line so parent's json.loads on
-    # stdout works. Any stderr from imported modules is captured by
-    # parent's capture_output but not parsed.
-    print(json.dumps(envelope), flush=True)
+    # Always print exactly one JSON line to the REAL stdout so parent's
+    # json.loads on stdout works. Any stderr from imported modules is
+    # captured by parent's capture_output but not parsed.
+    print(json.dumps(envelope), file=real_stdout, flush=True)
     return 0
 
 
