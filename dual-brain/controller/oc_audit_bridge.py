@@ -247,6 +247,27 @@ class OCAuditBridge:
             # We still try to start — the file may exist even if we
             # can't create the parent.
 
+        # F-91 (regression guard: F-91-bridge-degrade) — parent dir must
+        # exist before Observer.schedule() — watchdog's inotify_add_watch
+        # raises FileNotFoundError otherwise, and that exception previously
+        # propagated up through _maybe_start_oc_bridge and killed the
+        # daemon with `Fatal: [Errno 2]` (systemd then crash-looped every
+        # 5s). BP-10 + INV-8 R18: the audit bridge is optional enrichment
+        # — its absence must never take down the controller. Degrade to
+        # disabled + audit-visible if we can't watch.
+        if not parent.exists():
+            _log.error(
+                "oc_audit_bridge: parent dir %s does not exist and could not "
+                "be created — bridge disabled. INV-8 audit will continue via "
+                "the Python controller's native path; mcpd tool calls "
+                "originating from opencode will NOT be enriched into the "
+                "controller audit log. Fix: add LogsDirectory=mcpd to the "
+                "icebreaker-controller.service unit, or set "
+                "[qb.opencode_oc] audit_bridge_enabled=false to silence "
+                "this at boot.", parent,
+            )
+            return
+
         if self._mcpd_audit_path.exists():
             self._offset = (
                 0 if self._catchup_on_start
@@ -275,9 +296,22 @@ class OCAuditBridge:
                         bridge._offset = 0
                         bridge._buffer = b""
 
-        self._observer = Observer()
-        self._observer.schedule(_Handler(), path=str(parent), recursive=False)
-        self._observer.start()
+        # F-99: even with parent.exists() True, Observer.schedule/start
+        # can still fail (inotify watch limit, permission race, watchdog
+        # backend swap under qemu-user). Same degrade rule applies —
+        # never propagate to the caller.
+        try:
+            observer = Observer()
+            observer.schedule(_Handler(), path=str(parent), recursive=False)
+            observer.start()
+        except (OSError, RuntimeError) as exc:
+            _log.error(
+                "oc_audit_bridge: watchdog failed to start on %s: %s: %s — "
+                "bridge disabled (see previous log entry for remediation).",
+                parent, type(exc).__name__, exc,
+            )
+            return
+        self._observer = observer
         self._stats.started_at = time.monotonic()
         _log.info(
             "oc_audit_bridge started: watching %s, offset=%d, catchup=%s",
