@@ -70,14 +70,22 @@ echo "═══ Icebreaker ISO build preflight ═══"
 echo ""
 
 # ── 1. Operator machine checks ──────────────────────────────────────────
-echo "── 1. Operator machine ──"
-for tool in gcloud git tar zstd; do
-    if command -v "$tool" >/dev/null 2>&1; then
-        pass "$tool available"
-    else
-        fail "$tool not found on operator machine" "brew install $tool  (or apt install $tool on Linux)"
-    fi
-done
+# Skip when running on the VM itself — the "operator" checks (gcloud
+# specifically) only apply when the build is being kicked off from a
+# remote operator machine. On-VM invocations don't need gcloud (we're
+# already there) and would false-fail preflight otherwise.
+if [ "$(hostname 2>/dev/null)" = "$VM_NAME" ]; then
+    echo "── 1. Operator machine — SKIPPED (running on VM directly) ──"
+else
+    echo "── 1. Operator machine ──"
+    for tool in gcloud git tar zstd; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            pass "$tool available"
+        else
+            fail "$tool not found on operator machine" "brew install $tool  (or apt install $tool on Linux)"
+        fi
+    done
+fi
 
 # ── 2. Source tree state ────────────────────────────────────────────────
 echo ""
