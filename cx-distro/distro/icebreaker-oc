@@ -32,6 +32,22 @@ if [ -f "${OC_ENV_FILE}" ] && [ -r "${OC_ENV_FILE}" ]; then
     set +a
 fi
 
+# F-97 (2026-07-27): opencode 1.18.4's Google provider reads
+# GOOGLE_GENERATIVE_AI_API_KEY, NOT GEMINI_API_KEY. Live-verified: with
+# GEMINI_API_KEY alone, opencode errors "Google Generative AI API key
+# is missing. Pass it using the 'apiKey' parameter or the
+# GOOGLE_GENERATIVE_AI_API_KEY environment variable." — with the alias
+# below set, a real Gemini turn completes ("OK" returned).
+#
+# `ib-setup-key --env-var GEMINI_API_KEY` remains the documented setup
+# command (BP-1: one user-facing env-var name per provider). This
+# alias bridges Icebreaker's canonical name to opencode's actual
+# expectation. Anthropic + OpenAI providers already use their canonical
+# ANTHROPIC_API_KEY / OPENAI_API_KEY — no alias needed there.
+if [ -n "${GEMINI_API_KEY:-}" ] && [ -z "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]; then
+    export GOOGLE_GENERATIVE_AI_API_KEY="${GEMINI_API_KEY}"
+fi
+
 # F-94: preflight — the shipped qb_oc.json defaults to
 # `anthropic/claude-opus-4-7`. Without an ANTHROPIC_API_KEY, opencode
 # spawns fine but its first turn errors with:
