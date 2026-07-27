@@ -172,10 +172,16 @@ ib = [k for k in mcp if k.startswith('icebreaker_')]
 assert ib, 'F-98: no icebreaker_* patterns in permission.mcp — gen-oc-config.sh output shape regression'
 for k, v in mcp.items():
     assert v in ('allow', 'ask', 'deny'), f'F-98: bad action {v!r} for {k}'
+# F-100: opencode native edit + bash tools must be denied so model
+# routes all writes/shell through icebreaker_* MCP tools (mcpd sandbox
+# + tier gate + INV-8 audit). Without this the model silently bypasses
+# every Icebreaker security invariant.
+assert p.get('edit') == 'deny', f'F-100 regression: permission.edit must be deny, got {p.get(\\\"edit\\\")!r}'
+assert p.get('bash') == 'deny', f'F-100 regression: permission.bash must be deny, got {p.get(\\\"bash\\\")!r}'
 sys.exit(0)
 \"" \
-            && pass "F-98: qb_oc.json permission shape (nested object under 'mcp')" \
-            || fail "F-98 regression: qb_oc.json permission shape is wrong — opencode will silently deny MCP tool calls"
+            && pass "F-98 + F-100: qb_oc.json permission shape + native-tool deny" \
+            || fail "F-98/F-100 regression: qb_oc.json permission shape or native-tool policy wrong"
     fi
     check_exec /usr/libexec/icebreaker/ib-wait-sock "ib-wait-sock helper missing (F-9)"
     if in_chroot "command -v desktop-file-validate"; then

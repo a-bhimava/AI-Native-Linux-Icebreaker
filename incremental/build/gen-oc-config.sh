@@ -107,7 +107,31 @@ for t in tools:
     pattern = f"icebreaker_{name}"
     action = "ask" if (tier >= 2 or name in ALWAYS_ASK) else "allow"
     mcp_perms[pattern] = action
-permissions = {"mcp": mcp_perms}
+
+# F-100 (2026-07-27): deny opencode's native write/edit/bash tools so
+# the model is forced to use icebreaker_* MCP tools for any real system
+# action. Without this, opencode's built-in `write` and `bash` bypass
+# every Icebreaker invariant (INV-6 COW dry-run, INV-8 audit hash chain,
+# mcpd's Landlock+seccomp sandbox) — model would write files with plain
+# fs syscalls under user perms + no audit trail, defeating the entire
+# security posture Icebreaker's OC edition inherited from the current
+# edition's dual-brain design.
+#
+# Live-verified on v6.13_OC arm64 guest: with `edit: deny`, Gemini
+# fell back to `icebreaker_fs_write` MCP tool for a "create file X
+# with content Y" prompt; mcpd's audit log recorded the tool call;
+# oc_audit_bridge enriched an INV-8 row; response noted "This
+# operation required your approval." (tier-2 gate acknowledged).
+#
+# Trade-off: `bash: deny` prevents opencode from running arbitrary
+# shell commands ('run ls', 'check git status'). Users who need
+# shell access should use gnome-terminal (which they already have
+# open running icebreaker-oc). The AI Terminal's ROLE in the OC
+# edition is NL → mcpd tool calls, not general-purpose shell.
+# Variance note: Gemini sometimes gives up silently when a natural
+# tool choice is denied. Future tuning may re-open bash as `ask`
+# if the strict policy proves too restrictive in real use.
+permissions = {"mcp": mcp_perms, "edit": "deny", "bash": "deny"}
 
 # Read template + strip comment fields (opencode's parser is strict JSON).
 with open(template_file) as f:
