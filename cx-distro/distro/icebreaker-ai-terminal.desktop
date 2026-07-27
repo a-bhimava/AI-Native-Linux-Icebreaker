@@ -2,11 +2,13 @@
 Name=Icebreaker AI Terminal
 GenericName=AI Terminal
 Comment=Chat-first AI terminal (OpenCode edition) — talks to your OS through Icebreaker's mcpd
-# F-93/F-94/F-95 fix: wrap the launcher in bash so a non-zero exit
-# (missing API key, opencode itself errors) pauses on a "Press Enter
-# to close" prompt. Without this, gnome-terminal closes so fast the
-# error message flashes past — reads to the user as "the app crashed."
-Exec=gnome-terminal --title="Icebreaker AI Terminal" -- bash -c 'icebreaker-oc "$@"; ec=$?; if [ "$ec" -ne 0 ]; then echo; echo "[icebreaker-oc exited with code $ec]"; read -p "Press Enter to close…" _; fi' _
+# F-96 (2026-07-27): Exec= must be XDG-spec-compliant — the previous
+# inline `bash -c '…'` payload had reserved characters (';', '$', "'")
+# that failed `desktop-file-validate`. Delegating to a helper script
+# (installed at /usr/bin/icebreaker-oc-terminal) that pauses on
+# non-zero exit so gnome-terminal doesn't close the window before
+# the user reads any error message (F-94 rationale).
+Exec=gnome-terminal --title="Icebreaker AI Terminal" -- icebreaker-oc-terminal
 Icon=utilities-terminal
 Terminal=false
 Type=Application

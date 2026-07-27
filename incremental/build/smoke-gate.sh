@@ -138,6 +138,22 @@ if [ "$LEVEL" -ge 3 ]; then
             || pass "old icebreaker-terminal.desktop removed from OC edition"
         check_file /usr/share/applications/icebreaker-ai-terminal.desktop "OC AI Terminal .desktop missing"
         check_exec /usr/libexec/icebreaker/mcpd-for-oc.sh "mcpd-for-oc.sh wrapper missing (Fix L' Commit 4)"
+        # F-96 regression guard: icebreaker-oc-terminal wrapper must ship
+        # alongside icebreaker-oc so the .desktop's Exec= (which invokes
+        # icebreaker-oc-terminal) resolves. Without it, gnome-terminal
+        # opens with a "command not found" that also flashes past user.
+        check_exec /usr/bin/icebreaker-oc-terminal "icebreaker-oc-terminal wrapper missing (F-96/F-94 fix)"
+        # F-93 regression guard: launcher MUST NOT invoke opencode with
+        # --config (unknown flag in opencode 1.18.4, dumps help + exits).
+        # Must use OPENCODE_CONFIG env var instead.
+        if grep -qE '^\s*exec\s+opencode\s+--config\b' "${CHROOT}/usr/bin/icebreaker-oc"; then
+            fail "F-93 regression: /usr/bin/icebreaker-oc uses \`opencode --config\` (unknown flag in 1.18.4; use OPENCODE_CONFIG env var)"
+        else
+            pass "F-93: launcher does not pass --config to opencode"
+        fi
+        grep -q 'OPENCODE_CONFIG' "${CHROOT}/usr/bin/icebreaker-oc" \
+            && pass "F-93: launcher exports OPENCODE_CONFIG env var" \
+            || fail "F-93 regression: launcher missing OPENCODE_CONFIG export"
         check_file /etc/icebreaker/qb_oc.json "qb_oc.json missing (Fix L' Commit 4)"
         in_chroot "python3 -c \"import json;json.load(open('/etc/icebreaker/qb_oc.json'))\"" \
             && pass "qb_oc.json parses as JSON" || fail "qb_oc.json is not valid JSON"

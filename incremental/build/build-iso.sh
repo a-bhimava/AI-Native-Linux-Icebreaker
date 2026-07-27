@@ -309,9 +309,15 @@ if [ "$EDITION" = "oc" ]; then
     [ -x "$_OC_MCPD_HOST" ] || _OC_MCPD_HOST="${REPO_ROOT}/cx-distro/.build/mcpd"
     [ -x "$_OC_MCPD_HOST" ] || die "gen-oc-config: cannot find host mcpd at ${REPO_ROOT}/cx-distro/.build/mcpd(-amd64)"
 
-    info "[oc] installing icebreaker-oc launcher + mcpd-for-oc.sh wrapper..."
+    info "[oc] installing icebreaker-oc launcher + terminal wrapper + mcpd-for-oc.sh..."
     install -Dm755 "${REPO_ROOT}/cx-distro/distro/icebreaker-oc" \
         "${CHROOT}/usr/bin/icebreaker-oc"
+    # F-96 (2026-07-27): pause-on-error wrapper called from the .desktop
+    # Exec= line. Ships alongside icebreaker-oc because the .desktop file's
+    # XDG-spec Exec= couldn't inline the bash `read` prompt without hitting
+    # reserved-character validation errors.
+    install -Dm755 "${REPO_ROOT}/cx-distro/distro/icebreaker-oc-terminal" \
+        "${CHROOT}/usr/bin/icebreaker-oc-terminal"
     install -Dm755 "${REPO_ROOT}/cx-distro/distro/mcpd-for-oc.sh" \
         "${CHROOT}/usr/libexec/icebreaker/mcpd-for-oc.sh"
 

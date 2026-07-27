@@ -1,0 +1,20 @@
+#!/bin/bash
+# icebreaker-oc-terminal — thin GUI wrapper around `icebreaker-oc`.
+#
+# The XDG `.desktop` Exec= key has its own quoting rules that don't
+# tolerate complex inline bash (F-96, 2026-07-27). Rather than
+# spec-encode a long `bash -c '…'` inside the .desktop, we ship this
+# helper: the .desktop invokes it, this script runs the launcher, and
+# on non-zero exit pauses so gnome-terminal doesn't close the window
+# before the user reads the error message.
+#
+# Called by icebreaker-ai-terminal.desktop under gnome-terminal.
+
+icebreaker-oc "$@"
+ec=$?
+if [ "$ec" -ne 0 ]; then
+    echo
+    echo "[icebreaker-oc exited with code $ec]"
+    read -p "Press Enter to close… " _dummy
+fi
+exit "$ec"
