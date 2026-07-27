@@ -221,7 +221,7 @@ class _StubSession:
 
     def __init__(self):
         self.session_id = "test-session"
-        self.turn_count = 0
+        self.turn_index = 0  # matches SessionState.turn_index
         self.backend = "opencode_oc"
         self.touched = 0
 

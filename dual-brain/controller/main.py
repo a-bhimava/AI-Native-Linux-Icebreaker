@@ -523,7 +523,7 @@ class Controller:
         try:
             self._audit.write_fields(AuditFields(
                 session_id=session.session_id,
-                turn_index=session.turn_count,
+                turn_index=session.turn_index,
                 intent_id="", action="system.unsupported", target="",
                 tier=0, reason="OC-edition planner short-circuit (F-92)",
                 risk_level="low", outcome=Outcome.UNSUPPORTED,
