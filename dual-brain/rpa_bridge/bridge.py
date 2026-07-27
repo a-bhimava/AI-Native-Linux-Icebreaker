@@ -129,7 +129,20 @@ class RpaBridge:
     Use ``RpaBridge.spawn_env()`` from the Controller to get the scrubbed env.
     """
 
-    def __init__(self, scratch_dir: str | Path = _DEFAULT_SCRATCH_DIR) -> None:
+    def __init__(
+        self,
+        scratch_dir: str | Path = _DEFAULT_SCRATCH_DIR,
+        config: Any | None = None,
+    ) -> None:
+        # F-101 Prereq 1 (2026-07-27): gui_worker.py's dispatch path calls
+        # `RpaBridge(config=cfg_ns)` (parallel to `GuiAgent(config=cfg_ns)`)
+        # so the caller can thread config through symmetrically. Before this
+        # kwarg existed, that call raised TypeError, silently breaking every
+        # rpa.* dispatch through the controller (bug latent because tests
+        # instantiated with scratch_dir only). Accepting + storing config
+        # keeps behavior identical when None (no config-driven code paths
+        # in RpaBridge yet — this is a wiring fix, not a feature).
+        self._config = config
         self._scratch = Path(scratch_dir)
         self._scratch.mkdir(parents=True, exist_ok=True)
         self._workflow_gen = WorkflowGenerator(scratch_dir=self._scratch)
