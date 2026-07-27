@@ -14,7 +14,13 @@ Restart=on-failure
 RestartSec=5
 
 StateDirectory=icebreaker
-LogsDirectory=icebreaker
+# F-99: LogsDirectory creates + owns the listed dirs under /var/log at unit
+# start, and adds them to the service's private mount namespace as writable
+# (survives ProtectSystem=strict). `mcpd` is required by the OC-edition
+# oc_audit_bridge which tails /var/log/mcpd/audit.log; without this line
+# the bridge previously killed the daemon with `Fatal: [Errno 2]`. Harmless
+# in the current edition (dir just sits empty when the bridge is inactive).
+LogsDirectory=icebreaker mcpd
 
 # Hardening (BP-9).
 NoNewPrivileges=yes
