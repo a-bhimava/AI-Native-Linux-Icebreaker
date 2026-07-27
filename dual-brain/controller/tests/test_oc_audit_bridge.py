@@ -264,3 +264,79 @@ def test_bridge_start_is_idempotent(bridge_tmp):
     finally:
         bridge.stop()
         audit.close()
+
+
+# ── F-91 regression guards ────────────────────────────────────────────
+# The v6.13_OC arm64 ISO shipped with the systemd unit missing
+# /var/log/mcpd from ReadWritePaths + LogsDirectory. The bridge tried
+# to Observer.schedule(path=/var/log/mcpd), watchdog raised
+# FileNotFoundError, __main__.py's outer try/except caught it and
+# printed `Fatal: [Errno 2]`, systemd crash-looped every 5s (~521
+# restarts observed on the guest before the log was pulled). BP-10:
+# optional enrichment must never take down the daemon.
+
+
+def test_bridge_start_returns_normally_when_parent_missing(tmp_path):
+    """F-91: parent dir doesn't exist and can't be created → start() logs
+    an error and returns; no exception propagates. Caller stays up."""
+    # A path whose parent CANNOT be created (parent's parent is a file,
+    # so mkdir(parents=True) fails with NotADirectoryError). This is the
+    # portable stand-in for a real read-only /var/log — tests can't
+    # remount /var so we synthesize the OSError shape another way.
+    barrier = tmp_path / "barrier"
+    barrier.write_text("i am a file, not a directory")
+    unreachable_parent = barrier / "mcpd"
+    audit = AuditLog(tmp_path / "inv8.log", fsync_each_write=False)
+    bridge = OCAuditBridge(
+        audit_log=audit,
+        mcpd_audit_path=unreachable_parent / "audit.log",
+    )
+    try:
+        # Must NOT raise. Pre-fix this line raised FileNotFoundError.
+        bridge.start()
+        # Bridge did not actually start an observer.
+        assert bridge.stats().started_at == 0.0
+    finally:
+        bridge.stop()  # idempotent no-op
+        audit.close()
+
+
+def test_bridge_start_returns_normally_when_schedule_fails(
+    tmp_path, monkeypatch,
+):
+    """F-91: even with parent.exists() True, if watchdog Observer.schedule
+    or Observer.start blows up (inotify watch exhaustion, backend swap,
+    permission race under qemu-user), start() must degrade — not crash."""
+    parent = tmp_path / "mcpd"
+    parent.mkdir()
+    audit = AuditLog(tmp_path / "inv8.log", fsync_each_write=False)
+    bridge = OCAuditBridge(
+        audit_log=audit, mcpd_audit_path=parent / "audit.log",
+    )
+
+    # Force watchdog.observers.Observer to raise from within start().
+    from watchdog.observers import api as _watchdog_api
+
+    class _ExplodingObserver(_watchdog_api.BaseObserver):  # type: ignore[misc]
+        def __init__(self, *args, **kwargs):
+            pass
+        def schedule(self, *args, **kwargs):
+            raise OSError("inotify_add_watch: No space left on device")
+        def start(self):
+            pass
+        def stop(self):
+            pass
+        def join(self, timeout=None):
+            pass
+
+    import watchdog.observers as _observers_pkg
+    monkeypatch.setattr(_observers_pkg, "Observer", _ExplodingObserver)
+
+    try:
+        bridge.start()  # must NOT raise
+        assert bridge.stats().started_at == 0.0
+    finally:
+        bridge.stop()
+        audit.close()
+
+

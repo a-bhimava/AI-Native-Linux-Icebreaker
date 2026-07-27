@@ -77,6 +77,14 @@ if [ "$LEVEL" -ge 2 ]; then
     check_file /etc/systemd/system/icebreaker-controller.service "controller unit not installed"
     [ -L "${CHROOT}/etc/systemd/system/multi-user.target.wants/icebreaker-controller.service" ] \
         && pass "controller unit enabled" || fail "controller unit not enabled in multi-user.target.wants"
+    # F-91 regression guard: LogsDirectory must include `mcpd` so the shipped
+    # unit auto-creates /var/log/mcpd for the OC edition audit bridge. Even in
+    # the current edition the dir is harmless (empty when the bridge is off);
+    # this assertion blocks a future edit that reverts to LogsDirectory=icebreaker
+    # alone and re-introduces the v6.13_OC crash-loop.
+    grep -qE '^LogsDirectory=.*\bmcpd\b' "${CHROOT}/etc/systemd/system/icebreaker-controller.service" \
+        && pass "F-91: LogsDirectory includes mcpd (bridge audit dir writable)" \
+        || fail "F-91 regression: LogsDirectory missing mcpd — OC daemon will crash-loop on /var/log/mcpd absent"
     check_file /etc/icebreaker/controller.toml "system config missing"
     in_chroot "python3 -c \"import tomllib;tomllib.load(open('/etc/icebreaker/controller.toml','rb'))\"" \
         && pass "controller.toml parses" || fail "controller.toml is not valid TOML"
