@@ -108,6 +108,53 @@ for t in tools:
     action = "ask" if (tier >= 2 or name in ALWAYS_ASK) else "allow"
     mcp_perms[pattern] = action
 
+# F-101 (2026-07-27): the iceui MCP server (dual-brain/controller/
+# mcp_gui_server.py) exposes gui.* + rpa.* tools that mcpd doesn't
+# know about. Import the same schemas that server uses to build the
+# permission entries — keeps the two components' tool sets in sync
+# by construction rather than by convention. Runs at build time on
+# the operator (Mac) or on the GCP VM — either has the Python
+# controller package importable in the current sys.path (via the
+# dual-brain venv the build already uses to run this script).
+#
+# Default actions:
+#   gui.ping / gui.get_window_list / rpa.ping / rpa.list_workflows
+#     → allow (read-only, no PII leak, no input synthesis)
+#   gui.screenshot / gui.find_element / gui.get_element_tree /
+#     gui.click / gui.type / gui.select / rpa.execute_workflow /
+#     rpa.find_by_image → ask (may leak screen content OR synthesize
+#     keyboard/mouse events via /dev/uinput)
+try:
+    import sys
+    # Extend path so we can import gui_agent + rpa_bridge from the
+    # dual-brain repo (build script may not have set PYTHONPATH).
+    _repo_root = os.environ.get('REPO_ROOT') or os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(template_file))))
+    _dual_brain = os.path.join(_repo_root, 'dual-brain')
+    if os.path.isdir(_dual_brain) and _dual_brain not in sys.path:
+        sys.path.insert(0, _dual_brain)
+    from gui_agent.protocol import _PARAM_SCHEMAS as _GUI_SCHEMAS
+    from rpa_bridge.protocol import _PARAM_SCHEMAS as _RPA_SCHEMAS
+except ImportError as _exc:
+    print(
+        f'gen-oc-config: WARNING — cannot import gui_agent/rpa_bridge '
+        f'({_exc}); iceui permission entries will be empty and Fix M '
+        f'tool calls will be denied at runtime.',
+        file=sys.stderr,
+    )
+    _GUI_SCHEMAS = {}
+    _RPA_SCHEMAS = {}
+
+_ICEUI_ALLOW = {'gui.ping', 'gui.get_window_list', 'rpa.ping', 'rpa.list_workflows'}
+for _iceui_tool in sorted(_GUI_SCHEMAS.keys()) + sorted(_RPA_SCHEMAS.keys()):
+    _pattern = f'iceui_{_iceui_tool}'
+    mcp_perms[_pattern] = 'allow' if _iceui_tool in _ICEUI_ALLOW else 'ask'
+print(
+    f'gen-oc-config: added {len(_GUI_SCHEMAS)+len(_RPA_SCHEMAS)} iceui_ '
+    f'permission entries (F-101)',
+    file=sys.stderr,
+)
+
 # F-100 (2026-07-27): deny opencode's native write/edit/bash tools so
 # the model is forced to use icebreaker_* MCP tools for any real system
 # action. Without this, opencode's built-in `write` and `bash` bypass

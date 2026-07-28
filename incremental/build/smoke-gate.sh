@@ -138,6 +138,16 @@ if [ "$LEVEL" -ge 3 ]; then
             || pass "old icebreaker-terminal.desktop removed from OC edition"
         check_file /usr/share/applications/icebreaker-ai-terminal.desktop "OC AI Terminal .desktop missing"
         check_exec /usr/libexec/icebreaker/mcpd-for-oc.sh "mcpd-for-oc.sh wrapper missing (Fix L' Commit 4)"
+        # F-101 (2026-07-27): iceui MCP server wrapper + udev rule.
+        check_exec /usr/libexec/icebreaker/gui-mcp-for-oc.sh "gui-mcp-for-oc.sh wrapper missing (F-101)"
+        [ -f "${CHROOT}/etc/udev/rules.d/10-uinput.rules" ] \
+            && pass "F-101: uinput udev rule installed" \
+            || fail "F-101: /etc/udev/rules.d/10-uinput.rules missing — RPA input synthesis will fail"
+        # iceui MCP server self-test — verifies handshake + 12 tools.
+        in_chroot "$VENV_PY -m controller.mcp_gui_server --self-test 2>&1" \
+            | grep -q "self-test OK" \
+            && pass "F-101: iceui MCP server --self-test OK (12 tools)" \
+            || fail "F-101: iceui MCP server self-test failed — handshake or tools/list broken"
         # F-96 regression guard: icebreaker-oc-terminal wrapper must ship
         # alongside icebreaker-oc so the .desktop's Exec= (which invokes
         # icebreaker-oc-terminal) resolves. Without it, gnome-terminal
@@ -170,6 +180,11 @@ mcp = p.get('mcp')
 assert isinstance(mcp, dict) and mcp, f'F-98: permission.mcp must be non-empty object, got {type(mcp).__name__}'
 ib = [k for k in mcp if k.startswith('icebreaker_')]
 assert ib, 'F-98: no icebreaker_* patterns in permission.mcp — gen-oc-config.sh output shape regression'
+# F-101 regression guard: iceui MCP server's gui.* + rpa.* tools must
+# also appear in the permission map so opencode actually invokes them.
+iceui = [k for k in mcp if k.startswith('iceui_')]
+assert iceui, 'F-101: no iceui_* patterns in permission.mcp — gen-oc-config.sh iceui harvest broken'
+assert len(iceui) >= 12, f'F-101: expected at least 12 iceui_* entries, got {len(iceui)}'
 for k, v in mcp.items():
     assert v in ('allow', 'ask', 'deny'), f'F-98: bad action {v!r} for {k}'
 # F-100: opencode native edit + bash tools must be denied so model

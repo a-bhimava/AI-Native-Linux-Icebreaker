@@ -320,6 +320,20 @@ if [ "$EDITION" = "oc" ]; then
         "${CHROOT}/usr/bin/icebreaker-oc-terminal"
     install -Dm755 "${REPO_ROOT}/cx-distro/distro/mcpd-for-oc.sh" \
         "${CHROOT}/usr/libexec/icebreaker/mcpd-for-oc.sh"
+    # F-101 (2026-07-27): iceui MCP server wrapper + udev rule for
+    # /dev/uinput access. The Python module itself
+    # (dual-brain/controller/mcp_gui_server.py) lands in the venv
+    # via the standard pip install pass; only the wrapper + udev
+    # rule need explicit install here.
+    install -Dm755 "${REPO_ROOT}/cx-distro/distro/gui-mcp-for-oc.sh" \
+        "${CHROOT}/usr/libexec/icebreaker/gui-mcp-for-oc.sh"
+    install -Dm644 "${REPO_ROOT}/cx-distro/distro/10-uinput.rules" \
+        "${CHROOT}/etc/udev/rules.d/10-uinput.rules"
+    # Add the icebreaker user to the input group so /dev/uinput
+    # (mode 0660 root:input via the udev rule above) is writable
+    # for RPA keyboard/mouse synthesis. Idempotent — usermod -aG
+    # is a no-op if the user is already in the group.
+    chroot "$CHROOT" usermod -aG input icebreaker 2>/dev/null || true
 
     info "[oc] generating qb_oc.json from mcpd tools/list..."
     MCPD_BIN="$_OC_MCPD_HOST" \

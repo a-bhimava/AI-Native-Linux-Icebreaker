@@ -7,6 +7,12 @@
       "type": "local",
       "command": ["/usr/libexec/icebreaker/mcpd-for-oc.sh"],
       "enabled": true
+    },
+    "//iceui-note": "F-101 (2026-07-27): second MCP server exposing gui.* + rpa.* to opencode. mcpd (Rust) has neither — those tools live in the Python controller and were unreachable from OC edition until Fix M. Tools appear as `iceui_gui.get_window_list`, `iceui_rpa.execute_workflow`, etc.",
+    "iceui": {
+      "type": "local",
+      "command": ["/usr/libexec/icebreaker/gui-mcp-for-oc.sh"],
+      "enabled": true
     }
   },
 

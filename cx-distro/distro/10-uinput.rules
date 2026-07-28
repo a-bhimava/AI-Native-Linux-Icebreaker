@@ -1,0 +1,10 @@
+# F-101 (2026-07-27): let members of the `input` group open /dev/uinput
+# for RPA keyboard/mouse synthesis. Without this rule, /dev/uinput is
+# root-owned mode 0600 by default and RpaBridge._handle_ping reports
+# `uinput_available: false`, causing every rpa.execute_workflow keyword
+# that touches keyboard/mouse to fail.
+#
+# The `icebreaker` user is added to the `input` group by the sysusers/
+# postinst path (see v2.manifest / build-iso.sh); this rule grants the
+# group access to the kernel device node.
+KERNEL=="uinput", GROUP="input", MODE="0660"
