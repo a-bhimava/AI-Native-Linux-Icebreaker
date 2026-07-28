@@ -59,7 +59,15 @@ version_overlay() {
             set -e
             rm -rf /opt/icebreaker/venv
             python3 -m venv --system-site-packages /opt/icebreaker/venv
-            /opt/icebreaker/venv/bin/pip install --no-cache-dir /tmp/ib-src/ 2>&1 | tail -3
+            # F-101 (2026-07-28): install with [gui,rpa] extras so the
+            # OC-edition iceui MCP server (dual-brain/controller/
+            # mcp_gui_server.py) has robotframework + rpaframework +
+            # Pillow + numpy at runtime for gui.*/rpa.* tool calls.
+            # Extras are declared in pyproject.toml under
+            # [project.optional-dependencies]. Harmless in current
+            # edition — those packages ship anyway for the controller's
+            # own gui_worker.py subprocess.
+            /opt/icebreaker/venv/bin/pip install --no-cache-dir '/tmp/ib-src/[gui,rpa]' 2>&1 | tail -3
         " < /dev/null
         # Save for next rebuild — future iterations skip the 55-min emulation tax.
         echo "[v2] Caching venv → venv-${src_hash}.tar.zst (~15 sec)..."

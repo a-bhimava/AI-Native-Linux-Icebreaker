@@ -86,20 +86,27 @@ libglib2.0-bin
 dconf-cli
 dconf-gsettings-backend
 
-# ── F-101 (2026-07-27): GUI + RPA deps for iceui MCP server (OC edition).
-# Also used by the Python controller's gui_worker.py subprocess in the
-# current edition. python3-pyatspi = AT-SPI Python bindings (window
-# enum, click/type/select via accessibility bus); python3-pil = Pillow
-# for screenshot render + template matching; python3-numpy = template
-# matching arithmetic; python3-robotframework = RPA workflow runtime;
-# python3-libseccomp = seccomp bindings for the RPA sandbox.
-# Cache impact: adding these invalidates the base-image cache one
-# time (~60 min on the next build). Subsequent builds fast again.
-python3-pyatspi
-python3-pil
-python3-numpy
-python3-robotframework
-python3-libseccomp
+# ── F-101 (2026-07-28 corrected): apt-only deps for iceui MCP server
+# (OC edition) + current-edition gui_worker.py. Runtime pieces that come
+# via pip [gui,rpa] extras (robotframework, rpaframework, Pillow, numpy)
+# are installed by v2.manifest's pip line — no apt equivalent needed.
+#
+# What DOES need apt:
+#   - python3-seccomp: Python bindings for libseccomp; used by
+#     rpa_bridge/sandbox.py (RpaBridge._apply_seccomp). No pip equivalent
+#     because the bindings link the system libseccomp headers.
+#   - gir1.2-atspi-2.0: GObject introspection XML for AT-SPI. gui_agent
+#     uses `gi.require_version("Atspi", "2.0"); from gi.repository import
+#     Atspi` (see gui_agent/atspi.py:117-119). python3-gi + at-spi2-core
+#     already installed above; this adds the introspection typelib so
+#     the Atspi import works.
+#
+# (Earlier 2026-07-27 attempt listed python3-pyatspi, python3-pil,
+# python3-numpy, python3-robotframework, python3-libseccomp — those apt
+# names don't exist in Ubuntu Noble; build failed at debootstrap. Pillow
+# + numpy + robotframework come from pip; pyatspi comes via python3-gi.)
+python3-seccomp
+gir1.2-atspi-2.0
 
 # ── Fonts ──
 fonts-dejavu
