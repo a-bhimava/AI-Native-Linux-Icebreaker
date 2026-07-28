@@ -26,6 +26,10 @@ REPO="${REPO:-$HOME/Icebreaker}"
 LABEL="${LABEL:-v6.7}"
 VN="${VN:-6}"
 V67_INCLUDE_ARM64="${V67_INCLUDE_ARM64:-1}"
+# F-101.1 (2026-07-28): companion flag to skip amd64 when the operator
+# wants a fast arm64-only cut (user tests on Apple Silicon UTM). Default
+# is unchanged (1 = build amd64) so existing invocations behave identically.
+V67_INCLUDE_AMD64="${V67_INCLUDE_AMD64:-1}"
 V67_LOG="${V67_LOG:-${HOME}/v67-build.log}"
 # v6.13_OC Fix L' Commit 1: EDITION plumbing.
 #   current — Textual TUI is the AI Terminal (v6.12 shape, default).
@@ -147,8 +151,13 @@ esac
 
 _step=5
 for _ed in "${_editions_to_build[@]}"; do
-    # ── amd64 ISO for this edition ───────────────────────────────────────
-    _build_arch amd64 "$_ed" "$_step"
+    # ── amd64 ISO for this edition (optional per F-101.1) ────────────────
+    if [ "$V67_INCLUDE_AMD64" = "1" ]; then
+        _build_arch amd64 "$_ed" "$_step"
+    else
+        echo ""
+        echo "▶ Step ${_step}: amd64 skipped (V67_INCLUDE_AMD64=0) [edition=${_ed}]"
+    fi
     _step=$((_step + 1))
 
     # ── arm64 ISO for this edition (optional) ────────────────────────────
