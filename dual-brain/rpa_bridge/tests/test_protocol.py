@@ -29,8 +29,15 @@ class TestMethodConstants:
             assert method.startswith("rpa.")
 
 
-class TestMetacharRejection:
-    @pytest.mark.parametrize("bad_value", [
+class TestControlCharRejection:
+    """F-101.1 (2026-07-28): shell metachars are now ACCEPTED for keyword
+    names (Robot Framework's own parser reads them, not a shell). The
+    `template_path` field for rpa.find_by_image keeps the strict pattern
+    because it's a filesystem path that MIGHT be piped somewhere in
+    error handling.
+    """
+
+    @pytest.mark.parametrize("shell_metachar_ok", [
         "ok;rm -rf /",
         "$(whoami)",
         "test|cat",
@@ -39,10 +46,25 @@ class TestMetacharRejection:
         "foo>bar",
         "foo&bar",
     ])
-    def test_metachar_in_keyword_name_rejected(self, bad_value):
+    def test_shell_metachar_in_keyword_name_now_accepted(self, shell_metachar_ok):
+        # No exception — Robot Framework validates its own keyword names
+        # + the allowlist in workflow_gen.py filters unknown keywords.
+        validate_rpa_params(RPA_EXECUTE_WORKFLOW, {
+            "keywords": [{"name": shell_metachar_ok, "args": []}],
+        })
+
+    @pytest.mark.parametrize("bad_value", ["null\x00byte", "nl\ninject", "cr\rinject"])
+    def test_control_char_in_keyword_name_still_rejected(self, bad_value):
         with pytest.raises(Exception):
             validate_rpa_params(RPA_EXECUTE_WORKFLOW, {
                 "keywords": [{"name": bad_value, "args": []}],
+            })
+
+    def test_shell_metachar_in_template_path_still_rejected(self):
+        """F-101.1: filesystem-path fields retain the strict pattern."""
+        with pytest.raises(Exception):
+            validate_rpa_params("rpa.find_by_image", {
+                "template_path": "/tmp/evil;rm.png",
             })
 
     def test_too_many_keywords_rejected(self):

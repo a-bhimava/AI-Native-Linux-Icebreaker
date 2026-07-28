@@ -35,7 +35,18 @@ GUI_WRITE_METHODS = frozenset({
 
 ALL_GUI_METHODS = GUI_READONLY_METHODS | GUI_WRITE_METHODS
 
-_SAFE_STRING_PATTERN = r"^[^;&|`$<>\x00-\x1f]*$"
+# F-101.1 (2026-07-28): the original strict pattern banned shell
+# metachars `; & | \` $ < >` on the assumption that these strings might
+# reach a shell. In practice, GUI window/element names route through
+# D-Bus (AT-SPI) — never a shell. The strict ban broke legitimate
+# window titles like "OC | System uptime check" (opencode's own
+# auto-generated titles use `|`) and menu items like "File & Edit",
+# causing every screenshot of an opencode window to fail with a
+# validation error. Loosening for UI strings — bans only C0 control
+# characters (which would corrupt terminal / keystroke output). The
+# strict pattern is preserved for filesystem path inputs
+# (see _FS_SAFE_STRING_SCHEMA in rpa_bridge.protocol).
+_SAFE_STRING_PATTERN = r"^[^\x00-\x1f]*$"
 
 _SAFE_STRING_SCHEMA = {
     "type": "string",

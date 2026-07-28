@@ -30,11 +30,28 @@ RPA_WRITE_METHODS = frozenset({
 
 ALL_RPA_METHODS = RPA_READONLY_METHODS | RPA_WRITE_METHODS
 
-_SAFE_STRING_PATTERN = r"^[^;&|`$<>\x00-\x1f]*$"
+# F-101.1 (2026-07-28): loosen the default pattern to bans-only-controls
+# because RPA UI content (Robot Framework keyword args, workflow_name)
+# is passed to Robot's parser, not a shell. Kept the strict pattern for
+# `template_path` (filesystem path) below via _FS_SAFE_STRING_SCHEMA.
+# Matches the same-day loosening in gui_agent.protocol — see comment
+# there for the failure mode this fixes (opencode session titles
+# containing `|` etc. rejected by validation).
+_SAFE_STRING_PATTERN = r"^[^\x00-\x1f]*$"
+
+# Strict pattern retained for filesystem-path-shaped inputs where
+# metachars could shell-interpolate if ever piped somewhere unexpected.
+_FS_SAFE_STRING_PATTERN = r"^[^;&|`$<>\x00-\x1f]*$"
 
 _SAFE_STRING_SCHEMA: dict[str, Any] = {
     "type": "string",
     "pattern": _SAFE_STRING_PATTERN,
+    "maxLength": 256,
+}
+
+_FS_SAFE_STRING_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "pattern": _FS_SAFE_STRING_PATTERN,
     "maxLength": 256,
 }
 
@@ -100,7 +117,7 @@ _PARAM_SCHEMAS: dict[str, dict] = {
         "required": ["template_path"],
         "additionalProperties": False,
         "properties": {
-            "template_path": _SAFE_STRING_SCHEMA,
+            "template_path": _FS_SAFE_STRING_SCHEMA,
             "confidence": {
                 "type": "number",
                 "minimum": 0.0,

