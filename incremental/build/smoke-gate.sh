@@ -144,10 +144,16 @@ if [ "$LEVEL" -ge 3 ]; then
             && pass "F-101: uinput udev rule installed" \
             || fail "F-101: /etc/udev/rules.d/10-uinput.rules missing — RPA input synthesis will fail"
         # iceui MCP server self-test — verifies handshake + 12 tools.
-        in_chroot "$VENV_PY -m controller.mcp_gui_server --self-test 2>&1" \
-            | grep -q "self-test OK" \
-            && pass "F-101: iceui MCP server --self-test OK (12 tools)" \
-            || fail "F-101: iceui MCP server self-test failed — handshake or tools/list broken"
+        # Cannot use in_chroot() here because it discards stdout+stderr,
+        # so the pipe to grep would always read empty and fail.
+        # Run chroot directly so the self-test output (which goes to
+        # stderr via file=sys.stderr) reaches grep.
+        if chroot "$CHROOT" bash -c "$VENV_PY -m controller.mcp_gui_server --self-test 2>&1" \
+                | grep -q "self-test OK"; then
+            pass "F-101: iceui MCP server --self-test OK (12 tools)"
+        else
+            fail "F-101: iceui MCP server self-test failed — handshake or tools/list broken"
+        fi
         # F-96 regression guard: icebreaker-oc-terminal wrapper must ship
         # alongside icebreaker-oc so the .desktop's Exec= (which invokes
         # icebreaker-oc-terminal) resolves. Without it, gnome-terminal
