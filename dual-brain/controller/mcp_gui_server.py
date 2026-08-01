@@ -101,6 +101,68 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
     "gui.click": "Click an AT-SPI element identified by (window, role, name).",
     "gui.type": "Type text into a focused AT-SPI element (max 4096 chars).",
     "gui.select": "Set the value of a selectable AT-SPI element (dropdown, checkbox, radio).",
+    # ── Fix V (v6.15) vision-grounded UI automation ──
+    "gui.parse_screen": (
+        "Screenshot a window and call the vision model to return a "
+        "structured list of every clickable element (buttons, inputs, "
+        "links, icons) with pixel boxes + captions + kind + confidence. "
+        "Writes an annotated preview PNG and fires a desktop notification "
+        "so the user sees it before any grounded action."
+    ),
+    "gui.click_at_coords": (
+        "Raw pixel click at (x, y). Button ∈ {left, right, middle}, "
+        "count ∈ {1, 2, 3}. HiDPI-aware — coordinates are physical pixels "
+        "as returned by the vision model."
+    ),
+    "gui.type_at_coords": (
+        "Focus-click at (x, y) then type text (≤4096 chars) into the "
+        "focused element. Combines a click and a type into one atomic call."
+    ),
+    "gui.drag": (
+        "Mouse drag from (x1, y1) to (x2, y2) with optional intermediate "
+        "waypoints for gesture-style drags. Configurable button and hold "
+        "duration."
+    ),
+    "gui.scroll": (
+        "Scroll ‘amount’ wheel clicks at (x, y). Direction ∈ "
+        "{up, down, left, right}."
+    ),
+    "gui.hover": (
+        "Move the mouse cursor to (x, y) without clicking. Useful for "
+        "revealing tooltips or hover-state UI before deciding to click."
+    ),
+    "gui.press_key": (
+        "Press one key or key combo, e.g. 'ctrl+s', 'escape', 'F12'. "
+        "Combos are '+'-separated; each token is checked against an "
+        "allowlist so shell-injection patterns are rejected structurally."
+    ),
+    "gui.key_sequence": (
+        "Execute a mixed sequence of key combos and typed text atomically. "
+        "Accepts a list of strings (heuristically classified) or explicit "
+        "{type: 'key'|'text', ...} dicts. Stops at the first failure."
+    ),
+    "gui.grounded_click": (
+        "Natural-language click: given a window and a description like "
+        "'the Send button', screenshot + parse the window with the vision "
+        "model, ask the language model to pick which element matches, "
+        "then click its centroid. Emits an annotated preview PNG with the "
+        "target highlighted before firing."
+    ),
+    "gui.grounded_type": (
+        "Natural-language type: like grounded_click but after picking the "
+        "element, click-to-focus and then type the given text into it. "
+        "Best for form fields ('the URL bar', 'the search input')."
+    ),
+    "gui.grounded_drag": (
+        "Natural-language drag: given a window plus source_prompt and "
+        "target_prompt, parse once, pick BOTH endpoints in a single LLM "
+        "call, then drag the source element's centroid to the target's."
+    ),
+    "gui.grounded_scroll": (
+        "Natural-language scroll: pick a scroll region by description, "
+        "then scroll it in the given direction by the given amount "
+        "(default 3)."
+    ),
     "rpa.ping": "Returns Robot Framework + /dev/uinput availability.",
     "rpa.execute_workflow": (
         "Run a Robot Framework workflow of allowlisted keywords; "
@@ -219,9 +281,18 @@ def _write_response(resp: dict) -> None:
     sys.stdout.flush()
 
 
+_EXPECTED_TOOL_COUNT = 24
+# v6.14 F-101 (Fix M) shipped 12 tools (8 gui.* AT-SPI + 4 rpa.*).
+# v6.15 Fix V.4 adds 12 vision-grounded tools (parse_screen +
+# click/type/drag/scroll/hover + press_key/key_sequence +
+# grounded_click/type/drag/scroll) — total 24. Smoke-gate L3
+# asserts this count; drift in either direction means a schema was
+# added/removed without the count being updated.
+
+
 def _self_test() -> int:
     """--self-test: verify the handshake round-trips + tools/list returns
-    the expected 12 tools. Used by smoke-gate L3 assertion."""
+    the expected 24 tools. Used by smoke-gate L3 assertion."""
     init_req = json.dumps({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {
@@ -241,9 +312,10 @@ def _self_test() -> int:
         print(f"self-test FAILED: tools/list returned {tl_resp!r}", file=sys.stderr)
         return 1
     tools = tl_resp["result"].get("tools") or []
-    if len(tools) != 12:
+    if len(tools) != _EXPECTED_TOOL_COUNT:
         print(
-            f"self-test FAILED: expected 12 tools, got {len(tools)}: "
+            f"self-test FAILED: expected {_EXPECTED_TOOL_COUNT} tools, "
+            f"got {len(tools)}: "
             f"{[t['name'] for t in tools]}",
             file=sys.stderr,
         )

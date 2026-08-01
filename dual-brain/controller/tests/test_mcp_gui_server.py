@@ -51,12 +51,16 @@ def test_unknown_notification_silently_dropped():
     assert resp is None
 
 
-def test_tools_list_returns_12_tools_with_correct_shape():
+def test_tools_list_returns_expected_tool_count_with_correct_shape():
+    """v6.14 shipped 12 tools; Fix V.4 (v6.15) adds 12 vision-grounded
+    tools → 24 total. The _EXPECTED_TOOL_COUNT constant is the single
+    source of truth so this test can't drift silently."""
     req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     resp = mcps._handle_line(req)
     assert resp is not None
     tools = resp["result"]["tools"]
-    assert len(tools) == 12, f"expected 12 tools, got {[t['name'] for t in tools]}"
+    assert len(tools) == mcps._EXPECTED_TOOL_COUNT, \
+        f"expected {mcps._EXPECTED_TOOL_COUNT} tools, got {[t['name'] for t in tools]}"
     for t in tools:
         assert "name" in t
         assert "description" in t
@@ -64,10 +68,45 @@ def test_tools_list_returns_12_tools_with_correct_shape():
         assert t["name"].startswith("gui.") or t["name"].startswith("rpa."), \
             f"unexpected tool namespace: {t['name']!r}"
     names = {t["name"] for t in tools}
-    # Sanity: known-critical tools are present.
-    for expected in ("gui.get_window_list", "gui.screenshot", "rpa.execute_workflow",
-                     "rpa.list_workflows"):
+    # Sanity: known-critical tools are present (v6.14 baseline + v6.15 Fix V).
+    for expected in ("gui.get_window_list", "gui.screenshot",
+                     "rpa.execute_workflow", "rpa.list_workflows",
+                     "gui.parse_screen", "gui.click_at_coords",
+                     "gui.grounded_click", "gui.grounded_drag",
+                     "gui.press_key", "gui.key_sequence"):
         assert expected in names, f"missing tool {expected}"
+
+
+def test_every_tool_has_a_description():
+    """All 24 tools listed by mcp_gui_server MUST have a real
+    description string — no `"GUI helper"` / `"RPA helper"` fallbacks
+    from _build_tools_list. A missing description reads like a broken
+    ISO in the opencode UI."""
+    req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    resp = mcps._handle_line(req)
+    tools = resp["result"]["tools"]
+    for t in tools:
+        assert t["description"] not in ("GUI helper", "RPA helper"), \
+            f"tool {t['name']!r} has fallback description — missing from _TOOL_DESCRIPTIONS"
+        assert len(t["description"]) > 20, \
+            f"tool {t['name']!r} description too short: {t['description']!r}"
+
+
+def test_all_v_new_tools_have_description():
+    """Regression guard: every V.4a-added constant must have a
+    _TOOL_DESCRIPTIONS entry. If someone adds a new tool via schema
+    but forgets the description, this test catches it before smoke gate."""
+    v_tools = {
+        "gui.parse_screen",
+        "gui.click_at_coords", "gui.type_at_coords",
+        "gui.drag", "gui.scroll", "gui.hover",
+        "gui.press_key", "gui.key_sequence",
+        "gui.grounded_click", "gui.grounded_type",
+        "gui.grounded_drag", "gui.grounded_scroll",
+    }
+    for name in v_tools:
+        assert name in mcps._TOOL_DESCRIPTIONS, \
+            f"Fix V tool {name!r} missing from _TOOL_DESCRIPTIONS"
 
 
 def test_unknown_method_returns_32601():
@@ -184,8 +223,8 @@ def test_tools_call_dispatch_raise_reports_isError_true(monkeypatch):
 
 def test_self_test_returns_zero_on_success(capsys):
     """--self-test path is used by smoke-gate — ensure it exits 0 with
-    the expected 12 tools."""
+    the expected _EXPECTED_TOOL_COUNT tools."""
     rc = mcps._self_test()
     assert rc == 0
     captured = capsys.readouterr()
-    assert "12 tools" in captured.err
+    assert f"{mcps._EXPECTED_TOOL_COUNT} tools" in captured.err
