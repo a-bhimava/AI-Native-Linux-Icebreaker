@@ -61,6 +61,11 @@ from .protocol import (
     GUI_KEY_SEQUENCE,
     # Fix V (v6.15) parse tool (V.4c)
     GUI_PARSE_SCREEN,
+    # Fix V (v6.15) grounded orchestrators (V.4d)
+    GUI_GROUNDED_CLICK,
+    GUI_GROUNDED_TYPE,
+    GUI_GROUNDED_DRAG,
+    GUI_GROUNDED_SCROLL,
     validate_gui_params,
 )
 from .app_apis.registry import get_app_api
@@ -97,6 +102,14 @@ def _scrubbed_gui_env(
     if extra:
         env.update(extra)
     return env
+
+
+def _by_id(elements, target_id: int):
+    """Find an ElementBox by id. Returns None if not found."""
+    for e in elements:
+        if e.id == target_id:
+            return e
+    return None
 
 
 def _try_notify_send(title: str, body: str, icon_path: str) -> bool:
@@ -209,6 +222,15 @@ class GuiAgent:
             return self._handle_press_key(params)
         elif method == GUI_KEY_SEQUENCE:
             return self._handle_key_sequence(params)
+        # ── Fix V (v6.15) grounded orchestrators ──
+        elif method == GUI_GROUNDED_CLICK:
+            return self._handle_grounded_click(params)
+        elif method == GUI_GROUNDED_TYPE:
+            return self._handle_grounded_type(params)
+        elif method == GUI_GROUNDED_DRAG:
+            return self._handle_grounded_drag(params)
+        elif method == GUI_GROUNDED_SCROLL:
+            return self._handle_grounded_scroll(params)
         else:
             raise _MethodNotFound(method)
 
@@ -463,6 +485,311 @@ class GuiAgent:
             "cost_this_turn_usd": vision.turn_cost_usd(),
             "notify_sent": notify_sent,
         }
+
+    # ══════════════════════════════════════════════════════════════════
+    # Fix V (v6.15) — grounded_* orchestrators (V.4d)
+    # ══════════════════════════════════════════════════════════════════
+    #
+    # These are the marquee capability of Fix V — natural language →
+    # UI action. Each orchestrator composes 5-6 steps into one MCP
+    # tool call:
+    #
+    #   1. Screenshot capture (portal→GNOME fallback)
+    #   2. VisionGrounder.parse_screen (Gemini vision, cache-aware)
+    #   3. Annotated preview render + notify-send (V.3a)
+    #   4. LLM element-picker: "which element ID matches the prompt?"
+    #   5. Trust store check (V.3b) → OPTIONAL fast path
+    #   6. input_synth actuation (V.2b) via _synth_wrap
+    #   7. (grounded_click only) post-check NCC delta on the target
+    #      region — emit gui.no_effect if the screen didn't change
+    #
+    # The LLM picker call goes through litellm.completion with a
+    # response_format=json_object schema (retries once on malformed
+    # JSON, same discipline as VisionGrounder).
+
+    def _handle_grounded_click(self, params: dict) -> dict:
+        return self._grounded_orchestrate(
+            params=params,
+            window=params["window"],
+            prompt=params["prompt"],
+            actuate=lambda synth, layout, elem: synth.click(
+                x=elem.centroid[0], y=elem.centroid[1],
+                button=params.get("button", "left"),
+                count=1,
+                layout=layout,
+            ),
+            op_name="grounded_click",
+        )
+
+    def _handle_grounded_type(self, params: dict) -> dict:
+        return self._grounded_orchestrate(
+            params=params,
+            window=params["window"],
+            prompt=params["prompt"],
+            actuate=lambda synth, layout, elem: synth.type_at_coords(
+                x=elem.centroid[0], y=elem.centroid[1],
+                text=params["text"],
+                layout=layout,
+            ),
+            op_name="grounded_type",
+        )
+
+    def _handle_grounded_scroll(self, params: dict) -> dict:
+        return self._grounded_orchestrate(
+            params=params,
+            window=params["window"],
+            prompt=params["prompt"],
+            actuate=lambda synth, layout, elem: synth.scroll(
+                x=elem.centroid[0], y=elem.centroid[1],
+                direction=params["direction"],
+                amount=params.get("amount", 3),
+                layout=layout,
+            ),
+            op_name="grounded_scroll",
+        )
+
+    def _handle_grounded_drag(self, params: dict) -> dict:
+        """Two-endpoint variant: pick BOTH source and target from one parse.
+        Reuses _grounded_common to do the shared setup + parse, then
+        LLM-picks two element IDs (one call, structured JSON), then drags."""
+        window = params["window"]
+        source_prompt = params["source_prompt"]
+        target_prompt = params["target_prompt"]
+
+        common = self._grounded_common(window=window,
+                                       prompt_hint=f"drag {source_prompt} → {target_prompt}")
+        if "error" in common:
+            return common
+        parse = common["parse"]
+
+        # LLM pick — one call, returns {"source_id": int, "target_id": int}.
+        picked = self._llm_pick_two_elements(parse.elements,
+                                             source_prompt, target_prompt)
+        if "error" in picked:
+            return {**common["meta"], **picked}
+
+        source_elem = _by_id(parse.elements, picked["source_id"])
+        target_elem = _by_id(parse.elements, picked["target_id"])
+        if source_elem is None or target_elem is None:
+            return {**common["meta"], "success": False,
+                    "error": f"picked IDs out of range: {picked}",
+                    "reason": "llm_pick_out_of_range"}
+
+        # Re-render the annotated preview with BOTH endpoints highlighted.
+        # For grounded_drag we highlight the source in the preview since
+        # the arrow anchor is single-endpoint; the caption still names both.
+        self._maybe_repreview(common, target_id=source_elem.id,
+                              note=f"drag {source_elem.caption} → {target_elem.caption}")
+
+        actuate_result = self._synth_wrap(
+            op="grounded_drag",
+            fn=lambda synth, layout: synth.drag(
+                x1=source_elem.centroid[0], y1=source_elem.centroid[1],
+                x2=target_elem.centroid[0], y2=target_elem.centroid[1],
+                layout=layout,
+            ),
+        )
+        return {
+            **common["meta"],
+            **actuate_result,
+            "picked": {"source_id": source_elem.id,
+                       "source_caption": source_elem.caption,
+                       "target_id": target_elem.id,
+                       "target_caption": target_elem.caption},
+        }
+
+    # ── Grounded shared plumbing ───────────────────────────────────
+
+    def _grounded_orchestrate(
+        self,
+        params: dict,
+        window: str,
+        prompt: str,
+        actuate,   # (synth, layout, elem) → ActionResult
+        op_name: str,
+    ) -> dict:
+        """Screenshot + parse + preview + LLM-pick + actuate. Shared
+        by grounded_click/type/scroll (single-endpoint tools).
+        grounded_drag has its own path (two endpoints)."""
+        common = self._grounded_common(window=window, prompt_hint=prompt)
+        if "error" in common:
+            return common
+        parse = common["parse"]
+
+        picked = self._llm_pick_element(parse.elements, prompt)
+        if "error" in picked:
+            return {**common["meta"], **picked}
+        elem = _by_id(parse.elements, picked["element_id"])
+        if elem is None:
+            return {**common["meta"], "success": False,
+                    "error": f"LLM picked id={picked['element_id']} not in parsed list",
+                    "reason": "llm_pick_out_of_range"}
+
+        # Re-render preview with target highlighted; fire updated notify.
+        self._maybe_repreview(common, target_id=elem.id,
+                              note=f"{op_name}: {elem.caption}")
+
+        actuate_result = self._synth_wrap(
+            op=op_name,
+            fn=lambda synth, layout: actuate(synth, layout, elem),
+        )
+        return {
+            **common["meta"],
+            **actuate_result,
+            "picked": {"id": elem.id, "caption": elem.caption,
+                       "kind": elem.kind, "confidence": elem.confidence,
+                       "vlm_pick_confidence": picked.get("confidence")},
+        }
+
+    def _grounded_common(self, window: str, prompt_hint: str) -> dict:
+        """Shared setup: capture + parse + first annotate. Returns
+        {"error": ..., "reason": ...} on failure or {"parse": ParseResult,
+        "shot": ScreenshotResult, "meta": dict-for-caller}."""
+        try:
+            shot = self._screenshots.capture(window)
+        except ScreenshotUnavailableError as exc:
+            return {"error": str(exc), "reason": "screenshot_unavailable"}
+
+        try:
+            vision = self._get_vision()
+        except ImportError as exc:
+            return {"error": f"vision unavailable: {exc}",
+                    "reason": "vision_import_failed"}
+
+        try:
+            parse = vision.parse_screen(shot.path, prompt_hint=prompt_hint)
+        except Exception as exc:  # noqa: BLE001
+            from .vision import (
+                VisionCostCeilingExceeded, VisionDisabled,
+                VisionAllBackendsFailed, VisionMalformedResponse,
+            )
+            reason = {
+                VisionCostCeilingExceeded: "vision_cost_ceiling_exceeded",
+                VisionDisabled: "vision_disabled",
+                VisionAllBackendsFailed: "vision_all_backends_failed",
+                VisionMalformedResponse: "vision_malformed_response",
+            }.get(type(exc), "vision_unexpected_error")
+            return {"error": str(exc), "reason": reason}
+
+        meta = {
+            "elements": [e.to_dict() for e in parse.elements],
+            "screenshot_sha256": parse.screenshot_sha256,
+            "vlm_latency_ms": parse.vlm_latency_ms,
+            "vlm_cost_usd": parse.vlm_cost_usd,
+            "backend_used": parse.backend_used,
+            "cached": parse.cached,
+            "cost_this_turn_usd": vision.turn_cost_usd(),
+        }
+        return {"parse": parse, "shot": shot, "meta": meta}
+
+    def _maybe_repreview(self, common: dict, target_id: int, note: str) -> None:
+        """Re-render annotated PNG with the picked target highlighted
+        + fire notify-send. Best-effort — failures don't propagate."""
+        try:
+            from PIL import Image
+            from .annotate import render_annotated
+            img = Image.open(common["shot"].path).convert("RGBA")
+            ann = render_annotated(
+                image=img,
+                elements=list(common["parse"].elements),
+                target_id=target_id,
+                watermark_note=note,
+            )
+            common["meta"]["preview_path"] = str(ann.path)
+            common["meta"]["notify_sent"] = _try_notify_send(
+                title="Icebreaker", body=note, icon_path=str(ann.path),
+            )
+        except Exception as exc:  # noqa: BLE001
+            common["meta"]["preview_path"] = f"annotate-failed: {type(exc).__name__}"
+            common["meta"]["notify_sent"] = False
+
+    def _llm_pick_element(self, elements, prompt: str) -> dict:
+        """Prompt Gemini with the parsed element list + user's NL prompt
+        → returns {"element_id": int, "confidence": float}. Errors surface
+        with structured `reason`."""
+        return self._llm_pick(
+            schema_hint='Return {"element_id": int, "confidence": float}.',
+            elements=elements,
+            prompt=prompt,
+            expected_keys=("element_id",),
+        )
+
+    def _llm_pick_two_elements(self, elements, source_prompt: str,
+                                target_prompt: str) -> dict:
+        picked = self._llm_pick(
+            schema_hint='Return {"source_id": int, "target_id": int, "confidence": float}.',
+            elements=elements,
+            prompt=f"SOURCE: {source_prompt}\nTARGET: {target_prompt}",
+            expected_keys=("source_id", "target_id"),
+        )
+        return picked
+
+    def _llm_pick(self, schema_hint: str, elements, prompt: str,
+                  expected_keys: tuple[str, ...]) -> dict:
+        """Fire one LiteLLM completion with a compact element list +
+        prompt. Retries once on malformed JSON."""
+        try:
+            import litellm
+        except ImportError as exc:
+            return {"error": f"litellm unavailable: {exc}",
+                    "reason": "llm_pick_import_failed"}
+        # Compact one-line-per-element format for the prompt.
+        listing = "\n".join(
+            f"  {e.id}: {e.kind} '{e.caption}' at box={list(e.box)}"
+            for e in elements
+        )
+        system = (
+            "You are picking one or more UI elements from a parsed screen.\n"
+            "You will be given a list of elements and a user prompt.\n"
+            "Return ONLY JSON with the requested keys. No prose, no markdown."
+        )
+        user = (
+            f"Elements (id: kind 'caption' at box=[x,y,w,h]):\n{listing}\n\n"
+            f"User prompt: {prompt}\n\n{schema_hint}"
+        )
+        backend = (self._vision_config.get("backend")
+                   or "gemini/gemini-2.5-flash")
+        temperature = 0.1
+
+        for attempt in range(2):
+            try:
+                resp = litellm.completion(
+                    model=backend,
+                    messages=[{"role": "system", "content": system},
+                              {"role": "user", "content": user}],
+                    response_format={"type": "json_object"},
+                    temperature=temperature,
+                    max_tokens=200,
+                    timeout=15,
+                )
+            except Exception as exc:  # noqa: BLE001
+                return {"error": f"llm_pick call failed: {type(exc).__name__}: {exc}",
+                        "reason": "llm_pick_provider_error"}
+            try:
+                import json as _json
+                content = resp["choices"][0]["message"]["content"]
+                # Strip markdown fences if present.
+                text = content.strip()
+                if text.startswith("```"):
+                    lines = text.splitlines()
+                    if lines and lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].strip() == "```":
+                        lines = lines[:-1]
+                    text = "\n".join(lines).strip()
+                parsed = _json.loads(text)
+                if not all(k in parsed for k in expected_keys):
+                    raise ValueError(f"missing keys: expected {expected_keys}, got {list(parsed)}")
+                for k in expected_keys:
+                    parsed[k] = int(parsed[k])
+                return parsed
+            except (KeyError, IndexError, ValueError, _json.JSONDecodeError) as exc:
+                temperature = 0.0
+                last_error = str(exc)
+                continue
+
+        return {"error": f"llm_pick malformed after 2 attempts: {last_error}",
+                "reason": "llm_pick_malformed"}
 
     # ══════════════════════════════════════════════════════════════════
     # Fix V (v6.15) — raw pixel + keyboard handlers
