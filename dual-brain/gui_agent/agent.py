@@ -51,10 +51,21 @@ from .protocol import (
     GUI_CLICK,
     GUI_TYPE,
     GUI_SELECT,
+    # Fix V (v6.15) raw pixel/keyboard tools
+    GUI_CLICK_AT_COORDS,
+    GUI_TYPE_AT_COORDS,
+    GUI_DRAG,
+    GUI_SCROLL,
+    GUI_HOVER,
+    GUI_PRESS_KEY,
+    GUI_KEY_SEQUENCE,
     validate_gui_params,
 )
 from .app_apis.registry import get_app_api
 from .screenshots import ScreenshotManager, ScreenshotUnavailableError
+# Fix V (v6.15) — xdotool wrappers + HiDPI translation. Lazy-imported
+# below only when a coord/keyboard tool is actually invoked so a
+# controller without X11 (e.g. headless CI) can still run.
 
 
 _SAFE_ENV_VARS: frozenset[str] = frozenset({
@@ -151,6 +162,21 @@ class GuiAgent:
             return self._handle_type(params)
         elif method == GUI_SELECT:
             return self._handle_select(params)
+        # ── Fix V (v6.15) raw pixel/keyboard tools ──
+        elif method == GUI_CLICK_AT_COORDS:
+            return self._handle_click_at_coords(params)
+        elif method == GUI_TYPE_AT_COORDS:
+            return self._handle_type_at_coords(params)
+        elif method == GUI_DRAG:
+            return self._handle_drag(params)
+        elif method == GUI_SCROLL:
+            return self._handle_scroll(params)
+        elif method == GUI_HOVER:
+            return self._handle_hover(params)
+        elif method == GUI_PRESS_KEY:
+            return self._handle_press_key(params)
+        elif method == GUI_KEY_SEQUENCE:
+            return self._handle_key_sequence(params)
         else:
             raise _MethodNotFound(method)
 
@@ -274,6 +300,138 @@ class GuiAgent:
             return {"success": False, "error": str(exc), "reason": exc.reason}
         except AtSpiUnavailableError as exc:
             return {"success": False, "error": str(exc), "reason": "atspi_unavailable"}
+
+    # ══════════════════════════════════════════════════════════════════
+    # Fix V (v6.15) — raw pixel + keyboard handlers
+    # ══════════════════════════════════════════════════════════════════
+    #
+    # These wrap `gui_agent.input_synth` (V.2b) — thin adapters that
+    # convert the input_synth ActionResult shape into this module's
+    # existing `{success, error, ...}` return convention so callers
+    # written for the AT-SPI handlers (get_window_list, click, etc.)
+    # don't need special-case parsing for the coord-based results.
+    #
+    # HiDPI translation: every mouse fn takes a MonitorLayout so the
+    # VLM-provided PHYSICAL coord lands at the right pixel on Retina
+    # displays. The layout is cached 30s inside MonitorLayout itself
+    # (see gui_agent/geometry.py) — we call detect() per handler for
+    # freshness without hurting perf.
+
+    def _handle_click_at_coords(self, params: dict) -> dict:
+        return self._synth_wrap(
+            op="click_at_coords",
+            fn=lambda synth, layout: synth.click(
+                x=params["x"], y=params["y"],
+                button=params.get("button", "left"),
+                count=params.get("count", 1),
+                layout=layout,
+            ),
+        )
+
+    def _handle_type_at_coords(self, params: dict) -> dict:
+        return self._synth_wrap(
+            op="type_at_coords",
+            fn=lambda synth, layout: synth.type_at_coords(
+                x=params["x"], y=params["y"],
+                text=params["text"],
+                delay_ms=params.get("delay_ms", 12),
+                layout=layout,
+            ),
+        )
+
+    def _handle_drag(self, params: dict) -> dict:
+        waypoints_raw = params.get("waypoints") or []
+        # Schema guarantees each is [x, y] — convert to tuples for input_synth.
+        waypoints = [(w[0], w[1]) for w in waypoints_raw]
+        return self._synth_wrap(
+            op="drag",
+            fn=lambda synth, layout: synth.drag(
+                x1=params["x1"], y1=params["y1"],
+                x2=params["x2"], y2=params["y2"],
+                button=params.get("button", "left"),
+                hold_ms=params.get("hold_ms", 100),
+                waypoints=waypoints,
+                layout=layout,
+            ),
+        )
+
+    def _handle_scroll(self, params: dict) -> dict:
+        return self._synth_wrap(
+            op="scroll",
+            fn=lambda synth, layout: synth.scroll(
+                x=params["x"], y=params["y"],
+                direction=params["direction"],
+                amount=params["amount"],
+                layout=layout,
+            ),
+        )
+
+    def _handle_hover(self, params: dict) -> dict:
+        return self._synth_wrap(
+            op="hover",
+            fn=lambda synth, layout: synth.hover(
+                x=params["x"], y=params["y"],
+                layout=layout,
+            ),
+        )
+
+    def _handle_press_key(self, params: dict) -> dict:
+        return self._synth_wrap(
+            op="press_key",
+            fn=lambda synth, layout: synth.press_key(combo=params["combo"]),
+            needs_layout=False,
+        )
+
+    def _handle_key_sequence(self, params: dict) -> dict:
+        return self._synth_wrap(
+            op="key_sequence",
+            fn=lambda synth, layout: synth.key_sequence(items=params["items"]),
+            needs_layout=False,
+        )
+
+    def _synth_wrap(self, op: str, fn, needs_layout: bool = True) -> dict:
+        """Common wrapper: lazy-import input_synth + geometry, run `fn`,
+        convert ActionResult to the `{success, error, ...}` dict shape.
+
+        Errors that would break every future call (xdotool missing,
+        validation error) surface with a `reason` field so callers can
+        distinguish them from operation-specific failures.
+        """
+        try:
+            from . import input_synth as synth
+            from .geometry import MonitorLayout
+        except ImportError as exc:
+            return {"success": False,
+                    "error": f"input_synth unavailable: {exc}",
+                    "reason": "input_synth_import_failed"}
+
+        layout = MonitorLayout.detect() if needs_layout else None
+        try:
+            result = fn(synth, layout)
+        except synth.InputSynthUnavailable as exc:
+            return {"success": False, "error": str(exc),
+                    "reason": "xdotool_missing"}
+        except synth.InputSynthValidationError as exc:
+            return {"success": False, "error": str(exc),
+                    "reason": "validation_error"}
+        except Exception as exc:  # noqa: BLE001 — never propagate to the RPC loop
+            return {"success": False,
+                    "error": f"{op}: unexpected {type(exc).__name__}: {exc}",
+                    "reason": "internal_error"}
+
+        # ActionResult → dict. Preserve every field for audit + debug.
+        d: dict = {
+            "success": result.success,
+            "error": result.error,
+            "latency_ms": result.latency_ms,
+        }
+        if result.physical_coords is not None:
+            d["physical_coords"] = list(result.physical_coords)
+        if result.logical_coords is not None:
+            d["logical_coords"] = list(result.logical_coords)
+        if result.extra:
+            d["extra"] = result.extra
+        return d
 
     def _run_loop(self) -> int:
         """Read JSON-RPC requests from stdin, write responses to stdout."""
