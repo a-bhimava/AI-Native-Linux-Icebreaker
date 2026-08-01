@@ -50,13 +50,17 @@ Fix M (v6.14) gave the OC edition a `iceui` MCP server exposing 12 GUI/RPA tools
 - **Where in code:** `docs/Icebreaker_v6.15_Vision-Grounded-UI-Automation_2026-08-01.md`. Lives next to `docs/OC_edition_privacy.md`.
 - **Maintenance:** updated in-place as each remaining commit lands (V.3 through V.8) — the same file, so no drift between "plan" and "shipped".
 
-### V.3 — `annotate` + `trust_store` + `ib-trust` CLI
+### V.3 — `annotate` + `trust_store` + `ib-trust` CLI (shipped 2026-08-01, split into 3 sub-commits)
 
-- **What ships:** the "preview before you approve" UX and the "trust this app for the next hour" affordance. `annotate.render_annotated(image, elements, target_id)` draws numbered bounding boxes + optional red arrow onto the screenshot; `parse_screen` fires `notify-send --icon=<png>` so the user sees the annotated view on their desktop *before* any `grounded_click` "ask" prompt lands. `TrustStore` persists per-app per-tool grants so users approve once, not every click.
-- **How it's built:** `annotate.py` uses Pillow (already in the RPA extra). Writes 0o600 PNGs to `/tmp/icebreaker-gui/preview-<sha>.png` with 50-file retention (reuses `ScreenshotManager`'s pattern). `trust_store.py` is a JSONL file at `/var/lib/icebreaker/gui_trust.jsonl`, `O_APPEND`-written (audit-discipline), with defaults loaded from `/etc/icebreaker/gui_trust.d/defaults.jsonl` — hover/scroll/parse pre-trusted 24h; click/type per-app 5-min grant on first approval; drag always asks; terminal never trusted.
-- **User controls:** `/usr/local/bin/ib-trust list | add <app> <tool> [--ttl N] | revoke <app> <tool> | defaults`. The paranoid can revoke; the pragmatic can `--ttl 86400` and move on.
-- **Where in code:** `dual-brain/gui_agent/annotate.py`, `dual-brain/gui_agent/trust_store.py`, `dual-brain/scripts/ib_trust.py`, `cx-distro/distro/gui_trust_defaults.jsonl`.
-- **Tests:** 8+ unit tests — annotation renders correctly, notify-send fires with correct icon path, trust default allows, user-grant persists across process restarts, TTL expiry, revoke works, `ib-trust list` output shape.
+Split into V.3a / V.3b / V.3c for fine-grained bisect surface per user request.
+
+**V.3a — annotate.py** (SHA `f9f9118`, 20 tests): Pillow-based annotated preview PNGs with kind-colored borders (iOS palette — button=red, input=blue, link=green, icon=gray, +8 more), numbered ID chips, target highlight (thick outline + red arrow + 40% dim on non-target regions), confidence signal (dashed border + "?" for < 0.7), corner watermark with timestamp + element count so PNG can't be mistaken for real UI. Fires `notify-send --icon=<png>` so users see what's about to happen *before* the opencode ask prompt lands.
+
+**V.3b — trust_store.py** (SHA `97a694e`, 33 tests): four-tier grant model (`once` / `session` / `persistent` / `deny_always`), wildcards (`*` or `prefix*`, no general globs — narrow by design so wildcards can't sneak past denies), session-id binding for `session` tier, TTL for persistent, never-silent expiry (matching-but-expired persistent grants return denied with explicit "trust expired at ... — ask again" reason). Built-in `_HARD_DENY` frozenset overrides EVERYTHING for gnome-terminal / xterm / konsole / terminator / sudo — defense in depth against a corrupt defaults file. Append-only JSONL at `/var/lib/icebreaker/gui_trust.jsonl` with `fcntl.LOCK_EX` + `fsync` for concurrent-daemon safety.
+
+**V.3c — `ib-trust` CLI + shipped defaults** (SHA `38478c1`, 29 tests): discoverable CLI at `/usr/local/bin/ib-trust`. No-args → full help + current state at a glance. Fuzzy match (`ib-trust add slack click` expands `click` → `gui.grounded_click`). `--dry-run` on every mutation. `ib-trust undo` via a 16-deep per-user JSON ring at `~/.cache/icebreaker/ib_trust_undo.json`. `ib-trust why APP TOOL` explains the decision + matched grant + exits 0/1 for scripting. `ib-trust export/import` for JSONL backup. Stdlib-only coloring (respects `NO_COLOR` + `sys.stdout.isatty()`). Shipped `cx-distro/distro/gui_trust_defaults.jsonl` (~50 lines): 24h auto-approve for 10 read-only tools everywhere; gnome-calculator pre-approved for grounded_click / click_at_coords / press_key; hard-deny for 7 terminal emulators + sudo/keyring/seahorse/polkit-*.
+
+Where in code: `dual-brain/gui_agent/annotate.py`, `dual-brain/gui_agent/trust_store.py`, `dual-brain/scripts/ib_trust.py`, `cx-distro/distro/gui_trust_defaults.jsonl`. Tests split into `test_annotate.py` (20), `test_trust_store.py` (33), `test_ib_trust.py` (29) — 82 total for V.3, all mocked.
 
 ### V.4 — Protocol schemas + agent dispatch + mcp_gui_server registration
 
@@ -108,7 +112,9 @@ Fix M (v6.14) gave the OC edition a `iceui` MCP server exposing 12 GUI/RPA tools
 | **V.2a** MonitorLayout | ✅ shipped 2026-08-01 | `16792a6` | 10 green |
 | **V.2b** input_synth | ✅ shipped 2026-08-01 | `8e222f8` | 37 green |
 | **V.2c** rollup doc | ✅ shipped 2026-08-01 | *(this commit)* | n/a |
-| **V.3** annotate + trust_store + ib-trust | pending | — | — |
+| **V.3a** annotate | ✅ shipped 2026-08-01 | `f9f9118` | 20 green |
+| **V.3b** trust_store | ✅ shipped 2026-08-01 | `97a694e` | 33 green |
+| **V.3c** ib-trust CLI + defaults | ✅ shipped 2026-08-01 | `38478c1` | 29 green |
 | **V.4** protocol + agent dispatch + mcp_gui_server | pending | — | — |
 | **V.5** annotated_screenshot presenter | pending | — | — |
 | **V.6** sandbox + packages + smoke-gate + docs | pending | — | — |
