@@ -62,13 +62,21 @@ Split into V.3a / V.3b / V.3c for fine-grained bisect surface per user request.
 
 Where in code: `dual-brain/gui_agent/annotate.py`, `dual-brain/gui_agent/trust_store.py`, `dual-brain/scripts/ib_trust.py`, `cx-distro/distro/gui_trust_defaults.jsonl`. Tests split into `test_annotate.py` (20), `test_trust_store.py` (33), `test_ib_trust.py` (29) — 82 total for V.3, all mocked.
 
-### V.4 — Protocol schemas + agent dispatch + mcp_gui_server registration
+### V.4 — Protocol schemas + agent dispatch + mcp_gui_server registration (shipped 2026-08-01, split into 5 sub-commits)
 
-- **What ships:** the *seams*. The 12 new tools become visible to the model. `gui_agent/protocol.py` gets 12 new `_PARAM_SCHEMAS` entries covering parse/click/type/drag/scroll/hover/press_key/key_sequence + 4 `grounded_*` convenience wrappers. `gui_agent/agent.py::handle_request` grows 12 new `_handle_*` branches. `controller/mcp_gui_server.py` bumps its self-test count from 12 to 24 and adds 12 tool descriptions.
-- **How it's built:** schemas auto-flow through the existing plumbing — `mcp_gui_server.py::_build_tools_list()` reads `_PARAM_SCHEMAS` directly, and `incremental/build/gen-oc-config.sh` harvests them at ISO build time to synthesize the opencode `permission.mcp` map. Adding new tools requires *no* changes to those files — schema-driven wins.
-- **Grounded orchestration:** `_handle_grounded_click(prompt)` → screenshot → `VisionGrounder.parse_screen` (cache-aware) → prompt Gemini "which element ID matches this prompt?" (returns `{element_id: int}`) → `input_synth.click` at that element's centroid (HiDPI-translated) → post-check via `rpa_bridge.image_match` NCC delta on the target region → emit `gui.no_effect` notification if the screen didn't change.
-- **Where in code:** `dual-brain/gui_agent/protocol.py`, `dual-brain/gui_agent/agent.py`, `dual-brain/controller/mcp_gui_server.py`.
-- **Tests:** unit tests per handler + a `test_agent_integration.py` extension verifying `handle_request("gui.parse_screen")` end-to-end with mocked VLM/xdotool.
+Split into V.4a / V.4b / V.4c / V.4d / V.4e per user request for maximum bisect surface on the most integration-heavy commit in Fix V.
+
+**V.4a — protocol.py schemas** (SHA `a15b6c2`, 59 tests): 12 new constants + 12 `_PARAM_SCHEMAS` entries covering parse_screen, click_at_coords, type_at_coords, drag (with waypoints), scroll, hover, press_key, key_sequence, and the 4 grounded_* orchestrators. `ALL_GUI_METHODS` grows from 8 to 20. Shared schema atoms (`_COORD_SCHEMA`, `_BUTTON_SCHEMA`, `_KEY_COMBO_SCHEMA` with regex-layer defense) dedup across tools. Schema-driven wins: adding a schema entry auto-registers the tool in `mcp_gui_server.py::_build_tools_list()` AND in `gen-oc-config.sh`'s permission-map harvest — zero call-site edits.
+
+**V.4b — agent.py raw pixel/keyboard handlers** (SHA `4fa58df`, 18 tests): 7 `_handle_*` methods for click_at_coords, type_at_coords, drag, scroll, hover, press_key, key_sequence. Each is a thin lambda into V.2b's `input_synth` via a common `_synth_wrap` that lazy-imports (so headless CI can still import agent.py), calls `MonitorLayout.detect()` for HiDPI translation, and converts `ActionResult` → the existing `{success, error, latency_ms, physical_coords, logical_coords, extra}` dict shape. Structured `reason` fields on every failure branch (`xdotool_missing`, `validation_error`, `internal_error`).
+
+**V.4c — agent.py parse_screen handler + notify-send** (SHA `344ccc1`, 19 tests): `_handle_parse_screen` composes 4 subsystems: ScreenshotManager + VisionGrounder + annotate + `_try_notify_send` helper. VisionGrounder is lazy-init on `self._vision` so unit tests can inject a MagicMock; production config threads through via `_extract_vision_config(config)` that accepts either namespace or dict. Best-effort annotate: if Pillow explodes, `preview_path` becomes an `"annotate-failed: ..."` string but the element list still surfaces. `_try_notify_send()` is a 2s-timeout subprocess wrapper — returns False on any failure so the audit chain records `notify_sent=False` rather than raising.
+
+**V.4d — agent.py grounded_* orchestrators** (SHA `a80d24f`, 19 tests): the marquee capability — 4 handlers that turn Fix V from "raw pixel tools" into "natural language → any UI action". `_grounded_orchestrate` shared plumbing for grounded_click/type/scroll (single endpoint); `_handle_grounded_drag` for two-endpoint. Pipeline: capture → parse (cache-aware) → first preview + notify → `_llm_pick_element` (LiteLLM completion with response_format=json_object, markdown-fence stripping, retry once on malformed JSON with temp 0.4→0.0) → re-preview with target highlighted → `_synth_wrap` actuation. Full failure taxonomy with structured `reason`: `llm_pick_import_failed / provider_error / malformed / out_of_range`. Result dict includes `picked` sub-object with element id + caption + kind + LLM confidence for audit.
+
+**V.4e — mcp_gui_server registration** (SHA `b01ea51`, 15 tests): adds 12 `_TOOL_DESCRIPTIONS` entries written for Gemini's tool-picker (says what each tool DOES + scope hints like "HiDPI-aware", "all keys allowlisted", "atomic sequence"). Bumps `_EXPECTED_TOOL_COUNT` from 12 to 24 as a module-level constant so smoke-gate self-test + unit tests + gen-oc-config all read from one source. New guard test `test_every_tool_has_a_description` fails fast if a future schema addition forgets a description.
+
+Where in code: `dual-brain/gui_agent/protocol.py`, `dual-brain/gui_agent/agent.py`, `dual-brain/controller/mcp_gui_server.py`. Tests split into `test_protocol_v.py` (59), `test_agent_v_raw.py` (18), `test_agent_v_parse.py` (19), `test_agent_v_grounded.py` (19), plus 2 new mcp_gui_server tests + 3 updated — **117 new/updated tests for V.4 alone**. Full suite: 371 passed, 1 skipped.
 
 ### V.5 — `annotated_screenshot` HITL presenter (current edition GTK)
 
@@ -115,7 +123,11 @@ Where in code: `dual-brain/gui_agent/annotate.py`, `dual-brain/gui_agent/trust_s
 | **V.3a** annotate | ✅ shipped 2026-08-01 | `f9f9118` | 20 green |
 | **V.3b** trust_store | ✅ shipped 2026-08-01 | `97a694e` | 33 green |
 | **V.3c** ib-trust CLI + defaults | ✅ shipped 2026-08-01 | `38478c1` | 29 green |
-| **V.4** protocol + agent dispatch + mcp_gui_server | pending | — | — |
+| **V.4a** protocol schemas | ✅ shipped 2026-08-01 | `a15b6c2` | 59 green |
+| **V.4b** agent raw pixel/keyboard handlers | ✅ shipped 2026-08-01 | `4fa58df` | 18 green |
+| **V.4c** agent parse_screen handler + notify-send | ✅ shipped 2026-08-01 | `344ccc1` | 19 green |
+| **V.4d** agent grounded_* orchestrators | ✅ shipped 2026-08-01 | `a80d24f` | 19 green |
+| **V.4e** mcp_gui_server registration + count bump | ✅ shipped 2026-08-01 | `b01ea51` | 15 green |
 | **V.5** annotated_screenshot presenter | pending | — | — |
 | **V.6** sandbox + packages + smoke-gate + docs | pending | — | — |
 | **V.7** live tests + Xvfb fixtures | pending | — | — |
