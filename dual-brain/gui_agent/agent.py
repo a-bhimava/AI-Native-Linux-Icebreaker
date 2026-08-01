@@ -59,6 +59,8 @@ from .protocol import (
     GUI_HOVER,
     GUI_PRESS_KEY,
     GUI_KEY_SEQUENCE,
+    # Fix V (v6.15) parse tool (V.4c)
+    GUI_PARSE_SCREEN,
     validate_gui_params,
 )
 from .app_apis.registry import get_app_api
@@ -95,6 +97,27 @@ def _scrubbed_gui_env(
     if extra:
         env.update(extra)
     return env
+
+
+def _try_notify_send(title: str, body: str, icon_path: str) -> bool:
+    """Fire `notify-send --icon=<png> title body`. Best-effort — returns
+    False on any failure so the caller can record notify_sent=False in
+    the audit chain without raising. Used by V.4c parse_screen so the
+    user sees the annotated preview on their desktop BEFORE any
+    grounded action's ask prompt lands.
+
+    Precedent: scripts/ib_bundle.py:635-650 uses the same pattern.
+    """
+    import subprocess as _sp
+    try:
+        proc = _sp.run(
+            ["notify-send", "--urgency=low",
+             f"--icon={icon_path}", title, body],
+            capture_output=True, timeout=2.0, check=False,
+        )
+        return proc.returncode == 0
+    except (FileNotFoundError, _sp.SubprocessError, OSError):
+        return False
 
 
 class GuiAgent:
@@ -139,6 +162,12 @@ class GuiAgent:
         )
         self._prefer_app_api = prefer_app_api
 
+        # Fix V (v6.15) — vision grounder (created lazily on first
+        # parse_screen / grounded_* call). Config passthrough happens
+        # via _get_vision() below.
+        self._vision = None  # type: ignore[assignment]
+        self._vision_config = self._extract_vision_config(config)
+
     def handle_request(self, method: str, params: dict) -> dict:
         """Dispatch a GUI method call. Returns a result dict."""
         try:
@@ -162,6 +191,9 @@ class GuiAgent:
             return self._handle_type(params)
         elif method == GUI_SELECT:
             return self._handle_select(params)
+        # ── Fix V (v6.15) parse tool ──
+        elif method == GUI_PARSE_SCREEN:
+            return self._handle_parse_screen(params)
         # ── Fix V (v6.15) raw pixel/keyboard tools ──
         elif method == GUI_CLICK_AT_COORDS:
             return self._handle_click_at_coords(params)
@@ -300,6 +332,137 @@ class GuiAgent:
             return {"success": False, "error": str(exc), "reason": exc.reason}
         except AtSpiUnavailableError as exc:
             return {"success": False, "error": str(exc), "reason": "atspi_unavailable"}
+
+    # ══════════════════════════════════════════════════════════════════
+    # Fix V (v6.15) — parse_screen (V.4c)
+    # ══════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _extract_vision_config(config: Any) -> dict:
+        """Pull the [gui.vision] TOML section out of the GuiConfig, if
+        present. Fall back to a permissive default so agent works
+        standalone in tests. Config wiring proper lands in V.6."""
+        if config is None:
+            return {}
+        # Support either a namespace with .vision attribute or a
+        # dict-like config.vision entry.
+        vision = getattr(config, "vision", None)
+        if vision is None and isinstance(config, dict):
+            vision = config.get("vision") or config.get("gui.vision")
+        if vision is None:
+            return {}
+        if hasattr(vision, "__dict__"):
+            return {k: v for k, v in vars(vision).items() if not k.startswith("_")}
+        if isinstance(vision, dict):
+            return dict(vision)
+        return {}
+
+    def _get_vision(self):
+        """Lazy-construct the VisionGrounder. Import stays local so the
+        agent module works when `litellm` isn't installed (unit tests
+        pass a mocked completion instead)."""
+        if self._vision is not None:
+            return self._vision
+        from .vision import VisionGrounder
+        # Sensible defaults if config didn't provide anything (V.6 wires
+        # the real controller.toml section).
+        cfg = {
+            "enabled": True,
+            "backend": "gemini/gemini-2.5-flash",
+            "cost_ceiling_usd_per_turn": 0.01,
+            "cache_ttl_seconds": 2.0,
+            "retry_on_malformed_json": 1,
+        }
+        cfg.update(self._vision_config)
+        self._vision = VisionGrounder(config=cfg)
+        return self._vision
+
+    def _handle_parse_screen(self, params: dict) -> dict:
+        """Screenshot → VLM parse → annotated PNG + notify-send.
+
+        Returns:
+            {
+                "elements": [{id, box, caption, kind, confidence}, ...],
+                "preview_path": "/tmp/icebreaker-gui/preview-<sha>.png",
+                "screenshot_sha256": "...",
+                "vlm_latency_ms": int,
+                "vlm_cost_usd": float,
+                "backend_used": "gemini/gemini-2.5-flash",
+                "cached": bool,
+                "cost_this_turn_usd": float,
+                "notify_sent": bool,
+            }
+        """
+        # 1. Capture the screenshot via the existing manager (reuses
+        #    portal→GNOME fallback + SHA-256 + 0o600 retention).
+        window = params.get("window", "")
+        try:
+            shot = self._screenshots.capture(window)
+        except ScreenshotUnavailableError as exc:
+            return {"error": str(exc), "reason": "screenshot_unavailable"}
+
+        # 2. Parse via VisionGrounder. Handles cache, retry, fallback,
+        #    cost ceiling internally.
+        try:
+            vision = self._get_vision()
+        except ImportError as exc:
+            return {"error": f"vision unavailable: {exc}",
+                    "reason": "vision_import_failed"}
+
+        try:
+            parse = vision.parse_screen(shot.path,
+                                        prompt_hint=params.get("prompt_hint", ""))
+        except Exception as exc:  # noqa: BLE001
+            from .vision import (
+                VisionCostCeilingExceeded, VisionDisabled,
+                VisionAllBackendsFailed, VisionMalformedResponse,
+            )
+            reason = {
+                VisionCostCeilingExceeded: "vision_cost_ceiling_exceeded",
+                VisionDisabled: "vision_disabled",
+                VisionAllBackendsFailed: "vision_all_backends_failed",
+                VisionMalformedResponse: "vision_malformed_response",
+            }.get(type(exc), "vision_unexpected_error")
+            return {"error": str(exc), "reason": reason}
+
+        # 3. Render an annotated preview PNG (V.3a).
+        preview_path = None
+        try:
+            from PIL import Image
+            from .annotate import render_annotated
+            img = Image.open(shot.path).convert("RGBA")
+            watermark = window[:40] if window else "screen"
+            ann = render_annotated(
+                image=img, elements=list(parse.elements),
+                target_id=None,   # parse_screen alone has no target yet
+                watermark_note=watermark,
+            )
+            preview_path = str(ann.path)
+        except Exception as exc:  # noqa: BLE001 — annotate is best-effort
+            preview_path = f"annotate-failed: {type(exc).__name__}: {exc}"
+
+        # 4. Fire notify-send so the user sees the preview on their
+        #    desktop BEFORE any subsequent grounded_click ask prompt.
+        notify_sent = False
+        if preview_path and preview_path.startswith("/"):
+            notify_sent = _try_notify_send(
+                title="Icebreaker",
+                body=f"Parsed {len(parse.elements)} element(s) — "
+                     f"grounded action may follow",
+                icon_path=preview_path,
+            )
+
+        return {
+            "elements": [e.to_dict() for e in parse.elements],
+            "preview_path": preview_path,
+            "screenshot_sha256": parse.screenshot_sha256,
+            "vlm_latency_ms": parse.vlm_latency_ms,
+            "vlm_cost_usd": parse.vlm_cost_usd,
+            "backend_used": parse.backend_used,
+            "cached": parse.cached,
+            "cost_this_turn_usd": vision.turn_cost_usd(),
+            "notify_sent": notify_sent,
+        }
 
     # ══════════════════════════════════════════════════════════════════
     # Fix V (v6.15) — raw pixel + keyboard handlers
