@@ -1,0 +1,59 @@
+# Shipped defaults for the GUI trust store (Fix V.3c / v6.15).
+# Installed to /etc/icebreaker/gui_trust.d/00-defaults.jsonl at ISO build time.
+# Every line is a JSON object with fields:
+#   app         — wildcard-capable ("*" or "prefix*" or exact); required
+#   tool        — wildcard-capable; required
+#   tier        — once|session|persistent|deny_always (or legacy allow/deny); required
+#   ttl_seconds — for persistent tier; 0 = never expires; omit for non-persistent
+#   reason      — free-text audit note
+# Blank lines and lines starting with # are ignored.
+#
+# Design guide:
+#   - Read-only / non-input-synthesizing tools (parse, hover, scroll, get*)
+#     get 24h persistent trust in ANY app — they're the tools the user
+#     invokes constantly and none of them change system state.
+#   - Grounded write actions (click, type, drag, keys) default to per-app
+#     per-session — the user grants for each app the first time and it
+#     survives for the login session.
+#   - Terminals and other high-risk apps are hard-denied by the code
+#     _HARD_DENY frozenset (defense in depth) AND listed here for
+#     explicit surface.
+#   - `gui.press_key` and `gui.key_sequence` default to always-ask,
+#     because a wrongly-firing keyboard sequence (e.g. Ctrl+A → Delete)
+#     is much more destructive than a wrong click. Users can override
+#     with `ib-trust add slack keys --tier persistent --ttl 3600` etc.
+
+# ── Read-only tools: 24h auto-approve everywhere ──────────────────
+{"app":"*","tool":"gui.parse_screen","tier":"persistent","ttl_seconds":86400,"reason":"read-only screen parse (safe)"}
+{"app":"*","tool":"gui.hover","tier":"persistent","ttl_seconds":86400,"reason":"cursor move only (safe)"}
+{"app":"*","tool":"gui.screenshot","tier":"persistent","ttl_seconds":86400,"reason":"screen capture already audited via SHA (safe)"}
+{"app":"*","tool":"gui.get_window_list","tier":"persistent","ttl_seconds":86400,"reason":"window enumeration (no PII leak)"}
+{"app":"*","tool":"gui.get_element_tree","tier":"persistent","ttl_seconds":86400,"reason":"AT-SPI tree inspection (safe)"}
+{"app":"*","tool":"gui.find_element","tier":"persistent","ttl_seconds":86400,"reason":"AT-SPI query (safe)"}
+{"app":"*","tool":"gui.ping","tier":"persistent","ttl_seconds":86400,"reason":"health check (safe)"}
+{"app":"*","tool":"rpa.ping","tier":"persistent","ttl_seconds":86400,"reason":"health check (safe)"}
+{"app":"*","tool":"rpa.list_workflows","tier":"persistent","ttl_seconds":86400,"reason":"workflow enumeration (safe)"}
+{"app":"*","tool":"gui.scroll","tier":"persistent","ttl_seconds":86400,"reason":"scroll wheel synthesis (safe — no destructive effect)"}
+
+# ── Well-known safe apps: pre-approve for gnome-calculator ──
+# Gemini needs to click digits + operators; each click is auditable and
+# calculator side-effects are contained. 24h persistent — matches the
+# other pre-approved-safe entries above so the mental model is uniform.
+{"app":"gnome-calculator","tool":"gui.grounded_click","tier":"persistent","ttl_seconds":86400,"reason":"calculator digit/operator clicks (contained side effects)"}
+{"app":"gnome-calculator","tool":"gui.click_at_coords","tier":"persistent","ttl_seconds":86400,"reason":"calculator raw clicks (contained side effects)"}
+{"app":"gnome-calculator","tool":"gui.press_key","tier":"persistent","ttl_seconds":86400,"reason":"calculator keyboard entry (contained side effects)"}
+
+# ── Hard-deny for terminals and secret handlers ────────────────────
+# ALSO enforced by _HARD_DENY in trust_store.py so a corrupt/deleted
+# defaults file cannot silently open these back up.
+{"app":"gnome-terminal","tool":"*","tier":"deny_always","reason":"terminal — never auto-approve"}
+{"app":"xterm","tool":"*","tier":"deny_always","reason":"terminal — never auto-approve"}
+{"app":"konsole","tool":"*","tier":"deny_always","reason":"terminal — never auto-approve"}
+{"app":"terminator","tool":"*","tier":"deny_always","reason":"terminal — never auto-approve"}
+{"app":"tilix","tool":"*","tier":"deny_always","reason":"terminal — never auto-approve"}
+{"app":"kitty","tool":"*","tier":"deny_always","reason":"terminal — never auto-approve"}
+{"app":"alacritty","tool":"*","tier":"deny_always","reason":"terminal — never auto-approve"}
+{"app":"sudo","tool":"*","tier":"deny_always","reason":"sudo dialogs — never auto-approve"}
+{"app":"gnome-keyring","tool":"*","tier":"deny_always","reason":"keyring dialogs — never auto-approve"}
+{"app":"seahorse","tool":"*","tier":"deny_always","reason":"password manager — never auto-approve"}
+{"app":"polkit-*","tool":"*","tier":"deny_always","reason":"polkit auth dialogs — never auto-approve"}
