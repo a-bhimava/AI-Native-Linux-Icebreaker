@@ -22,7 +22,9 @@ class TestMethodConstants:
         assert GUI_READONLY_METHODS & GUI_WRITE_METHODS == frozenset()
 
     def test_method_count(self):
-        assert len(ALL_GUI_METHODS) == 8
+        # 8 original AT-SPI tools + 12 Fix V (v6.15) vision tools = 20
+        # (RPA tools live in rpa_bridge.protocol, not counted here).
+        assert len(ALL_GUI_METHODS) == 20
 
 
 class TestControlCharRejection:
