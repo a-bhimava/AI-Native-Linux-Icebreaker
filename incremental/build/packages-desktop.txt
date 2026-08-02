@@ -108,6 +108,26 @@ dconf-gsettings-backend
 python3-seccomp
 gir1.2-atspi-2.0
 
+# ── F-103 (2026-08-02): Fix V (v6.15) vision-grounded UI automation
+# actuation backend. xdotool synthesizes mouse + keyboard events under
+# the existing X11 session — no /dev/uinput privilege needed, no new
+# sandbox surface beyond an execve allowlist entry (see
+# dual-brain/gui_agent/sandbox.py).
+#
+# Alternatives considered + rejected:
+#   - Direct /dev/uinput writes: privilege escalation surface, needs
+#     udev rule + input group membership (already done for RPA but
+#     wanted for RPA's Robot Framework path, not general vision use).
+#   - ydotool: Wayland-friendly but ~2× the binary size and requires
+#     a system daemon (ydotoold). GNOME on Ubuntu 24.04 still runs
+#     Xorg by default; xdotool works out of the box. Revisit when
+#     Wayland becomes the default in v6.20+.
+#
+# ~200 KB apt install. Every gui.click_at_coords / drag / press_key
+# call shells out to this binary via subprocess.run with an explicit
+# argv (never shell=True) and a 5s timeout.
+xdotool
+
 # ── Fonts ──
 fonts-dejavu
 fonts-liberation

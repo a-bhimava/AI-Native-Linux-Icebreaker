@@ -26,13 +26,29 @@ class SandboxError(Exception):
     """Raised when sandbox setup fails. The bridge must not proceed."""
 
 
-_LANDLOCK_ACCESS_FS_READ_FILE = 1 << 0
-_LANDLOCK_ACCESS_FS_READ_DIR = 1 << 1
-_LANDLOCK_ACCESS_FS_WRITE_FILE = 1 << 5
-_LANDLOCK_ACCESS_FS_MAKE_REG = 1 << 8
-_LANDLOCK_ACCESS_FS_MAKE_DIR = 1 << 9
-_LANDLOCK_ACCESS_FS_REMOVE_FILE = 1 << 11
-_LANDLOCK_ACCESS_FS_REMOVE_DIR = 1 << 12
+# F-107 (Fix V.6a, 2026-08-02) — Landlock ABI v1 bit values from
+# kernel UAPI include/uapi/linux/landlock.h, verified against upstream.
+# Prior values in this file were WRONG since day one (READ_FILE=1<<0
+# was actually EXECUTE=1<<0 per kernel, etc). Semantics-preserving
+# scope for RPA: bit values are now correct BUT the seccomp posture
+# (execve DENIED) stays as-is here because RPA has never intentionally
+# spawned subprocesses — Selenium's geckodriver spawn has apparently
+# been silently failing on this sandbox and we don't want to
+# accidentally unblock it as a side effect of V.6a. Dedicated
+# investigation lives in F-107b (deferred).
+_LANDLOCK_ACCESS_FS_EXECUTE      = 1 << 0
+_LANDLOCK_ACCESS_FS_WRITE_FILE   = 1 << 1
+_LANDLOCK_ACCESS_FS_READ_FILE    = 1 << 2
+_LANDLOCK_ACCESS_FS_READ_DIR     = 1 << 3
+_LANDLOCK_ACCESS_FS_REMOVE_DIR   = 1 << 4
+_LANDLOCK_ACCESS_FS_REMOVE_FILE  = 1 << 5
+_LANDLOCK_ACCESS_FS_MAKE_CHAR    = 1 << 6
+_LANDLOCK_ACCESS_FS_MAKE_DIR     = 1 << 7
+_LANDLOCK_ACCESS_FS_MAKE_REG     = 1 << 8
+_LANDLOCK_ACCESS_FS_MAKE_SOCK    = 1 << 9
+_LANDLOCK_ACCESS_FS_MAKE_FIFO    = 1 << 10
+_LANDLOCK_ACCESS_FS_MAKE_BLOCK   = 1 << 11
+_LANDLOCK_ACCESS_FS_MAKE_SYM     = 1 << 12
 
 _LANDLOCK_READ_ONLY = _LANDLOCK_ACCESS_FS_READ_FILE | _LANDLOCK_ACCESS_FS_READ_DIR
 _LANDLOCK_READ_WRITE = (
