@@ -507,6 +507,48 @@
         "a11y_timeout_ms": {
           "type": "integer", "minimum": 100, "maximum": 30000,
           "description": "Timeout for AT-SPI tree queries in milliseconds."
+        },
+        "vision": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Fix V (v6.15): cloud VLM screen parser (gui_agent.vision.VisionGrounder).",
+          "properties": {
+            "enabled": {"type": "boolean", "description": "Enable vision-grounded UI automation. False disables all gui.parse_screen / grounded_* tools."},
+            "backend": {"type": "string", "maxLength": 128, "description": "Primary LiteLLM backend id (e.g. gemini/gemini-2.5-flash)."},
+            "fallback_backend": {"type": "string", "maxLength": 128, "description": "Backend to try if primary raises. Empty string = no fallback."},
+            "max_elements_per_parse": {"type": "integer", "minimum": 1, "maximum": 200, "description": "Cap on elements the VLM should return per screenshot."},
+            "cost_ceiling_usd_per_turn": {"type": "number", "minimum": 0.0, "maximum": 10.0, "description": "Deny + audit any VLM call that would exceed this running sum per user turn (BP-10)."},
+            "cache_ttl_seconds": {"type": "number", "minimum": 0.0, "maximum": 300.0, "description": "In-memory cache for parse_screen results keyed on screenshot SHA-256."},
+            "retry_on_malformed_json": {"type": "integer", "minimum": 0, "maximum": 3, "description": "Retries with sampling decay when the VLM returns unparseable JSON."}
+          }
+        },
+        "trust": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Fix V (v6.15): per-app-per-tool trust store (gui_agent.trust_store.TrustStore).",
+          "properties": {
+            "enabled": {"type": "boolean", "description": "Enable the trust store. False forces every write action to prompt every time."},
+            "store_path": {"type": "string", "maxLength": 512, "description": "JSONL append-only path for user grants + revokes."},
+            "defaults_dir": {"type": "string", "maxLength": 512, "description": "Dir loaded at boot for the ISO-shipped defaults."}
+          }
+        },
+        "preview": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Fix V (v6.15): annotated-screenshot preview UX (gui_agent.annotate + notify-send).",
+          "properties": {
+            "enabled": {"type": "boolean", "description": "Render + fire notify-send previews on parse_screen / grounded_* calls."},
+            "notify_urgency": {"type": "string", "enum": ["low", "normal", "critical"], "description": "notify-send urgency level."},
+            "preview_ttl_seconds": {"type": "integer", "minimum": 1, "maximum": 60, "description": "Desktop notification dwell time."}
+          }
+        },
+        "geometry": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Fix V (v6.15): HiDPI + multi-monitor coord translation (gui_agent.geometry.MonitorLayout).",
+          "properties": {
+            "hidpi_scale_override": {"type": "integer", "minimum": 0, "maximum": 8, "description": "0 = auto-detect via xrandr. Positive = force this scale on every monitor (for VM guests where xrandr misreports)."}
+          }
         }
       }
     },

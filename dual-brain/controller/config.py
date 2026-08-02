@@ -354,12 +354,70 @@ class DaemonConfig:
 
 
 @dataclass(frozen=True)
+class GuiVisionConfig:
+    """Fix V (v6.15): cloud VLM screen parser settings.
+
+    Consumed by gui_agent.vision.VisionGrounder via GuiAgent's
+    _extract_vision_config helper. Every knob has a sensible default
+    matching the hard-coded defaults in vision.py itself — this
+    dataclass exists so operators can override via controller.toml.
+    """
+    enabled: bool = True
+    backend: str = "gemini/gemini-2.5-flash"
+    fallback_backend: str = "anthropic/claude-haiku-4-5"
+    max_elements_per_parse: int = 50
+    # BP-10 governance: an injected loop that keeps re-parsing screens
+    # can't exceed $0.01 per turn. Above this, calls are DENIED + audited.
+    cost_ceiling_usd_per_turn: float = 0.01
+    cache_ttl_seconds: float = 2.0
+    retry_on_malformed_json: int = 1
+
+
+@dataclass(frozen=True)
+class GuiTrustConfig:
+    """Fix V (v6.15): trust store settings (gui_agent.trust_store)."""
+    enabled: bool = True
+    store_path: str = "/var/lib/icebreaker/gui_trust.jsonl"
+    defaults_dir: str = "/etc/icebreaker/gui_trust.d"
+
+
+@dataclass(frozen=True)
+class GuiPreviewConfig:
+    """Fix V (v6.15): annotated-screenshot preview UX
+    (gui_agent.annotate + notify-send)."""
+    enabled: bool = True
+    notify_urgency: str = "low"
+    preview_ttl_seconds: int = 5
+
+
+@dataclass(frozen=True)
+class GuiGeometryConfig:
+    """Fix V (v6.15): HiDPI + multi-monitor coord translation
+    (gui_agent.geometry.MonitorLayout).
+
+    hidpi_scale_override = 0 → auto-detect via xrandr (default).
+    Positive → force that scale on every monitor. Useful for VM guests
+    where xrandr misreports the physical/logical ratio.
+    """
+    hidpi_scale_override: int = 0
+
+
+@dataclass(frozen=True)
 class GuiConfig:
     enabled: bool = True
     screenshot_dir: str = "/tmp/icebreaker-gui"
     screenshot_retention: int = 50
     prefer_app_api: bool = True
     a11y_timeout_ms: int = 5000
+    # Fix V (v6.15) nested sections. Each is a small dataclass with
+    # its own defaults so callers that don't set them in TOML still
+    # get correct behavior. The loader (build_gui_config below)
+    # builds these from `[gui.vision]` / `[gui.trust]` /
+    # `[gui.preview]` / `[gui.geometry]` TOML sections.
+    vision: GuiVisionConfig = field(default_factory=GuiVisionConfig)
+    trust: GuiTrustConfig = field(default_factory=GuiTrustConfig)
+    preview: GuiPreviewConfig = field(default_factory=GuiPreviewConfig)
+    geometry: GuiGeometryConfig = field(default_factory=GuiGeometryConfig)
 
 
 @dataclass(frozen=True)
@@ -833,12 +891,54 @@ def _build_agent_graph_config(raw: dict) -> AgentGraphConfig:
 
 def _build_gui_config(raw: dict) -> GuiConfig:
     section = raw.get("gui", {})
+    # Fix V (v6.15) — build the 4 nested sub-configs. Each is optional in
+    # the TOML; absence → dataclass defaults kick in.
+    vision_section = section.get("vision", {})
+    trust_section = section.get("trust", {})
+    preview_section = section.get("preview", {})
+    geometry_section = section.get("geometry", {})
     return GuiConfig(
         enabled=section.get("enabled", True),
         screenshot_dir=section.get("screenshot_dir", "/tmp/icebreaker-gui"),
         screenshot_retention=section.get("screenshot_retention", 50),
         prefer_app_api=section.get("prefer_app_api", True),
         a11y_timeout_ms=section.get("a11y_timeout_ms", 5000),
+        vision=GuiVisionConfig(
+            enabled=vision_section.get("enabled", True),
+            backend=vision_section.get("backend", "gemini/gemini-2.5-flash"),
+            fallback_backend=vision_section.get(
+                "fallback_backend", "anthropic/claude-haiku-4-5",
+            ),
+            max_elements_per_parse=vision_section.get(
+                "max_elements_per_parse", 50,
+            ),
+            cost_ceiling_usd_per_turn=vision_section.get(
+                "cost_ceiling_usd_per_turn", 0.01,
+            ),
+            cache_ttl_seconds=vision_section.get("cache_ttl_seconds", 2.0),
+            retry_on_malformed_json=vision_section.get(
+                "retry_on_malformed_json", 1,
+            ),
+        ),
+        trust=GuiTrustConfig(
+            enabled=trust_section.get("enabled", True),
+            store_path=trust_section.get(
+                "store_path", "/var/lib/icebreaker/gui_trust.jsonl",
+            ),
+            defaults_dir=trust_section.get(
+                "defaults_dir", "/etc/icebreaker/gui_trust.d",
+            ),
+        ),
+        preview=GuiPreviewConfig(
+            enabled=preview_section.get("enabled", True),
+            notify_urgency=preview_section.get("notify_urgency", "low"),
+            preview_ttl_seconds=preview_section.get("preview_ttl_seconds", 5),
+        ),
+        geometry=GuiGeometryConfig(
+            hidpi_scale_override=geometry_section.get(
+                "hidpi_scale_override", 0,
+            ),
+        ),
     )
 
 

@@ -143,16 +143,55 @@ if [ "$LEVEL" -ge 3 ]; then
         [ -f "${CHROOT}/etc/udev/rules.d/10-uinput.rules" ] \
             && pass "F-101: uinput udev rule installed" \
             || fail "F-101: /etc/udev/rules.d/10-uinput.rules missing — RPA input synthesis will fail"
-        # iceui MCP server self-test — verifies handshake + 12 tools.
+        # iceui MCP server self-test — verifies handshake + 24 tools
+        # (v6.14 shipped 12; v6.15 Fix V.4 added 12 → total 24).
         # Cannot use in_chroot() here because it discards stdout+stderr,
-        # so the pipe to grep would always read empty and fail.
+        # so the pipe to grep would always read empty and fail (F-101.2).
         # Run chroot directly so the self-test output (which goes to
         # stderr via file=sys.stderr) reaches grep.
         if chroot "$CHROOT" bash -c "$VENV_PY -m controller.mcp_gui_server --self-test 2>&1" \
-                | grep -q "self-test OK"; then
-            pass "F-101: iceui MCP server --self-test OK (12 tools)"
+                | grep -q "24 tools"; then
+            pass "F-103: iceui MCP server --self-test OK (24 tools)"
         else
-            fail "F-101: iceui MCP server self-test failed — handshake or tools/list broken"
+            fail "F-103: iceui MCP server self-test failed — expected '24 tools' in output (v6.15 Fix V.4 registered 12 new tools; count mismatch = drift)"
+        fi
+
+        # ── F-103 (Fix V.6c): vision-actuation backend + config knobs ──
+        check_exec /usr/bin/xdotool "F-103: xdotool missing — Fix V input_synth cannot spawn mouse+kb events (packages-desktop.txt regression)"
+
+        # F-105 (Fix V.3c): trust store defaults JSONL must be shipped
+        # in the ISO so the trust-store auto-approves the safe read-only
+        # tool set (gui.hover, gui.parse_screen, etc.) instead of every
+        # single grounded action prompting HITL.
+        [ -f "${CHROOT}/etc/icebreaker/gui_trust.d/defaults.jsonl" ] \
+            || [ -f "${CHROOT}/etc/icebreaker/gui_trust.d/00-defaults.jsonl" ] \
+            && pass "F-105: gui_trust.d/defaults present" \
+            || fail "F-105: gui_trust.d/defaults.jsonl (or 00-defaults.jsonl) missing — Fix V trust store starts empty, every grounded action would prompt HITL"
+
+        # F-105 (Fix V.3c): the ib-trust CLI shipped for users to
+        # inspect + manage grants via `ib-trust list / add / revoke`.
+        check_exec /usr/local/bin/ib-trust "F-105: /usr/local/bin/ib-trust missing — users have no way to manage the trust store"
+
+        # F-103 (Fix V.1): vision.py self-test — smoke that VisionGrounder
+        # can be imported + does a canned mock parse. Doesn't hit the
+        # network — only verifies the module wiring.
+        if chroot "$CHROOT" bash -c "$VENV_PY -m gui_agent.vision --self-test 2>&1" \
+                | grep -q "vision OK"; then
+            pass "F-103: gui_agent.vision --self-test OK (VisionGrounder importable + parseable)"
+        else
+            fail "F-103: gui_agent.vision --self-test failed — VisionGrounder wiring broken"
+        fi
+
+        # F-107 (Fix V.6a): pre-existing Landlock bit-value bug fix
+        # regression guard. If a refactor reverts the constants, this
+        # smoke gate + the unit test test_sandbox_landlock_bits.py
+        # both fail. `1` here is LANDLOCK_ACCESS_FS_EXECUTE per kernel
+        # UAPI include/uapi/linux/landlock.h.
+        if chroot "$CHROOT" bash -c "$VENV_PY -c 'from gui_agent.sandbox import _LANDLOCK_ACCESS_FS_EXECUTE; assert _LANDLOCK_ACCESS_FS_EXECUTE == 1, _LANDLOCK_ACCESS_FS_EXECUTE' 2>&1" \
+                | grep -qv "AssertionError\|Traceback"; then
+            pass "F-107: gui_agent.sandbox Landlock bit values match kernel UAPI"
+        else
+            fail "F-107: gui_agent.sandbox Landlock bit-value regression — _LANDLOCK_ACCESS_FS_EXECUTE must equal 1<<0 per kernel"
         fi
         # F-96 regression guard: icebreaker-oc-terminal wrapper must ship
         # alongside icebreaker-oc so the .desktop's Exec= (which invokes

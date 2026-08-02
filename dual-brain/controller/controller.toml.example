@@ -235,3 +235,33 @@ timeout_seconds = 30
 #     "~/.local/share/icebreaker/models",    # user pool
 #     "/var/lib/icebreaker/models",          # system pool (Phase 6)
 # ]
+
+
+# ── Fix V (v6.15) — vision-grounded UI automation ─────────────────────────
+#
+# The 4 [gui.*] sub-sections below tune the vision layer. All keys are
+# optional — omit any section to accept the defaults shown here (also
+# hard-coded in dual-brain/controller/config.py Gui{Vision,Trust,Preview,
+# Geometry}Config dataclasses).
+#
+# [gui.vision]
+# enabled = true
+# backend = "gemini/gemini-2.5-flash"          # LiteLLM primary
+# fallback_backend = "anthropic/claude-haiku-4-5"  # rate-limit fallback
+# max_elements_per_parse = 50
+# cost_ceiling_usd_per_turn = 0.01             # BP-10 governance
+# cache_ttl_seconds = 2.0                      # dedup consecutive parses
+# retry_on_malformed_json = 1
+#
+# [gui.trust]
+# enabled = true
+# store_path   = "/var/lib/icebreaker/gui_trust.jsonl"
+# defaults_dir = "/etc/icebreaker/gui_trust.d"
+#
+# [gui.preview]
+# enabled = true
+# notify_urgency = "low"      # "low" | "normal" | "critical"
+# preview_ttl_seconds = 5     # desktop notification dwell time
+#
+# [gui.geometry]
+# hidpi_scale_override = 0    # 0 = auto (xrandr); positive forces scale
