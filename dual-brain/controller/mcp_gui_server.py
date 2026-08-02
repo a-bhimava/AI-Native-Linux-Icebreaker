@@ -193,6 +193,50 @@ def _handle_tools_list(msg_id: Any, _params: dict) -> dict:
     return _make_result_response(msg_id, {"tools": _build_tools_list()})
 
 
+# V.6f (2026-08-02) — module-level config cache. Loaded lazily on
+# first _handle_tools_call. See _get_gui_cfg / _get_rpa_cfg below.
+# CT-scan P0-3 remediation: pre-V.6f this file hardcoded cfg=None
+# when calling _dispatch_in_subprocess, so the entire
+# [gui.vision]/[gui.trust]/[gui.preview]/[gui.geometry] TOML surface
+# was silently ignored on the OC edition dispatch path.
+_CONFIG_CACHE: dict = {"loaded": False, "gui": None, "rpa": None}
+
+
+def _get_cfg_for_kind(kind: str) -> Any:
+    """Return the Gui/RpaConfig instance for this dispatch kind, loaded
+    from `~/.config/icebreaker/controller.toml` (or $XDG_CONFIG_HOME).
+    Falls back to dataclass defaults if the config file doesn't exist
+    or fails to parse — the MCP server MUST boot even if config is
+    broken, otherwise every tool call hard-fails."""
+    if not _CONFIG_CACHE["loaded"]:
+        try:
+            from .config import load, GuiConfig, RpaConfig
+            cfg = load()
+            _CONFIG_CACHE["gui"] = cfg.gui
+            _CONFIG_CACHE["rpa"] = cfg.rpa
+        except Exception as exc:  # noqa: BLE001
+            # Missing config file, bad TOML, schema violation — log
+            # once and fall back to dataclass defaults so we don't
+            # take the MCP server down.
+            try:
+                from .config import GuiConfig, RpaConfig
+                _CONFIG_CACHE["gui"] = GuiConfig()
+                _CONFIG_CACHE["rpa"] = RpaConfig()
+            except Exception:  # noqa: BLE001
+                # Even the imports failed — pass empty dict and let
+                # gui_worker use its own hardcoded defaults.
+                _CONFIG_CACHE["gui"] = None
+                _CONFIG_CACHE["rpa"] = None
+            import sys as _sys
+            print(
+                f"mcp_gui_server: config load failed "
+                f"({type(exc).__name__}: {exc}); using dataclass defaults",
+                file=_sys.stderr, flush=True,
+            )
+        _CONFIG_CACHE["loaded"] = True
+    return _CONFIG_CACHE["gui"] if kind == "gui" else _CONFIG_CACHE["rpa"]
+
+
 def _handle_tools_call(msg_id: Any, params: dict) -> dict:
     tool_name = params.get("name") or ""
     arguments = params.get("arguments") or {}
@@ -207,11 +251,13 @@ def _handle_tools_call(msg_id: Any, params: dict) -> dict:
     # Delegate to the existing subprocess dispatcher — same code path
     # the current-edition controller uses. Handles timeout, spawn
     # failure, non-zero exit, parse error. Never raises.
+    # V.6f: pass the loaded [gui]/[rpa] TOML section so downstream
+    # [gui.vision] etc are honored on the OC edition too (CT-scan P0-3).
     from .agent_graph_nodes import _dispatch_in_subprocess
     envelope = _dispatch_in_subprocess(
         kind=kind,
         tool_call={"tool": tool_name, "params": arguments},
-        cfg=None,  # no config threading for MVP; both agents accept None
+        cfg=_get_cfg_for_kind(kind),
         timeout_s=15.0,  # slightly longer than dispatcher's 10s to survive
                         # slow AT-SPI enumeration on cold Firefox windows
     )

@@ -623,9 +623,27 @@ def _config_to_dict(cfg: Any) -> dict:
     """Serialize a Gui/RpaConfig dataclass instance to a plain dict so
     the subprocess can rebuild a SimpleNamespace from it. Only public
     (non-underscore, non-callable) fields are serialized. Returns {}
-    when cfg is None."""
+    when cfg is None.
+
+    V.6f (2026-08-02): nested dataclass fields (e.g. GuiConfig.vision =
+    GuiVisionConfig(...)) are recursively converted via
+    ``dataclasses.asdict()`` so `[gui.vision]` / `[gui.trust]` /
+    `[gui.preview]` / `[gui.geometry]` sub-sections reach the agent
+    subprocess. Pre-V.6f, nested dataclasses were coerced to `str(v)`
+    which produced a repr string the agent couldn't parse — the
+    entire `[gui.vision]` etc surface was silently ignored on the OC
+    edition. CT-scan P0-3.
+    """
     if cfg is None:
         return {}
+    # Fast path: if the whole thing is a dataclass instance, asdict()
+    # gives us the recursive-nested-dict form directly.
+    import dataclasses
+    if dataclasses.is_dataclass(cfg) and not isinstance(cfg, type):
+        try:
+            return dataclasses.asdict(cfg)
+        except Exception:  # noqa: BLE001
+            pass  # fall through to the field-by-field walk below
     out: dict = {}
     for name in dir(cfg):
         if name.startswith("_"):
@@ -639,6 +657,19 @@ def _config_to_dict(cfg: Any) -> dict:
         # Coerce Path / other exotic types to str for JSON round-trip.
         if isinstance(v, (str, int, float, bool)) or v is None:
             out[name] = v
+        elif dataclasses.is_dataclass(v):
+            # Nested dataclass field — recurse into it so
+            # [gui.vision]/[gui.trust]/... reach the child.
+            try:
+                out[name] = dataclasses.asdict(v)
+            except Exception:  # noqa: BLE001
+                pass
+        elif isinstance(v, (list, tuple)):
+            # Preserve simple sequences of primitives.
+            try:
+                out[name] = [x for x in v if isinstance(x, (str, int, float, bool))]
+            except Exception:  # noqa: BLE001
+                pass
         else:
             try:
                 out[name] = str(v)
