@@ -78,13 +78,21 @@ Split into V.4a / V.4b / V.4c / V.4d / V.4e per user request for maximum bisect 
 
 Where in code: `dual-brain/gui_agent/protocol.py`, `dual-brain/gui_agent/agent.py`, `dual-brain/controller/mcp_gui_server.py`. Tests split into `test_protocol_v.py` (59), `test_agent_v_raw.py` (18), `test_agent_v_parse.py` (19), `test_agent_v_grounded.py` (19), plus 2 new mcp_gui_server tests + 3 updated — **117 new/updated tests for V.4 alone**. Full suite: 371 passed, 1 skipped.
 
-### V.5 — `annotated_screenshot` HITL presenter (current edition GTK)
+### V.5 — annotated_screenshot HITL presenter (shipped 2026-08-02, split into 3 sub-commits)
 
-- **What ships:** the polished half of the preview UX. Current-edition users get a GTK4 modal with the annotated PNG rendered inline, "Approve" / "Deny" buttons with 3s Fitts-compliant lockout (BP-4), keyboard shortcuts. OC edition already got `notify-send` from V.3; current edition uses the presenter registry that already exists.
-- **How it's built:** new `dual-brain/controller/presenters/annotated_screenshot.py` implements the existing `HitlPresenter` ABC (`hitl.py:165`), decorated `@register_presenter("annotated_screenshot")`. Extends `HitlDisplayData` with an optional `preview_image_path` field. Reuses `presenters/gtk.py::GtkPresenter`'s Approve/Deny scaffolding — inherits the lockout timer, keyboard shortcuts, and screen-reader hooks for free.
-- **Selection:** users pick this presenter via `[hitl] presenter = "annotated_screenshot"` in `controller.toml`. Old presenters (terminal, gtk, screen_reader) still work — this is an *addition*, not a replacement.
-- **Where in code:** `dual-brain/controller/presenters/annotated_screenshot.py`, extension of `hitl.py::HitlDisplayData`.
-- **Tests:** 2+ unit tests — presenter renders with preview when field is set, degrades gracefully to text-only when absent.
+Refined vs the original one-liner after research probes (codebase Explore + GTK4/LibAdwaita docs). Key change: **subclass the existing `LibAdwaitaHitlPresenter`, not the older `GtkPresenter`** — inherits ~250 LOC of visual `Gtk.ProgressBar` lockout + tier-colored `Adw.HeaderBar` badge + COW diff pane + full keymap for free.
+
+**V.5a — `HitlDisplayData.preview_image_path` field + sanitizer** (SHA `818d0fe`, 23 tests): adds `preview_image_path: Optional[str] = None` to the frozen dataclass. `_sanitize_preview_path()` enforces four rules — must be str, absolute path with no `..`, resolves under `/tmp/icebreaker-gui/`, ends in `.png`. Invalid input → silent drop to `None` so the HITL prompt still fires with fallback text. First defense layer against a compromised agent setting `preview_image_path="/root/.ssh/id_rsa.png"`.
+
+**V.5b — `annotated_screenshot` presenter subclass** (SHA `7a68133`, 13 tests): tiny 3-line hook added to parent `_run_dialog` (`_add_extra_content(vbox, data)` — no-op by default). Subclass overrides that hook to inject `Gtk.Picture.new_for_filename(path)` with `content-fit=CONTAIN` + 400px height cap + `Gtk.ScrolledWindow` wrap + `Adw.PreferencesGroup` "Preview" card + Orca-friendly a11y label. All 39 pre-existing dialog tests still pass — hook addition is regression-safe. Registration via `@register_presenter("annotated_screenshot")` — additive, doesn't touch existing `libadwaita`. Wired through `controller/presenters/__init__.py` with try/except so headless daemons don't crash. `controller.toml.example` documents the new option alongside `terminal | screen_reader | gtk | libadwaita`.
+
+**V.5c — Rollup doc update** (this commit): ledger updated with V.5a/b SHAs + test counts + the "caller wiring deferred to V.6" caveat.
+
+**Caller wiring is DEFERRED to V.6.** V.5 ships the presenter + data field only. The caller-wiring path — how `preview_image_path` threads from `agent_graph_nodes.py::mcpd_dispatcher_node` into `HitlDisplayData` at HITL-fire time — is a real architectural change worth its own bisect surface. The presenter is functional today; it just needs a caller to populate the field.
+
+Where in code: `dual-brain/controller/hitl.py` (data field + sanitizer), `dual-brain/gui/hitl/dialog.py` (3-line hook), `dual-brain/gui/hitl/annotated_dialog.py` (NEW ~150 LOC subclass), `dual-brain/controller/presenters/__init__.py` (registration import), `dual-brain/controller/controller.toml.example` (documented option). Tests: `controller/tests/test_hitl_display_data.py` (23), `gui/tests/test_hitl_annotated_dialog.py` (13) — **36 new tests for V.5**, plus 39 pre-existing dialog + 11 pre-existing hitl tests still green.
+
+Anti-patterns from GTK4 research explicitly avoided: `Gtk.MessageDialog` (deprecated), `Gtk.Image` for photos (icon-only, would produce a thumb), `time.sleep()` for lockout (freezes UI — parent uses `GLib.timeout_add`, inherited), `gtk4-layer-shell` for "always on top" (Mutter ignores it — modal + transient-for is the only real answer, parent handles), `present()` from non-GTK thread (parent handles thread spawn + `threading.Event` blocking, inherited).
 
 ### V.6 — Build wiring: sandbox + packages + smoke-gate + docs + GT rows
 
@@ -128,7 +136,9 @@ Where in code: `dual-brain/gui_agent/protocol.py`, `dual-brain/gui_agent/agent.p
 | **V.4c** agent parse_screen handler + notify-send | ✅ shipped 2026-08-01 | `344ccc1` | 19 green |
 | **V.4d** agent grounded_* orchestrators | ✅ shipped 2026-08-01 | `a80d24f` | 19 green |
 | **V.4e** mcp_gui_server registration + count bump | ✅ shipped 2026-08-01 | `b01ea51` | 15 green |
-| **V.5** annotated_screenshot presenter | pending | — | — |
+| **V.5a** HitlDisplayData.preview_image_path field + sanitizer | ✅ shipped 2026-08-02 | `818d0fe` | 23 green |
+| **V.5b** annotated_screenshot presenter subclass | ✅ shipped 2026-08-02 | `7a68133` | 13 green (+ 39 parent tests still green) |
+| **V.5c** rollup doc update | ✅ shipped 2026-08-02 | *(this commit)* | n/a |
 | **V.6** sandbox + packages + smoke-gate + docs | pending | — | — |
 | **V.7** live tests + Xvfb fixtures | pending | — | — |
 | **V.8** hot-patch + rebuild + UTM verify | pending | — | — |
