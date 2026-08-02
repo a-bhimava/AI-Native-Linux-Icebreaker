@@ -1,4 +1,5 @@
 # Shipped defaults for the GUI trust store (Fix V.3c / v6.15).
+# F-51 marker: F-105-defaults (per incremental/GROUND_TRUTH.md F-105).
 # Installed to /etc/icebreaker/gui_trust.d/00-defaults.jsonl at ISO build time.
 # Every line is a JSON object with fields:
 #   app         — wildcard-capable ("*" or "prefix*" or exact); required

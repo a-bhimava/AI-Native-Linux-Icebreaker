@@ -1,5 +1,7 @@
 """Monitor layout + HiDPI translation for Fix V.
 
+F-51 marker: F-106-geometry (per incremental/GROUND_TRUTH.md F-106).
+
 The VLM (Gemini vision) returns coordinates in the pixel space of the
 image it received — which is the screenshot's PHYSICAL resolution.
 Xdotool + AT-SPI operate in the X server's LOGICAL coordinate space.

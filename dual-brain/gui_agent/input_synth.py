@@ -1,5 +1,7 @@
 """Keyboard + mouse synthesis via ``xdotool`` for Fix V.
 
+F-51 marker: F-103-input-synth (per incremental/GROUND_TRUTH.md F-103).
+
 Wraps ``xdotool`` in a narrow, allowlisted, timeout-bounded API. The
 GuiAgent (see ``agent.py``) calls these from its ``_handle_click_at_coords``,
 ``_handle_type_at_coords``, ``_handle_drag`` etc. handlers.

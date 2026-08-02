@@ -1,5 +1,7 @@
 """Landlock + Seccomp sandbox for the GUI Agent process.
 
+F-51 marker: F-107-landlock-bits (per incremental/GROUND_TRUTH.md F-107).
+
 Applied BEFORE any D-Bus connection (INV-5). On failure, the process
 exits — never runs unsandboxed.
 

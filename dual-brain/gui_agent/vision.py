@@ -1,5 +1,7 @@
 """Vision-grounding for GUI automation (Fix V / v6.15).
 
+F-51 marker: F-103-vision (per incremental/GROUND_TRUTH.md F-103).
+
 Cloud VLM (Gemini 2.5 Flash vision primary, Claude Haiku 4.5 fallback)
 turns a screenshot into a structured list of clickable elements with
 pixel boxes + captions + kind. Consumed by ``gui_agent.agent.GuiAgent``'s

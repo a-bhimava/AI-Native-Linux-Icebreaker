@@ -1,5 +1,7 @@
 """`ib-trust` — CLI to inspect + manage the GUI trust store.
 
+F-51 marker: F-105-cli (per incremental/GROUND_TRUTH.md F-105).
+
 Discoverable single-command entry point. `ib-trust` with no args
 prints help + current active grants at a glance (no-op-safe browse
 before the user has to type anything specific).

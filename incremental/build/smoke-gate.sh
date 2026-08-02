@@ -187,8 +187,15 @@ if [ "$LEVEL" -ge 3 ]; then
         # smoke gate + the unit test test_sandbox_landlock_bits.py
         # both fail. `1` here is LANDLOCK_ACCESS_FS_EXECUTE per kernel
         # UAPI include/uapi/linux/landlock.h.
-        if chroot "$CHROOT" bash -c "$VENV_PY -c 'from gui_agent.sandbox import _LANDLOCK_ACCESS_FS_EXECUTE; assert _LANDLOCK_ACCESS_FS_EXECUTE == 1, _LANDLOCK_ACCESS_FS_EXECUTE' 2>&1" \
-                | grep -qv "AssertionError\|Traceback"; then
+        #
+        # V.6e (2026-08-02) — F-101.2-style fix for THIS assertion:
+        # prior implementation used `python … 2>&1 | grep -qv "…"` which
+        # inverted the semantics on empty stdout (grep -qv on empty
+        # returns exit 1 → fail branch fires on green builds). Now use
+        # the Python exit code directly: `assert` inside the -c script
+        # raises SystemExit(1) on failure, 0 on success. `if chroot …`
+        # branches correctly on that.
+        if chroot "$CHROOT" bash -c "$VENV_PY -c 'from gui_agent.sandbox import _LANDLOCK_ACCESS_FS_EXECUTE; assert _LANDLOCK_ACCESS_FS_EXECUTE == 1, _LANDLOCK_ACCESS_FS_EXECUTE' >/dev/null 2>&1"; then
             pass "F-107: gui_agent.sandbox Landlock bit values match kernel UAPI"
         else
             fail "F-107: gui_agent.sandbox Landlock bit-value regression — _LANDLOCK_ACCESS_FS_EXECUTE must equal 1<<0 per kernel"

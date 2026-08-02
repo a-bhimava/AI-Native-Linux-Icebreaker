@@ -1,5 +1,7 @@
 """Persistent per-app-per-tool trust store for grounded UI actions.
 
+F-51 marker: F-105-trust (per incremental/GROUND_TRUTH.md F-105).
+
 UX inspired by iOS 14+ tri-state permissions ("Allow Once" / "Allow
 While Using" / "Don't Allow"), 1Password domain-scoped autofill trust,
 and Chrome's per-origin permission chips. The goal: turn opencode's

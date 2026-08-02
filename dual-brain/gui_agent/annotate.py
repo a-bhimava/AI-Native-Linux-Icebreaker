@@ -1,5 +1,7 @@
 """Annotated-screenshot rendering for Fix V.
 
+F-51 marker: F-104-annotate (per incremental/GROUND_TRUTH.md F-104).
+
 Turns a raw screenshot + a parsed element list into a PNG the user
 sees on their desktop *before* any grounded action fires. Non-blocking
 recognition-over-recall UX inspired by Anthropic Computer Use previews,
