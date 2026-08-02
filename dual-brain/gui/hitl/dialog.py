@@ -98,6 +98,14 @@ class LibAdwaitaHitlPresenter(HitlPresenter):
 
         return self._decision
 
+    def _add_extra_content(self, vbox: object, data: HitlDisplayData) -> None:
+        """Subclass hook — inject widgets after Operation Details and
+        before RPA/COW/lockout sections. Base implementation is a no-op
+        so the standard `libadwaita` presenter behavior is unchanged.
+        Called from within the GTK main thread (safe to touch widgets).
+        """
+        return None
+
     def _set_decision(self, decision: Decision, key_class: str, app: object) -> None:
         self._decision = decision
         self._last_key_class = key_class
@@ -174,6 +182,15 @@ class LibAdwaitaHitlPresenter(HitlPresenter):
                 details_group.add(blocked_row)
 
             vbox.append(details_group)
+
+            # V.5b hook (2026-08-02): subclasses can inject additional
+            # widgets AFTER the Operation Details group but BEFORE the
+            # RPA / COW / lockout / buttons sections. Base implementation
+            # is a no-op — behavior for the standard `libadwaita`
+            # presenter is unchanged. See annotated_dialog.py for the
+            # V.5b `annotated_screenshot` subclass that overrides this
+            # to render an inline Gtk.Picture preview.
+            self._add_extra_content(vbox, data)
 
             # -- RPA keyword preview --
             if data.rpa_keyword_preview:

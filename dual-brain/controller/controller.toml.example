@@ -85,7 +85,18 @@ timeout_seconds = 30
 # [hitl]
 # lockout_seconds = 3     # seconds the Approve button is disabled (INV-6 minimum: 1)
 # timeout_seconds = 30    # seconds before auto-deny
-# presenter = "terminal"  # "terminal" | "screen_reader" | "gtk" (requires PyGObject)
+# presenter = "terminal"  # options below
+#
+# Available:
+#   - "terminal"              — TTY prompt with cbreak keyboard input (default)
+#   - "screen_reader"         — Accessible plain-text output for Orca/NVDA users
+#   - "gtk"                   — Basic GTK4 modal (PyGObject required)
+#   - "libadwaita"            — LibAdwaita modal w/ visual lockout + COW diff
+#                                (PyGObject + libadwaita required)
+#   - "annotated_screenshot"  — v6.15 Fix V: LibAdwaita modal + inline
+#                                annotated screenshot preview when the
+#                                HITL prompt carries a preview_image_path
+#                                (e.g. from grounded vision actions)
 # trust_ttl_seconds = 0   # 0 = [T]rust disabled (default); set > 0 to enable trust grants
 
 
