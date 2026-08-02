@@ -94,13 +94,19 @@ Where in code: `dual-brain/controller/hitl.py` (data field + sanitizer), `dual-b
 
 Anti-patterns from GTK4 research explicitly avoided: `Gtk.MessageDialog` (deprecated), `Gtk.Image` for photos (icon-only, would produce a thumb), `time.sleep()` for lockout (freezes UI — parent uses `GLib.timeout_add`, inherited), `gtk4-layer-shell` for "always on top" (Mutter ignores it — modal + transient-for is the only real answer, parent handles), `present()` from non-GTK thread (parent handles thread spawn + `threading.Event` blocking, inherited).
 
-### V.6 — Build wiring: sandbox + packages + smoke-gate + docs + GT rows
+### V.6 — Build wiring + F-107 pre-existing sandbox bug fix (shipped 2026-08-02, split into 4 sub-commits)
 
-- **What ships:** everything that makes v6.15 install correctly on a fresh ISO. `gui_agent/sandbox.py` gets seccomp allowlist entries for `execve` of `/usr/bin/xdotool` + `/usr/bin/notify-send` + `/usr/bin/xrandr`, plus Landlock rules for the trust-store path and preview dir. `packages-desktop.txt` adds `xdotool` (~200 KB). `smoke-gate.sh` L3 grows 5 new assertions: tool_count=24, xdotool present, trust defaults present, `ib-trust list` runs, `python -m controller.gui_agent.vision --self-test` returns "vision OK". `GROUND_TRUTH.md` gets F-103..F-106 rows (per BP-13 no-repeat-regressions discipline).
-- **How it's built:** each of these is a small, isolated wiring change — 5-30 lines each, no logic. The `packages-desktop.txt` addition is a one-time base-cache rebuild (~60 min) on the GCP build VM.
-- **Config keys:** `[gui.vision]`, `[gui.trust]`, `[gui.preview]`, `[gui.geometry]` sections added to `controller.toml` schema in `controller/config.py`, each with `enabled` toggles for surgical rollback.
-- **Where in code:** `dual-brain/gui_agent/sandbox.py`, `incremental/build/packages-desktop.txt`, `incremental/build/smoke-gate.sh`, `dual-brain/controller/config.py`, `incremental/GROUND_TRUTH.md`.
-- **Tests:** the smoke-gate assertions ARE the tests — they run on every ISO build and fail-close if the wiring drifts. Plus regression guards for sandbox denials.
+Split into V.6a / V.6b / V.6c / V.6d per the standard fine-grained pattern.
+
+**V.6a — Sandbox + xdotool + F-107 bit-value fix** (SHA `68179e0`, 51 tests): three logically-inseparable changes: (1) add `xdotool` to `packages-desktop.txt` (~200 KB); (2) widen `gui_agent/sandbox.py` Landlock ruleset with `/usr` + `/lib` + `/lib64` + `/opt/icebreaker` at `READ_EXEC` so input_synth can spawn xdotool/notify-send/xrandr, plus `/etc` + `/var/lib/icebreaker` + `/proc` + `/sys` + `/dev` + `/run` + `/tmp` at `READ_ONLY`; (3) flip seccomp from `execve DENY` to `execve ALLOW` (Landlock now gates exec by path) while keeping `execveat DENIED` (exec-by-fd escape vector). **Also fixes F-107**: pre-existing security-critical bug where every `LANDLOCK_ACCESS_FS_*` bit constant in `gui_agent/sandbox.py` + `rpa_bridge/sandbox.py` was wrong (code said `READ_FILE=1<<0` when kernel UAPI says `EXECUTE=1<<0`; 6 of 7 constants mislabeled). Practical impact of the pre-fix bug: `$HOME "read-only"` was actually granted `EXECUTE + WRITE_FILE`; `handled_access_fs` omitted READ_FILE/READ_DIR/MAKE_DIR bits → those were silently unrestricted globally. Fixed by rewriting constants + composite masks against kernel UAPI + adding 26 parametrized bit-value tests + belt-and-braces `test_no_bare_wrong_shifts_in_landlock_context`. `rpa_bridge/sandbox.py` gets bit-value fix ONLY — seccomp posture unchanged to avoid accidentally unblocking Selenium's geckodriver spawn. **CRITICAL:** commit body includes a 7-step V.8 UTM verification protocol that must run on the hot-patched guest before rebuild — Landlock now actually restricts reads/dir-ops that were silently unrestricted before, so missed path allowlists = EACCES on the running guest.
+
+**V.6b — HitlPrompt caller wiring** (SHA `3013e7f`, 6 tests): threads the V.5a `HitlDisplayData.preview_image_path` field through `HitlPrompt.__init__` → `_build_display_data()`. Full backward compat (kwarg defaults to None). V.5a's dataclass sanitizer fires automatically at the layer below. Full end-to-end population (grounded_click → HITL modal with preview PNG) deferred to v6.16 architectural change — current-edition tier-2 gate fires HITL at controller level BEFORE the agent runs parse, so the PNG doesn't exist yet at ask time. V.6b lays the plumbing so any caller with a preview path can supply it today.
+
+**V.6c — Config sections + smoke-gate assertions** (SHA `47d90ec`, 16 tests): four new frozen dataclasses (`GuiVisionConfig` / `GuiTrustConfig` / `GuiPreviewConfig` / `GuiGeometryConfig`) attached as nested fields on `GuiConfig`. TOML schema (`controller_config.json`) grows 4 new `additionalProperties: false` sub-objects under `gui.properties` — typos surface as schema errors. `_build_gui_config()` extended to build each sub-config from its TOML section with `.get()` defaults. `controller.toml.example` documents the new sections. `smoke-gate.sh` L3 gains 5 new assertions: iceui self-test says `"24 tools"` (bumped from 12), `check_exec /usr/bin/xdotool`, `gui_trust.d/defaults.jsonl` present, `check_exec /usr/local/bin/ib-trust`, `gui_agent.vision --self-test` returns `"vision OK"`, F-107 regression guard (`_LANDLOCK_ACCESS_FS_EXECUTE == 1`).
+
+**V.6d — Docs + GROUND_TRUTH rows** (this commit): new `docs/vision_automation.md` (privacy + trust doctrine — what leaves the machine, cost governance, four-tier trust semantics, HiDPI story, security posture summary, rollback). `incremental/GROUND_TRUTH.md` gains 5 new failure-log rows: F-103 (vision-grounded UI automation main fix), F-104 (notify-send annotated preview UX), F-105 (trust store with iOS-tier semantics), F-106 (HiDPI/multi-monitor coord translation), F-107 (Landlock bit-value bug fix + regression discipline lesson). Rollup doc ledger updated with the 4 V.6 SHAs.
+
+Where in code: `dual-brain/gui_agent/sandbox.py`, `dual-brain/rpa_bridge/sandbox.py`, `incremental/build/packages-desktop.txt`, `dual-brain/controller/hitl.py`, `dual-brain/controller/config.py`, `dual-brain/controller/schemas/controller_config.json`, `dual-brain/controller/controller.toml.example`, `incremental/build/smoke-gate.sh`, `docs/vision_automation.md`, `incremental/GROUND_TRUTH.md`. Tests: 26 F-107 bit-value + 6 sandbox composite masks + 6 HitlPrompt preview + 16 GuiConfig sub-sections — **54 new tests for V.6 alone**.
 
 ### V.7 — Live tests (5 cases) + Xvfb fixtures
 
@@ -139,7 +145,10 @@ Anti-patterns from GTK4 research explicitly avoided: `Gtk.MessageDialog` (deprec
 | **V.5a** HitlDisplayData.preview_image_path field + sanitizer | ✅ shipped 2026-08-02 | `818d0fe` | 23 green |
 | **V.5b** annotated_screenshot presenter subclass | ✅ shipped 2026-08-02 | `7a68133` | 13 green (+ 39 parent tests still green) |
 | **V.5c** rollup doc update | ✅ shipped 2026-08-02 | *(this commit)* | n/a |
-| **V.6** sandbox + packages + smoke-gate + docs | pending | — | — |
+| **V.6a** sandbox widen + xdotool + F-107 bit fix | ✅ shipped 2026-08-02 | `68179e0` | 51 green (incl 26 parametrized F-107) |
+| **V.6b** HitlPrompt caller wiring | ✅ shipped 2026-08-02 | `3013e7f` | 6 green |
+| **V.6c** [gui.vision/trust/preview/geometry] config + 5 smoke-gate assertions | ✅ shipped 2026-08-02 | `47d90ec` | 16 green |
+| **V.6d** docs (vision_automation.md) + GT F-103..F-107 | ✅ shipped 2026-08-02 | *(this commit)* | n/a |
 | **V.7** live tests + Xvfb fixtures | pending | — | — |
 | **V.8** hot-patch + rebuild + UTM verify | pending | — | — |
 
