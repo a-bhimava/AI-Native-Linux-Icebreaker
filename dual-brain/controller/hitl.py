@@ -119,6 +119,17 @@ class HitlDisplayData:
     blocked_pattern: Optional[str]
     cow_summary: Optional[str]
     rpa_keyword_preview: tuple[str, ...] = ()
+    # Fix V.5a (v6.15): optional annotated-screenshot PNG path for
+    # presenters that can render an inline visual preview
+    # (`annotated_screenshot` GTK modal — see gui/hitl/annotated_dialog.py).
+    # MUST live under /tmp/icebreaker-gui/ (the ScreenshotManager +
+    # annotate.render_annotated output dir with 0o600 perms). Anything
+    # else is silently dropped to None with a warning to prevent path
+    # injection into the dialog (a malicious agent path could point at
+    # /etc/passwd, /root/.ssh/id_rsa etc; the presenter would happily
+    # try to load and display them). This is the FIRST sanitize layer;
+    # V.5b adds a second one at the presenter's PNG-load call site.
+    preview_image_path: Optional[str] = None
 
     def __post_init__(self) -> None:
         for field_name in ("action", "target", "reason", "backend", "risk_level"):
@@ -135,6 +146,56 @@ class HitlDisplayData:
             object.__setattr__(self, "rpa_keyword_preview", tuple(
                 _sanitize_display(kw, max_len=120) for kw in self.rpa_keyword_preview
             ))
+        # V.5a: sanitize preview_image_path — allow ONLY paths under
+        # the /tmp/icebreaker-gui/ dir + .png suffix. Anything else
+        # → None (silent drop, not an exception, so a HITL prompt with
+        # a bad preview path still fires the modal with fallback text).
+        if self.preview_image_path is not None:
+            cleaned = _sanitize_preview_path(self.preview_image_path)
+            if cleaned != self.preview_image_path:
+                object.__setattr__(self, "preview_image_path", cleaned)
+
+
+_PREVIEW_ALLOWED_PARENT = "/tmp/icebreaker-gui"
+
+
+def _sanitize_preview_path(raw: Any) -> Optional[str]:
+    """Enforce that the preview path is a plausible screenshot PNG.
+
+    Returns the canonical absolute path if it passes; ``None`` otherwise.
+    We are extremely narrow on purpose — the presenter loads whatever we
+    pass into a `Gtk.Picture`, so a bad path can display arbitrary
+    filesystem contents to whoever sees the HITL modal.
+
+    Rules:
+    - Must be a str (not a Path or bytes).
+    - Must be an absolute path with no ``..`` segments after resolution.
+    - Must resolve to a location under ``/tmp/icebreaker-gui/``.
+    - Must end with ``.png``.
+    - Length capped at 4096 chars.
+    """
+    if not isinstance(raw, str) or not raw:
+        return None
+    if len(raw) > 4096:
+        return None
+    if not raw.endswith(".png"):
+        return None
+    try:
+        from pathlib import PurePosixPath
+        p = PurePosixPath(raw)
+        if not p.is_absolute():
+            return None
+        # Reject any relative traversal segments — even inside an
+        # absolute path a `..` can climb out.
+        if any(part == ".." for part in p.parts):
+            return None
+        parent = str(p.parent)
+        if not (parent == _PREVIEW_ALLOWED_PARENT
+                or parent.startswith(_PREVIEW_ALLOWED_PARENT + "/")):
+            return None
+        return str(p)
+    except (ValueError, OSError):
+        return None
 
 
 # ── cbreak context manager ────────────────────────────────────────────────
