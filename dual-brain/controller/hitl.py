@@ -488,6 +488,15 @@ class HitlPrompt:
         lockout_seconds: Optional[int] = None,
         timeout_seconds: Optional[int] = None,
         presenter: Optional[HitlPresenter] = None,
+        # V.6b (2026-08-02): optional annotated-screenshot preview
+        # PNG path for the `annotated_screenshot` presenter (V.5b).
+        # Sanitized by HitlDisplayData.__post_init__ (V.5a) — anything
+        # not under /tmp/icebreaker-gui/*.png is dropped to None.
+        # Population from grounded_* flow deferred to v6.16 architectural
+        # change (HITL currently fires at controller tier-2 gate BEFORE
+        # the agent runs parse). V.6b lays the plumbing so callers who
+        # DO have a preview path can supply it today.
+        preview_image_path: Optional[str] = None,
     ) -> None:
         self._intent = intent
         self._cls = classification
@@ -500,6 +509,7 @@ class HitlPrompt:
             timeout_seconds if timeout_seconds is not None else self.TIMEOUT_SECONDS
         )
         self._presenter: HitlPresenter = presenter or TerminalPresenter()
+        self._preview_image_path = preview_image_path
 
         self.decision_id: str = str(uuid.uuid4())
         self.key_pressed_class: str = ""
@@ -603,4 +613,5 @@ class HitlPrompt:
             reason=self._intent.get("reason", ""),
             blocked_pattern=self._cls.blocked_pattern,
             cow_summary=self._cow_summary,
+            preview_image_path=self._preview_image_path,
         )
