@@ -267,6 +267,40 @@ def _apply_landlock(home_dir: str, scratch_dir: str) -> None:
     # shouldn't be able to drop payloads outside scratch dir.
     _add_if_exists("/tmp", _LANDLOCK_READ_ONLY)
 
+    # V.6g (2026-08-02) — CT-scan R-1 remediation. Paths that Fix V
+    # subprocess + xdotool+Xlib+libraries need at runtime but the
+    # V.6a ruleset missed:
+    #
+    # /usr/local (READ_EXEC): user-installed libs + apps. Ubuntu 24.04
+    # doesn't put system stuff here by default, but pip --user
+    # installs land in ~/.local, and any operator-installed helper
+    # (e.g. custom xdotool build) lives under /usr/local/bin. Missing
+    # → EACCES on those libs' opens.
+    _add_if_exists("/usr/local", _LANDLOCK_READ_EXEC)
+
+    # /dev/shm (READ_WRITE): POSIX shared memory. Pillow allocates
+    # tempfile-backed shm segments for image mmaps; numpy uses shm
+    # for large arrays; python multiprocessing (if any dep uses it)
+    # needs /dev/shm/*. /dev itself is READ_ONLY above — this rule
+    # OVERLAPS + broadens to RW just for /dev/shm. Landlock allows
+    # this: more specific paths compose additively with the parent.
+    _add_if_exists("/dev/shm", _LANDLOCK_READ_WRITE)
+
+    # $HOME/.cache (READ_WRITE): Python packages cache aggressively —
+    # pip cache, matplotlib font cache, litellm model catalog cache,
+    # huggingface cache. $HOME above is READ_ONLY — this override
+    # opens .cache for writes. Same additive-composition pattern as
+    # /dev/shm.
+    home_cache = os.path.join(home_dir, ".cache")
+    if not os.path.isdir(home_cache):
+        # First run may not have created it yet — mkdir so Landlock
+        # can add the path. mode=0o700 to match XDG spec.
+        try:
+            os.makedirs(home_cache, mode=0o700, exist_ok=True)
+        except OSError:
+            pass
+    _add_if_exists(home_cache, _LANDLOCK_READ_WRITE)
+
     ret = libc.syscall(_SYS_landlock_restrict_self, ruleset_fd, 0)
     os.close(ruleset_fd)
     if ret < 0:

@@ -104,6 +104,16 @@ def _scrubbed_gui_env(
     return env
 
 
+def _log_trust_error(exc: BaseException) -> None:
+    """Best-effort log for trust-store errors — never crash the agent."""
+    import sys as _sys
+    print(
+        f"gui_agent: trust store failure ({type(exc).__name__}: {exc}); "
+        f"continuing without hard-deny check",
+        file=_sys.stderr, flush=True,
+    )
+
+
 def _by_id(elements, target_id: int):
     """Find an ElementBox by id. Returns None if not found."""
     for e in elements:
@@ -112,19 +122,31 @@ def _by_id(elements, target_id: int):
     return None
 
 
-def _try_notify_send(title: str, body: str, icon_path: str) -> bool:
-    """Fire `notify-send --icon=<png> title body`. Best-effort — returns
-    False on any failure so the caller can record notify_sent=False in
-    the audit chain without raising. Used by V.4c parse_screen so the
-    user sees the annotated preview on their desktop BEFORE any
-    grounded action's ask prompt lands.
+_VALID_NOTIFY_URGENCIES = frozenset({"low", "normal", "critical"})
+
+
+def _try_notify_send(
+    title: str, body: str, icon_path: str,
+    urgency: str = "low",
+) -> bool:
+    """Fire `notify-send --urgency=<u> --icon=<png> title body`.
+    Best-effort — returns False on any failure so the caller can record
+    notify_sent=False in the audit chain without raising. Used by V.4c
+    parse_screen so the user sees the annotated preview on their
+    desktop BEFORE any grounded action's ask prompt lands.
+
+    V.6g (2026-08-02): accepts `urgency` param so `[gui.preview]
+    notify_urgency` config actually takes effect. Invalid urgencies
+    fall back to "low" (safest default, no user disruption).
 
     Precedent: scripts/ib_bundle.py:635-650 uses the same pattern.
     """
     import subprocess as _sp
+    if urgency not in _VALID_NOTIFY_URGENCIES:
+        urgency = "low"
     try:
         proc = _sp.run(
-            ["notify-send", "--urgency=low",
+            ["notify-send", f"--urgency={urgency}",
              f"--icon={icon_path}", title, body],
             capture_output=True, timeout=2.0, check=False,
         )
@@ -180,6 +202,17 @@ class GuiAgent:
         # via _get_vision() below.
         self._vision = None  # type: ignore[assignment]
         self._vision_config = self._extract_vision_config(config)
+        # V.6g (2026-08-02) — CT-scan P1-1 + P1-2 remediation.
+        # Extract the trust/preview/geometry sub-configs the same way
+        # _extract_vision_config does. All three are safe to read as
+        # dicts because agent.py never mutates them.
+        self._trust_config = self._extract_sub_config(config, "trust")
+        self._preview_config = self._extract_sub_config(config, "preview")
+        self._geometry_config = self._extract_sub_config(config, "geometry")
+        # TrustStore is lazy — instantiated on first check to avoid
+        # touching /var/lib/icebreaker on macOS dev flow where the path
+        # doesn't exist. Absent → check() calls skip (no hard-deny).
+        self._trust_store = None  # type: ignore[assignment]
 
     def handle_request(self, method: str, params: dict) -> dict:
         """Dispatch a GUI method call. Returns a result dict."""
@@ -187,6 +220,24 @@ class GuiAgent:
             validate_gui_params(method, params)
         except Exception as exc:
             raise _InvalidParams(str(exc)) from exc
+
+        # V.6g (2026-08-02) — trust-store hard-deny consult for every
+        # write tool. If the (window, tool) pair matches a hard-deny
+        # rule (terminals, sudo, keyring per V.3c defaults) we refuse
+        # BEFORE spawning xdotool / firing AT-SPI actions. Read-only
+        # tools (ping, screenshot, find_element, get_window_list,
+        # get_element_tree, parse_screen, hover) skip the check —
+        # they can't cause harm.
+        _READ_ONLY_METHODS = {
+            GUI_PING, GUI_SCREENSHOT, GUI_FIND_ELEMENT,
+            GUI_GET_WINDOW_LIST, GUI_GET_ELEMENT_TREE,
+            GUI_PARSE_SCREEN, GUI_HOVER,
+        }
+        if method not in _READ_ONLY_METHODS:
+            window = (params or {}).get("window", "*")
+            deny = self._trust_hard_deny_check(method, window)
+            if deny is not None:
+                return deny
 
         if method == GUI_PING:
             return self._handle_ping()
@@ -364,20 +415,115 @@ class GuiAgent:
         """Pull the [gui.vision] TOML section out of the GuiConfig, if
         present. Fall back to a permissive default so agent works
         standalone in tests. Config wiring proper lands in V.6."""
+        return GuiAgent._extract_sub_config(config, "vision")
+
+    @staticmethod
+    def _extract_sub_config(config: Any, section: str) -> dict:
+        """V.6g (2026-08-02) — generalized sub-config extractor.
+        Handles [gui.vision] / [gui.trust] / [gui.preview] /
+        [gui.geometry] uniformly. Same tolerant shape-handling as the
+        pre-V.6g _extract_vision_config: accepts SimpleNamespace with
+        .<section> attr OR dict with '<section>' key."""
         if config is None:
             return {}
-        # Support either a namespace with .vision attribute or a
-        # dict-like config.vision entry.
-        vision = getattr(config, "vision", None)
-        if vision is None and isinstance(config, dict):
-            vision = config.get("vision") or config.get("gui.vision")
-        if vision is None:
+        sub = getattr(config, section, None)
+        if sub is None and isinstance(config, dict):
+            sub = config.get(section) or config.get(f"gui.{section}")
+        if sub is None:
             return {}
-        if hasattr(vision, "__dict__"):
-            return {k: v for k, v in vars(vision).items() if not k.startswith("_")}
-        if isinstance(vision, dict):
-            return dict(vision)
+        if hasattr(sub, "__dict__"):
+            return {k: v for k, v in vars(sub).items() if not k.startswith("_")}
+        if isinstance(sub, dict):
+            return dict(sub)
         return {}
+
+    # ══════════════════════════════════════════════════════════════════
+    # Fix V.6g — TrustStore consult (CT-scan P1-1)
+    # ══════════════════════════════════════════════════════════════════
+    #
+    # Pre-V.6g, gui_agent.trust_store.TrustStore was dead code: only
+    # scripts/ib_trust.py imported it. Every grounded action fell
+    # through to opencode's ask prompt regardless of the shipped
+    # gui_trust_defaults.jsonl _HARD_DENY entries — a user could NOT
+    # accidentally trigger auto-click on gnome-terminal (because the
+    # opencode ask fires), but the SAFETY defense-in-depth the trust
+    # store was designed for wasn't active at the agent layer.
+    #
+    # V.6g wires a HARD-DENY-only consult before every write action.
+    # If the trust store returns a deny_always decision (terminals,
+    # sudo, keyring per V.3c defaults), we refuse the tool call
+    # immediately with a structured error. This is defense in depth
+    # on top of opencode's ask — if a future opencode config change
+    # or auto-approve override slips a terminal-click through, the
+    # trust store still blocks it.
+    #
+    # Auto-approve tier (skipping opencode ask entirely) requires an
+    # opencode permission-override API we don't have. Deferred to
+    # v6.16 pending upstream investigation.
+
+    def _get_trust_store(self):
+        """Lazy-construct the TrustStore. Returns None if the trust
+        config is disabled OR the store path can't be reached (macOS
+        dev flow — /var/lib/icebreaker doesn't exist)."""
+        if self._trust_store is not None:
+            return self._trust_store
+        if not self._trust_config.get("enabled", True):
+            return None
+        try:
+            from pathlib import Path
+            from .trust_store import TrustStore
+            store_path = Path(self._trust_config.get(
+                "store_path", "/var/lib/icebreaker/gui_trust.jsonl",
+            ))
+            defaults_dir = Path(self._trust_config.get(
+                "defaults_dir", "/etc/icebreaker/gui_trust.d",
+            ))
+            self._trust_store = TrustStore(
+                path=store_path,
+                defaults_dir=defaults_dir,
+            )
+            return self._trust_store
+        except Exception as exc:  # noqa: BLE001 — never crash agent
+            _log_trust_error(exc)
+            return None
+
+    def _trust_hard_deny_check(self, tool_name: str, window: str) -> Optional[dict]:
+        """Consult the trust store; return a structured deny envelope
+        if the (window, tool) pair is hard-denied. Otherwise return
+        None (proceed with normal dispatch; opencode ask still fires
+        as usual).
+
+        `window` is the app hint — for grounded_* tools it's the
+        `window` param; for raw pixel actions we fall back to "*"
+        (wildcard app, so only tool-wide deny_always rules apply).
+        """
+        store = self._get_trust_store()
+        if store is None:
+            return None
+        app_hint = (window or "*").lower()
+        try:
+            decision = store.check(app=app_hint, tool=tool_name)
+        except Exception as exc:  # noqa: BLE001 — never crash agent
+            _log_trust_error(exc)
+            return None
+        # Only HARD-DENY blocks. Non-denial (allowed OR "no matching
+        # grant") passes through to opencode's ask.
+        if not decision.allowed and decision.matched_grant is not None \
+                and getattr(decision.matched_grant, "tier", "") == "deny_always":
+            return {
+                "success": False,
+                "error": f"denied by trust store: {decision.reason}",
+                "reason": "trust_deny",
+            }
+        # Also honor the code-level _HARD_DENY frozenset — matched
+        # via decision.reason starting with "hard-deny:".
+        if not decision.allowed and decision.reason.startswith("hard-deny:"):
+            return {
+                "success": False,
+                "error": f"denied by trust store: {decision.reason}",
+                "reason": "trust_deny",
+            }
+        return None
 
     def _get_vision(self):
         """Lazy-construct the VisionGrounder. Import stays local so the
@@ -472,6 +618,8 @@ class GuiAgent:
                 body=f"Parsed {len(parse.elements)} element(s) — "
                      f"grounded action may follow",
                 icon_path=preview_path,
+                # V.6g: honor [gui.preview] notify_urgency from TOML.
+                urgency=self._preview_config.get("notify_urgency", "low"),
             )
 
         return {
@@ -698,6 +846,8 @@ class GuiAgent:
             common["meta"]["preview_path"] = str(ann.path)
             common["meta"]["notify_sent"] = _try_notify_send(
                 title="Icebreaker", body=note, icon_path=str(ann.path),
+                # V.6g: honor [gui.preview] notify_urgency from TOML.
+                urgency=self._preview_config.get("notify_urgency", "low"),
             )
         except Exception as exc:  # noqa: BLE001
             common["meta"]["preview_path"] = f"annotate-failed: {type(exc).__name__}"
@@ -895,7 +1045,11 @@ class GuiAgent:
                     "error": f"input_synth unavailable: {exc}",
                     "reason": "input_synth_import_failed"}
 
-        layout = MonitorLayout.detect() if needs_layout else None
+        # V.6g: honor [gui.geometry] hidpi_scale_override from TOML.
+        # 0 = auto-detect via xrandr (default). Non-zero forces that
+        # scale on every monitor (VM guests where xrandr misreports).
+        scale_override = int(self._geometry_config.get("hidpi_scale_override", 0) or 0)
+        layout = MonitorLayout.detect(scale_override=scale_override) if needs_layout else None
         try:
             result = fn(synth, layout)
         except synth.InputSynthUnavailable as exc:
