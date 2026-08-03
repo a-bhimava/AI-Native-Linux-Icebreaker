@@ -1,6 +1,7 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "google/gemini-2.5-flash",
+  "//model-note": "F-108 (2026-08-02): swapped from gemini-2.5-flash to gemini-2.0-flash. 2.5-flash defaults to thinking-mode + opencode 1.18.4's ai-sdk streaming exits at step=1 without emitting user-visible text. Diagnosed via v6.14_OC UTM boot: opencode.log showed 'stream ... step=0 -> loop step=1 -> exiting loop' with no text delivered, yet raw curl to Gemini 2.5 Flash worked fine. 2.0-flash is non-thinking + GA + native structured output. Reverse this once opencode ai-sdk fixes the 2.5-thinking stream handling upstream.",
+  "model": "google/gemini-2.0-flash",
 
   "mcp": {
     "icebreaker": {
