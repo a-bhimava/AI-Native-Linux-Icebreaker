@@ -47,7 +47,13 @@ dependencies = [
 icebreaker = "controller.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["controller*", "terminal*", "gui*", "gui_agent*", "rpa_bridge*"]
+# Fix V.6e followup (2026-08-03): `scripts*` added so V.3c's
+# `dual-brain/scripts/ib_trust.py` module actually lands in the venv.
+# Without this, `python -m scripts.ib_trust` on the guest hits
+# ModuleNotFoundError and the /usr/local/bin/ib-trust shim (v6.manifest
+# line ~245) fails. F-105 smoke gate catches the shim existing, but
+# the module-import failure would only surface at runtime.
+include = ["controller*", "terminal*", "gui*", "gui_agent*", "rpa_bridge*", "scripts*"]
 
 [tool.setuptools.package-data]
 terminal = ["*.tcss"]

@@ -136,5 +136,45 @@ version_overlay() {
         }
     fi
 
+    # ── 6. Fix V.6e (2026-08-03): trust store + ib-trust CLI ──
+    # F-105 (per GROUND_TRUTH.md): the trust store defaults JSONL +
+    # the ib-trust CLI are shipped alongside the Fix V vision-grounded
+    # UI automation (V.3b + V.3c). V6.15 build failed at smoke gate
+    # because the V.6c smoke-gate assertions expect both files present
+    # but V.3c never added install lines here. Both editions need them
+    # since the trust store is agent-layer, edition-agnostic.
+    #
+    # ib-trust CLI: python -m controller.scripts.ib_trust would work
+    # but users want a naked `ib-trust list`. Shim script at
+    # /usr/local/bin/ib-trust delegates to the venv Python.
+    echo "[v6] Installing Fix V trust store defaults + ib-trust CLI (F-105)..."
+
+    # 6a. Trust store defaults JSONL (shipped, immutable, RO).
+    install -Dm644 "${repo}/cx-distro/distro/gui_trust_defaults.jsonl" \
+        "${chroot}/etc/icebreaker/gui_trust.d/00-defaults.jsonl"
+
+    # 6b. Ensure the store dir exists at runtime (tmpfiles.d equivalent
+    # for the ISO — tmpfiles.d proper is in v6.14 for /var/log/mcpd;
+    # /var/lib/icebreaker/ is created by v2 for models, add trust store
+    # subpath with correct perms). Trust store JSONL itself is written
+    # at runtime by the daemon / ib-trust CLI (0640 root:icebreaker-users
+    # per V.3b design).
+    mkdir -p "${chroot}/var/lib/icebreaker"
+    chroot "$chroot" chown root:icebreaker-users /var/lib/icebreaker 2>/dev/null || true
+    chmod 2775 "${chroot}/var/lib/icebreaker"  # setgid so new files inherit group
+
+    # 6c. ib-trust shim — delegates to `python -m scripts.ib_trust`
+    # in the venv. Small wrapper because scripts/ isn't on PATH.
+    cat > "${chroot}/usr/local/bin/ib-trust" <<'IB_TRUST_EOF'
+#!/bin/bash
+# Fix V.3c (v6.15) — user-facing CLI for the GUI trust store.
+# See docs/vision_automation.md for the trust doctrine.
+set -e
+exec /opt/icebreaker/venv/bin/python3 -m scripts.ib_trust "$@"
+IB_TRUST_EOF
+    chmod 0755 "${chroot}/usr/local/bin/ib-trust"
+    bash -n "${chroot}/usr/local/bin/ib-trust" || \
+        { echo "FATAL[v6]: ib-trust shim has a bash syntax error" >&2; return 1; }
+
     echo "[v6] overlay complete"
 }
