@@ -3,6 +3,8 @@
 > **This document is the single source of truth for the incremental rebuild.**
 > If code, chat history, or memory disagrees with this file — this file wins.
 > Update the Status Board and Failure Log on EVERY gate run. No exceptions.
+>
+> **Reflects code state through v6.15 arm64 (2026-08-03 audit).** For whitepaper-vs-reality drift see § 10 Whitepaper Departures Ledger (added 2026-08-03) and the audit doc at `docs/2026-08-03_whitepaper_vs_reality_audit.md`.
 
 ---
 
@@ -29,13 +31,26 @@
 | V6.63 | F-49 configurable verifier retry + F-51 venv integrity check | **BUILDING** — verifier retry_mode enum (off/on_call_failed_only/on_any_rejection/skip_tier_01) with runtime dispatch in main.py, Control Center Behavior page for A/B testing modes, 19 offline tests parametrized over the modes. v2.manifest F-51 marker check aborts build if any recent-bug fix substring is missing from the installed venv — cache-reseed disasters cannot repeat silently | — | — | — |
 | V6.64 | F-52 backend intent-schema relaxation + F-53 exception surfacing | **BUILDING** — Gemini backend response_schema was rejecting server-owned fields (`intent_id`, `schema_version`, `timestamp`) before the daemon-side normalize could regenerate them; `_relax_server_owned_for_backend()` strips their `required`+`format` for the backend copy while `validate()` still enforces post-normalize. Verifier BrainTruncationError surfaced through exception message instead of opaque "verifier call failed". Shipped default `qb.gemini.max_tokens` bumped 512→2048 as reactive workaround for the specific bug (v6.65 raises properly) | — | — | — |
 | V6.65 | Pipeline robustness foundation + full Control Center Settings | **BUILDING** — Scope A: raised schema ceilings (max_tokens 32k→1M, timeouts 600s→7200s), bumped shipped defaults (qb.gemini.max_tokens 2048→8192, pb_max_tokens 256→1024, daemon.max_connections 1→4), added `x-icebreaker-trust` field to all 23 mcpd tool schemas (Phase 7 M7.1 will enforce via R13). Scope B: F-53 pattern applied to 12 exception sites via new `_log_exception` helper writing to SystemLogger; `verbose_errors` opt-in for full tracebacks. Scope C: five new Control Center pages — Models (backend/model picker with presets + Custom…), Limits (cost/turns/HITL), Errors (last 50 SystemLogger exceptions + verbose toggle), Tools (read-only mcpd tool inventory with tier/HITL/COW badges); Behavior page extended with fallback backend chain checkboxes + auto-cancel-on-cost toggle. Scope D: `qb.fallback_chain` config array + `FallbackChain` composition wrapper — transport/API errors fall through primary→fallback[0]→…, schema errors propagate (prompt issue). 16 new offline tests. Scope E: empty `mcp_allowlist.toml` ships; mcpd probes on startup and logs entry count (Phase 7 M7.2 wires the spawner). 1648 tests pass offline | — | — | — |
-| V6.7 | Phase 7 M7.1: Trust-tier taxonomy + MCP extension proposal | PENDING — first Phase 7 milestone; see `docs/ROADMAP_Phase7_Phase8_2026-07-09.md` | — | — | — |
-| V6.8 | Phase 7 M7.2: Curated external MCP allowlist infrastructure | PENDING | — | — | — |
-| V6.9 | Phase 7 M7.3: Playwright MCP for browser automation | PENDING | — | — | — |
-| V6.10 | Phase 7 M7.4: MS Graph + Google Workspace MCP for Office | PENDING | — | — | — |
-| V6.11 | Phase 7 M7.5: `analytics.chart` + `analytics.summarize` tools | PENDING | — | — | — |
-| V6.12 | Phase 7 M7.6: E2E hardening + adversarial pen-test | PENDING | — | — | — |
-| V6.13 | Phase 7 M7.7: docs + GPG-signed v1.0 | PENDING | — | — | — |
+| V6.13_OC | OC edition (opencode + Gemini) v6.13 baseline — Fix M/N/P/Q/R stack | SHIPPED 2026-07-25 — iceui MCP wrapper (Fix M), oc_audit_bridge (Fix R), launcher (Fix P), daemon retention (Fix Q). Both arches. OC edition INV-1 gap surfaced but not closed (see § 10 rows A-1..A-9) | `ISO/incremental/v6.13_OC-arm64.iso` | `bc0c6fbd…` | 2026-07-25 |
+| V6.14 | Fix M polish + F-101/F-102 iceui hardening (both editions) | SHIPPED 2026-07-31 — iceui self-test loosening, uinput udev, 12 gui.*/rpa.* tools reachable from OC edition | `ISO/incremental/v6.14_OC-arm64.iso` | `d2c931b4…` | 2026-07-31 |
+| V6.15 | Fix V — full-blown vision-grounded UI automation (both editions) | SHIPPED 2026-08-03 — 24 iceui tools (12 v6.14 AT-SPI + 12 new vision), VisionGrounder + xdotool + HiDPI + trust store + annotated preview. F-103..F-108 landed. Smoke gate ALL GREEN | current: `9d2a176e…` · OC: `68eaaad2…` | 2026-08-03 |
+| V6.16 | **Phase 7 convergence M7.0**: safety-invariant closure (real COW overlay + PB grammar mandate) | PLANNED 2026-08-03 — closes audit rows C-1, C-4, B-2, B-3, B-4 (Tier A #1 + #2). See `docs/2026-08-03_phase7_convergence_tracker.md` | — | — | — |
+| V6.17 | **Phase 7 convergence M7.0.3 + M7.1**: iceui audit sink + R13 startup enforcement | PLANNED — closes audit rows A-6, A-7, C-10 remainder | — | — | — |
+| V6.18 | **Phase 7 convergence M7.6a-1**: OC INV-1 restoration skeleton (submit_intent MCP) | PLANNED — closes audit rows A-1..A-5, A-8 (Tier A #3) | — | — | — |
+| V6.19 | **Phase 7 convergence M7.6a-2 + M7.6b**: vision parity via submit_intent + whitepaper §3/§4/§6 realignment + R14 backfill | PLANNED — closes audit rows A-9, B-1, B-5, C-17 | — | — | — |
+| V6.20 | Phase 7 M7.2 (was V6.8): curated external MCP allowlist infrastructure | PENDING — inherits real COW + grammar-bound PB from v6.16 | — | — | — |
+| V6.21 | Phase 7 M7.3 (was V6.9): Playwright MCP for browser | PENDING | — | — | — |
+| V6.22 | Phase 7 M7.4 (was V6.10): MS Graph + Google Workspace MCP | PENDING | — | — | — |
+| V6.23 | Phase 7 M7.5 (was V6.11): analytics.chart + analytics.summarize + fs.find | PENDING | — | — | — |
+| V6.24 | Phase 7 M7.6 (was V6.12): E2E hardening + adversarial pen-test + p95 profile | PENDING | — | — | — |
+| V6.25 | Phase 7 M7.7 (was V6.13): docs + GPG-signed ISO | PENDING | — | — | — |
+| ~~V6.7~~ | ~~Phase 7 M7.1 (roadmap 2026-07-09 numbering)~~ | SUPERSEDED — see V6.16-V6.25 for the 2026-08-03 post-audit convergence sequence | — | — | — |
+| ~~V6.8~~ | ~~Phase 7 M7.2 (old numbering)~~ | SUPERSEDED — see V6.20 | — | — | — |
+| ~~V6.9~~ | ~~Phase 7 M7.3 (old numbering)~~ | SUPERSEDED — see V6.21 | — | — | — |
+| ~~V6.10~~ | ~~Phase 7 M7.4 (old numbering)~~ | SUPERSEDED — see V6.22 | — | — | — |
+| ~~V6.11~~ | ~~Phase 7 M7.5 (old numbering)~~ | SUPERSEDED — see V6.23 | — | — | — |
+| ~~V6.12~~ | ~~Phase 7 M7.6 (old numbering)~~ | SUPERSEDED — see V6.24 | — | — | — |
+| ~~V6.13~~ | ~~Phase 7 M7.7 (old numbering)~~ | SUPERSEDED — see V6.25 → v1.0 | — | — | — |
 | v1.0 | v1.0 GPG-signed release ISO | PENDING — Phase 7 exit | — | — | — |
 | v1.1+ | Phase 8 milestones (M8.1-M8.5): Autonomous Agent Loops | PENDING — post-v1.0 | — | — | — |
 
@@ -61,6 +76,7 @@ States: `RED` (not passed) · `BUILDING` · `TESTING` · `GREEN <date>` (gate pa
 - **R14 — Every F-xx fix carries a named regression lock (F-4x/F-5x rule, 2026-07-11).** R9 covers *routing* regressions via `intent_corpus.json`. R14 covers *behavioral* regressions. Every entry in the Failure Log is not "closed" until its row carries a `regression lock: <file>[::test]` annotation naming a corpus row, a test module, or a specific test function that fails when the fix regresses. Adding a new bug fix without an accompanying regression lock is a review-blocker. The `regression lock` annotation lives on the row itself so `git grep F-43` finds both the failure story AND the test that protects against its return. Rationale: fixes without named locks silently rot when the surrounding code refactors — a UTM boot two months later re-surfaces the exact same failure and the "we fixed this once" claim in `git log` no longer maps to any live assertion.
 - **R15 — Every catalogued mcpd tool is exercised in `mcpd-harvest.sh` (F-55 rule, 2026-07-11).** Every tool in `_SUPPORTED_ACTIONS` that dispatches to mcpd MUST have a corresponding `LOG_ONLY` exercise in `incremental/build/mcpd-harvest.sh`. A tool that has never been exercised under seccomp `LOG_ONLY` is a latent F-33 / F-55 waiting to fire post-ship — the syscall gap only surfaces when a user actually invokes that tool. R15 complements R8 (no ISO without a harvest-gate pass) by defining WHAT the harvest gate must exercise. Ship both `*at` and `*at2` variants for every path-check syscall (per containerd PR #4481) — arm64 kernels don't implement legacy `access(2)` at all, and glibc 2.33+ prefers `faccessat2` when the kernel supports it. When Phase 7 M7.2 lands external MCP servers, R15 extends: every allowlisted external tool that reaches mcpd's sandbox gets a harvest exercise before its allowlist entry can merge.
 - **R16 — Pipeline migrations audit every invariant on the old path (F-32-recur / F-82 / F-83 rule, 2026-07-20 / 2026-07-21).** Any change that redirects the primary request flow (a config flag flip like Task #173 `agent_graph.enabled=True`, or a hard cut-over from module A to module B) MUST audit every invariant enforced by the old path and either port it to the new path OR write a regression test that fails on the new path without the port. No exceptions for "small config flag" changes when the flag redirects the primary flow. **Extension 1 (F-82 addendum, 2026-07-21):** every INV-* invariant needs an active regression test on both paths of any dual-path config flag, not just the default path — INV-8 was silently violated for ~4 days on shipped v6.11 because no test exercised `agent_graph.enabled=True AND audit populates`. The offline test suite passed on both paths only because it never asked "did the log grow?" — a question that trivially detects the failure but only if you wrote it. **Extension 2 (F-84/F-85/F-86/F-87 addendum, 2026-07-21 later):** every user-facing outcome path must have a live golden-query test in Stage E of the release plan, not just a unit test. The four v6.12 defects F-84 through F-87 all had passing unit tests but no one ran the actual `# ...` shell command through a real Gemini call until Stage E — that's when the wire-shape bugs surfaced (nav.cd not resolving next turn, verifier rejecting every tier ≥ 2 turn, F-35 rendering as red error, shell $PWD not syncing). Golden queries are cheap; they belong in every release plan going forward. R16 exists because Task #173 was framed as a config flip when it was in fact a pipeline replacement; the failure mode is well-defined enough to prevent by discipline, and any future dual-path flag under our review gets an explicit R16 gate on the PR checklist.
+- **R17 — Every whitepaper claim shipping differently is an active row in § 10 (2026-08-03 rule).** The 2026-08-03 audit (`docs/2026-08-03_whitepaper_vs_reality_audit.md`) surfaced 26 places where `AI_Native_OS_Whitepaper.md` claims one thing and the shipping code does another. R5 (log every failure) handled *bugs*; R14 handled *regression locks*; R17 handles *spec-vs-reality drift*. **Every whitepaper claim that ships differently must be an active row in § 10 Whitepaper Departures Ledger**, either resolved (→ F-xx that closes it) or explicitly deferred (→ roadmap milestone with a rationale). Any PR that changes an INV-\* invariant, edits a whitepaper section referenced in § 10, or introduces a departure from `AI_Native_OS_Whitepaper.md` must touch § 10 in the same commit. New whitepaper departures without a row are a review-blocker. Rationale: without R17, the F-41 rich envelope and the COW stub and the OC-edition INV-1 gap each drifted silently for weeks or months; the audit found them only after a user asked "why isn't this dual-brain anymore?" — the exact failure mode BP-13 exists to kill, applied at the architecture level. § 10 seeded on 2026-08-03 with the 26 rows from the audit; every future audit + every future INV-touching PR extends it.
 
 ---
 
@@ -194,6 +210,8 @@ commit + push → rsync to build VM
 ## 7. Failure Log (append-only — READ THIS BEFORE DEBUGGING)
 
 Seeded from two months of prior failures. Every new failure gets a row.
+
+**Scope note (added 2026-08-03):** § 7 is for *runtime failures* (a shipped bug, a UTM crash, a smoke-gate red). For *whitepaper-vs-reality drift* (a claim the whitepaper makes that the code ships differently) see **§ 10 Whitepaper Departures Ledger**, governed by R17. Do not file spec drift here.
 
 | ID | Date | Symptom | Root cause | Fix / rule |
 |----|------|---------|-----------|------------|
@@ -387,7 +405,7 @@ for the strategic approval gates that layer on top of this operational checklist
 ### Scope H — Docs, phase status, release notes (this scope)
 - [ ] H1: `§ 9 Phase 6 Exit Criteria` in GROUND_TRUTH.md (this section — self-referential, marks [x] on merge)
 - [ ] H2: `CLAUDE.md` Phase 6 row downgraded to "In progress"
-- [ ] H3: `AI_Native_OS_Whitepaper.md § 10.5` audit acknowledgment footnote
+- [ ] H3: `AI_Native_OS_Whitepaper.md § 10.5` audit acknowledgment footnote + **cross-link to § 10 Whitepaper Departures Ledger** (added 2026-08-03): v1.0-rc1 exit requires every § 10 row to have a resolved disposition or a live milestone link (R17 discipline)
 - [ ] H4: `docs/RELEASE_NOTES_v1.0-rc1.md` template drafted (build-time blanks marked)
 
 ### Scope I — Build ONE ISO labelled `v1.0-rc1` (both arches)
@@ -423,3 +441,59 @@ for the strategic approval gates that layer on top of this operational checklist
 3. Test suite is green on `main` at merge time (currently 2329 passed / 40 skipped / 2 pre-existing).
 4. Any deferred sub-item under the scope is either converted to `[x]` OR moved to
    the appropriate follow-up scope (e.g. Scope D's D3 live-sweep sits under Scope I).
+
+---
+
+## 10. Whitepaper Departures Ledger
+
+Seeded 2026-08-03 from `docs/2026-08-03_whitepaper_vs_reality_audit.md`. Governed by **R17** (§ 2).
+
+Every whitepaper claim that ships differently is one row. Disposition must resolve to either an F-xx (fix that closes it), a milestone in `docs/2026-08-03_phase7_convergence_tracker.md` (planned closure), or an explicit **deliberate** rationale (documented deviation). No orphans.
+
+Legend for `Disposition`:
+- `→ Mx.y` — closed by the named milestone in the convergence tracker
+- `→ F-xx` — already closed by the named failure-log fix (cross-link only, no new work)
+- `deliberate (D-x)` — documented deliberate departure, see § 8 Design decisions
+- `deferred → Phase 8` — post-v1.0 backlog, not a v1.0 blocker
+- `whitepaper edit → M7.6b` — code is correct, whitepaper text needs update
+
+| ID | Whitepaper § | Claim | Reality | Evidence | Disposition |
+|----|--------------|-------|---------|----------|-------------|
+| A-1 | §5 line 107 (INV-1) | "QB has zero direct access to system execution tools" | OC edition: QB (Gemini via opencode) invokes mcpd + iceui tools directly | `cx-distro/distro/qb_oc.json.template:6-18`; `mcpd-for-oc.sh:45` | → M7.6a-1 |
+| A-2 | §5 line 152 | "Controller passes only an opaque reference ID to the PB" | OC edition: no Intent Object, no reference ID, no PB | `dual-brain/controller/main.py:544-545` (OC short-circuit as UNSUPPORTED) | → M7.6a-1 |
+| A-3 | §5 line 117 | "PB is completely blind to the outside world" | OC edition: PB is not on the call path; systemd unit boots but nothing routes there | `cx-distro/config/hooks/live/0100-icebreaker-setup.hook.chroot:7`; no OC opener of `/run/icebreaker/pbd.sock` | → M7.6a-1 |
+| A-4 | §5 lines 172-176 | "Controller — schema validation, risk classification, HITL gate, audit logging" | OC edition: schema/risk/HITL bypassed on OC tool path; only audit partially preserved | `dual-brain/controller/mcp_gui_server.py:257-263` calls `_dispatch_in_subprocess` directly | → M7.6a-1 |
+| A-5 | §8 lines 421-443 | Tier 2 LLM classifier + Tier 3 blocking modal with dry-run + risk badge | OC edition: flattened to opencode's `allow`/`ask`/`deny`; no dry-run, no risk badge, no tier label | `incremental/build/gen-oc-config.sh:107-109,181`; `qb_oc.json.template:26-29` | → M7.6a-1 (composes with M7.0.1 real COW) |
+| A-6 | INV-8 | Audit "captures every intent including rejected" | `iceui_*` tool calls (24 tools) have ZERO audit write path | `dual-brain/controller/mcp_gui_server.py` has 0 `AuditLog` references; `oc_audit_bridge.py:71-74` only tails mcpd's log | → M7.0.3 |
+| A-7 | §5 | Audit fields include model, tokens, cost, session, turn | OC audit rows hard-stamp `session_id="opencode-oc"`, `turn_index=-1`, `model=""`, `tokens_in=0`, `tokens_out=0`, `cost=0.0` | `dual-brain/controller/oc_audit_bridge.py:22-27,158-175` | → M7.0.3 |
+| A-8 | §3 lines 152-153 | PB "resolves the reference, evaluates the action against its policy rules, and either executes or escalates" | OC edition: no PB policy pass — Gemini emits args, mcpd executes verbatim after opencode's ask | Same as A-1/A-2 | → M7.6a-1 |
+| A-9 | §5 line 130 | Raw screenshot bytes never touch the QB | `VisionGrounder` sends screenshot to `gemini-2.5-flash` — same provider as QB; whitepaper has no accommodation for in-QB vision second call | `dual-brain/gui_agent/vision.py:5-6,28-30`; `controller/config.py:366` | whitepaper edit → M7.6b (document as deliberate; INV-1 covers execution isolation, not provider isolation) |
+| B-1 | §3/§6 (INV-1) | "PB receives ONLY opaque reference IDs" | PB payload carries `intent_id + target + expected_content + pb_hint` since F-27/F-41 (rich envelope) | `dual-brain/controller/session.py:297-335` | whitepaper edit → M7.6b (also → F-27 + F-41, already-closed as *fixes*; departure is undocumented) |
+| B-2 | §8.2 | HITL prompt shows dry-run diff | Tier-3 gate carries `cow_summary=None`; dry-run only in a second post-mcpd gate on streaming path | `dual-brain/controller/main.py:840-845` (initial gate); `main.py:1544-1578` (post-mcpd gate) | → M7.0.1 (closes automatically) |
+| B-3 | §5 + §8 | COW dry-run present at every destructive-op approval | AgentGraph `mcpd_dispatcher_node` has NO COW-approval branch; only streaming path has it | `dual-brain/controller/agent_graph_nodes.py:742-879` | → M7.0.1 (closes automatically) |
+| B-4 | §6 | Constrained-decoded via GBNF — "the model literally CANNOT generate invalid output" | Controller-side `LlamaCppLocalBackend` omits `grammar_path`; server-side `start_pb.sh` silently degrades to unconstrained if file missing | `dual-brain/controller/backends/llama_local_backend.py:196-197`; `dual-brain/controller/__main__.py:170-178`; `dual-brain/scripts/start_pb.sh:62-65` | → M7.0.2 |
+| B-5 | §4/§6 | GUI/RPA "User → QB → Controller → PB → mcpd" | AgentGraph `mcpd_dispatcher_node` dispatches `gui.*`/`rpa.*` to `controller.gui_worker` subprocess directly — mcpd bypassed | `dual-brain/controller/agent_graph_nodes.py:798-841` | whitepaper edit → M7.6b (isolation invariant preserved via subprocess + sandbox; whitepaper diagram is over-specific about transport) |
+| C-1 | §5 | "The AI cannot make irreversible mistakes — COW imagination layer" | `src/mcpd/src/sandbox/cow.rs` **does not exist**; mcpd returns `requires_cow_approval` ticket; no overlay ever mounts | `src/mcpd/src/tools/fs.rs:215,238,258-278`; grep for `sandbox/cow.rs` → does not exist | → M7.0.1 (Tier A #1) |
+| C-2 | §5 | Total security overhead <10ms — benchmarked | No benchmark; only mcpd tools/list p95 in `ci.sh` G9 | `src/mcpd/ci.sh:133-181` | → M7.6 (p95 profile suite) |
+| C-3 | §6 (F2 mitigation) | Speculative decoding "must be implemented from day one" | PB has no draft model shipped; PB launched without `--draft-model`; QB opt-in but no `[pb]` section in example config | `dual-brain/scripts/start-pbd:65-69`; no draft GGUF in tree | deferred → Phase 8 (needs fine-tuned draft) |
+| C-4 | §6 | Grammar-constrained decoding on PB | PB launched WITHOUT `--grammar-file` from controller side; silent-degrades server-side | `dual-brain/scripts/start-pbd:63` ("PB uses no grammar — relies on post-hoc tool-call validation") | → M7.0.2 (Tier A #2) |
+| C-5 | §6 | ~2 GB RAM footprint — measured | Prose only, no measurement | `docs/ARCHITECTURE.md:66` | → M7.7 (release-notes template requires measurement) |
+| C-6 | INV-7 | SHA-256 receipts for all shipped GGUFs | Only 1 file listed (`run7_cot_q4km.gguf`); no draft, no QB entries (QB is cloud so N/A but not documented) | `models/checksums.sha256` | → M7.7 (release notes clarify scope) |
+| C-7 | §9 | Debian live-build | debootstrap + mksquashfs + xorriso (live-build broken on Noble) | `cx-distro/build.sh:549-550` (documented) | deliberate (D-6) |
+| C-8 | §9 | Boot <60s — gated | Timer exists (`first-boot:42,279-289`) but no pass/fail gate | `cx-distro/distro/first-boot:42,279-289` | → M7.7 (release-notes wire the gate) |
+| C-9 | §9 + §10 M7.7 | GPG-signed ISO | Not wired anywhere | `incremental/GROUND_TRUTH.md § 1 v1.0 row` (marked PENDING) | → M7.7 |
+| C-10 | §10 Phase 7 M7.2–M7.7 | Playwright + MS Graph + Google Workspace MCPs, analytics.chart, GPG, hardening | Not started; only M7.1 pre-work (trust field + empty allowlist) | `cx-distro/distro/mcp_allowlist.toml` empty | → M7.1 (finish) + M7.2 + M7.3 + M7.4 + M7.5 + M7.6 + M7.7 (locked sequence) |
+| C-11 | §10 Phase 8 | Goal/plan_steps/verifier/sub-agents | Not started; `agent_graph_bridge` is single-turn plumbing | `dual-brain/controller/agent_graph_bridge.py` | deferred → Phase 8 |
+| C-12 | §13 KPI 1 | End-to-end p95 latency suite | Only mcpd tools/list benchmark | `src/mcpd/ci.sh:133-181` | → M7.6 |
+| C-13 | §13 KPI 5 | Tier-3/day telemetry aggregator | None | — | → M7.6 (partial) + deferred (fleet observability → Phase 8 M8.5) |
+| C-14 | §14 | sandlock / CX Linux / cortexd as primary refs | Not integrated; direct `landlock` crate used | `src/mcpd/src/sandbox/landlock.rs:27-33` | deliberate (whitepaper §14 = inspiration only) |
+| C-15 | §14 Datasets | The Stack + man pages in training set | NL2SH / NL2Bash / CodeAlpaca only | `privileged-brain/data/raw/*` | deferred (training-data hygiene sprint post-v1.0) |
+| C-16 | BP-3 | Universal ANSI/C0 scrub on model stream | Applied on GUI audit fields only | `dual-brain/controller/audit.py:224,227`; `main.py:1280,1322,1429` | → M7.6 (hardening pass extends to stream) |
+| C-17 | BP-13 / R14 | Every F-xx has named regression lock | 48/94 F-xx rows have `regression lock` (~51%) | `incremental/GROUND_TRUTH.md § 7` | → M7.6b (backfill sprint) |
+
+### How to add a row to § 10
+1. New whitepaper departure surfaces (audit, PR review, user question).
+2. Author the row with `ID` (extend the letter series — D-1, D-2, … for future audits), `Whitepaper §`, `Claim`, `Reality`, `Evidence`, and provisional `Disposition`.
+3. If disposition is `→ Mx.y`, the tracker file (`docs/2026-08-03_phase7_convergence_tracker.md`) gains a corresponding row.
+4. If disposition is `whitepaper edit → M7.6b`, note it as a M7.6b task.
+5. Same-commit PR: touching an INV-\* invariant or a whitepaper section already in § 10 requires this row to update in the same commit (R17).

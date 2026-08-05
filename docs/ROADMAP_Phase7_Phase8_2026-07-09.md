@@ -156,3 +156,52 @@ Nothing to modify yet — this is a roadmap document. When Phase 7 kickoff arriv
 ## Verification
 
 This is a strategy document, not a code change. Verification is: (a) the user agrees Phase 7 as scoped here is a shippable v1.0 and (b) Phase 8 as scoped is a coherent "agent runtime" milestone. Sign-off = plan approval, not a test run.
+
+---
+
+## Post-audit additions (2026-08-03)
+
+The 2026-08-03 whitepaper-vs-reality audit (`docs/2026-08-03_whitepaper_vs_reality_audit.md`) found 26 departures between `AI_Native_OS_Whitepaper.md` and shipping code. 22 of those were not covered by M7.1–M7.7 as originally scoped. Three new milestones (M7.0, M7.6a, M7.6b) close the gap without deleting anything from the roadmap above. The locked shipping sequence lives in `docs/2026-08-03_phase7_convergence_tracker.md`. **Version numbering shifts**: original v6.7–v6.13 mapping is superseded by v6.16–v6.25 to accommodate the inserted milestones (see `incremental/GROUND_TRUTH.md § 1 Status Board`).
+
+### M7.0 — Safety-invariant closure (NEW, 2026-08-03)
+
+**Why first**: whitepaper §5 promises "the AI cannot make irreversible mistakes"; §6 promises "the model literally CANNOT generate invalid output." Both are safety-user-facing. Both are stubs today. Fix these before the "broader tools" milestones (M7.2+) so any external MCP (Playwright, MS Graph, Google Workspace) inherits real COW + real grammar-bound PB.
+
+**Scope**:
+- **M7.0.1 — COW real overlay** (audit C-1, whitepaper §5 flagship). Implement `src/mcpd/src/sandbox/cow.rs`: tmpfs/overlayfs mount before `fs.delete` / `fs.write outside home` / `package.*` mutations. Diff surfaced to Controller HITL. Retire the `requires_cow_approval` ticket-only path in `src/mcpd/src/tools/fs.rs`. Add COW branch to `agent_graph_nodes.py::mcpd_dispatcher_node` (closes audit B-3).
+- **M7.0.2 — PB grammar mandate** (audit C-4 + B-4, whitepaper §6). `dual-brain/controller/__main__.py:170-178` must set `grammar_path` from config; `LlamaCppLocalBackend` must refuse to boot with `grammar=None` on PB path. `dual-brain/scripts/start_pb.sh:62-65` must fail non-zero (not silent-warn) if grammar file missing. Smoke-gate assertion for `--grammar-file` in PB argv.
+- **M7.0.3 — iceui audit sink** (audit A-6 + A-7). `dual-brain/controller/mcp_gui_server.py` grows real `AuditLog.write_fields()` calls (currently 0 references). `oc_audit_bridge.py:22-27,158-175` stops hard-stamping session/turn/model/tokens/cost.
+
+**Ships as**: v6.16 (M7.0.1 + M7.0.2) + v6.17 (M7.0.3), ~2-3 weeks total.
+
+**Regression locks** (R14): `test_cow_real_overlay.rs`, `test_pb_grammar_mandatory.py`, `test_iceui_audit_written.py`, plus smoke-gate assertions.
+
+### M7.6a — OC edition INV-1 restoration (NEW, 2026-08-03)
+
+**Why after M7.0 but before M7.2+**: adding external MCPs (M7.3-M7.5) inherits the OC-edition INV-1 gap — Gemini invokes those directly with the same "opencode ask" flow that today lets it fire `fs.delete` unmediated. Restore INV-1 before the surface expands.
+
+**Blocking decision** (user picks before M7.6a-1):
+- **Option A (recommended)**: Restore INV-1 inside OC — opencode/Gemini gets ONE tool `submit_intent(intent_object)`; Python daemon receives, drives the local PB, PB emits real MCP calls to mcpd/iceui.
+- Option B (kill OC), C (honest labels + first-boot banner), D (hybrid — opencode as TUI shell only) remain on the table if user overrides.
+
+**Ships across (Option A)**: v6.18 skeleton, v6.19 parity. Closes audit rows A-1..A-9.
+
+**Regression locks**: `test_submit_intent_route.py`, `test_vision_via_submit_intent.py`.
+
+### M7.6b — Whitepaper realignment + R14 backfill (NEW, 2026-08-03)
+
+**Why paired with M7.6**: hardening pass is the natural moment to reconcile "code correct, whitepaper stale" vs "code drifted, must fix code." Whitepaper stable before M7.7 v1.0 publication.
+
+**Scope**:
+- **B-1 (rich envelope)** → update whitepaper §3 to acknowledge `intent_id + target + expected_content + pb_hint` (F-41 is load-bearing; reversing breaks content-writing UX).
+- **B-5 (AgentGraph gui/rpa bypass mcpd)** → update whitepaper §4/§6 to state that isolation invariant is subprocess + sandbox, not transport language.
+- **A-9 (VisionGrounder → Gemini)** → update whitepaper §5 to document in-QB vision second call as INV-1-consistent.
+- **C-17 (R14 gap)** → backfill regression locks for the ~46 F-xx rows that lack one. Cite live test/marker/gate inline per row.
+
+**Ships as**: v6.19 whitepaper edits + architecture diagram rebase + F-xx backfill sprint.
+
+**Regression lock**: `test_whitepaper_departures_have_dispositions.py` — walks `incremental/GROUND_TRUTH.md § 10` and asserts every row has a resolved disposition or a live milestone link.
+
+### Milestones (revised sequence 2026-08-03)
+
+The locked v6.16 → v1.0 shipping order is in `docs/2026-08-03_phase7_convergence_tracker.md` (progress ledger updated in-place per commit). M7.1–M7.7 definitions above are unchanged; they land in the sequence: M7.0 (v6.16-v6.17) → M7.1 finish + M7.6a (v6.17-v6.19) → M7.6b (v6.19) → M7.2 (v6.20) → M7.3 (v6.21) → M7.4 (v6.22) → M7.5 (v6.23) → M7.6 (v6.24) → M7.7 (v6.25 → v1.0). Total wall clock estimate widens from 10-14 weeks to 14-20 weeks — the cost of shipping v1.0 with the three flagship safety claims actually true.
