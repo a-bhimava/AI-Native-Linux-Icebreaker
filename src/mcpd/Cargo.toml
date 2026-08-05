@@ -40,6 +40,11 @@ jsonschema = { version = "0.18", default-features = false }
 nix = { version = "0.28", features = ["fs", "net"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+# M7.0.1a (v6.16, 2026-08-03): recursive directory walk for fs.delete
+# simulate — used by src/mcpd/src/tools/cow.rs to compute bytes-freed +
+# file-count deltas without mounting an overlay. Small (~40 KB), no
+# unsafe, MIT/Apache-2.0.
+walkdir = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = "0.4"

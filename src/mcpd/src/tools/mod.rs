@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 
 use crate::schema;
 
+pub mod cow;
 pub mod fs;
 pub mod network;
 pub mod package;
