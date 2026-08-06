@@ -212,7 +212,21 @@ pub async fn write(path: &str, content: &str, mode: Option<u32>) -> Result<Value
     }
 
     if !is_tier_1_safe(&v) {
-        return Ok(cow_gate_response("fs.write", path, content.len() as u64));
+        // M7.0.1b: compute a real diff via cow::simulate_fs_write_outside_home
+        // and embed it in the ticket's preview so the Controller can show
+        // "N bytes will be written to /etc/hosts (grow by K bytes, ...)"
+        // at the initial Tier-3 HITL gate.
+        let abs = v.root.join(&v.rel);
+        let diff = crate::tools::cow::simulate_fs_write_outside_home(&abs, content.len() as u64)
+            .ok()
+            .map(|d| d.to_json());
+        return Ok(cow_gate_response_with_size(
+            "fs.write",
+            path,
+            0,
+            content.len() as u64,
+            diff,
+        ));
     }
 
     let mode = mode.unwrap_or(DEFAULT_FILE_MODE);
@@ -235,7 +249,15 @@ pub async fn delete(path: &str) -> Result<Value> {
         .and_then(|f| f.metadata().ok())
         .map(|m| m.len())
         .unwrap_or(0);
-    Ok(cow_gate_response_with_size("fs.delete", path, preview_size, 0))
+    // M7.0.1b: compute a real diff via cow::simulate_fs_delete (walks the
+    // target, sums sizes, counts entries) and embed it in the preview so
+    // the Controller can show "3.2 GB will be freed. 847 files will be
+    // deleted." at the initial Tier-3 HITL gate.
+    let abs = v.root.join(&v.rel);
+    let diff = crate::tools::cow::simulate_fs_delete(&abs)
+        .ok()
+        .map(|d| d.to_json());
+    Ok(cow_gate_response_with_size("fs.delete", path, preview_size, 0, diff))
 }
 
 /// `Tier 1` predicate: under $HOME and NOT in a sensitive subdir.
@@ -253,27 +275,34 @@ fn is_tier_1_safe(v: &ValidatedPath) -> bool {
     true
 }
 
-/// Build a Tier 3 COW gate response (INV-6). Phase 3 will accept this
-/// `intent_id` and run the actual COW commit pipeline.
-fn cow_gate_response(operation: &str, path: &str, proposed_size: u64) -> Value {
-    cow_gate_response_with_size(operation, path, 0, proposed_size)
-}
-
+/// Build a Tier 3 COW gate response (INV-6). M7.0.1c will accept this
+/// `intent_id` back via `cow.commit` and run the actual op for real.
+///
+/// The `diff` param (M7.0.1b) carries the DryRunDiff.to_json() output when
+/// available; controllers render its `human_summary` in the Tier-3 HITL
+/// modal. `None` means no simulator was available (e.g. macOS dev running
+/// against a Linux-only tool) — the ticket still ships with the classic
+/// path/size fields for backward compat.
 fn cow_gate_response_with_size(
     operation: &str,
     path: &str,
     current_size: u64,
     proposed_size: u64,
+    diff: Option<Value>,
 ) -> Value {
+    let mut preview = json!({
+        "operation": operation,
+        "path": path,
+        "current_size_bytes": current_size,
+        "proposed_size_bytes": proposed_size,
+    });
+    if let Some(d) = diff {
+        preview["diff"] = d;
+    }
     json!({
         "status": "requires_cow_approval",
         "intent_id": uuid::Uuid::new_v4().to_string(),
-        "preview": {
-            "operation": operation,
-            "path": path,
-            "current_size_bytes": current_size,
-            "proposed_size_bytes": proposed_size,
-        },
+        "preview": preview,
     })
 }
 

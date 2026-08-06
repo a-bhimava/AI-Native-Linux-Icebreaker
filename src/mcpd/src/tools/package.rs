@@ -27,17 +27,48 @@ pub async fn query(pattern: &str) -> Result<Value> {
 
 pub async fn install(package: &str) -> Result<Value> {
     require_valid_package_name(package)?;
-    Ok(cow_gate("package.install", package))
+    let diff = simulate_and_serialize("package.install", package).await;
+    Ok(cow_gate("package.install", package, diff))
 }
 
 pub async fn remove(package: &str) -> Result<Value> {
     require_valid_package_name(package)?;
-    Ok(cow_gate("package.remove", package))
+    let diff = simulate_and_serialize("package.remove", package).await;
+    Ok(cow_gate("package.remove", package, diff))
 }
 
 pub async fn upgrade(package: &str) -> Result<Value> {
     require_valid_package_name(package)?;
-    Ok(cow_gate("package.upgrade", package))
+    let diff = simulate_and_serialize("package.upgrade", package).await;
+    Ok(cow_gate("package.upgrade", package, diff))
+}
+
+/// M7.0.1b: run the async COW simulator and serialize its result to a
+/// serde_json::Value for embedding in the ticket's preview.diff field.
+/// Wrapped in tokio::time::timeout so a hung apt-get can't stall the RPC
+/// past 15s — on timeout we return a visible-warn diff rather than
+/// silent-pass. Simulator failures return a Value too (they build a diff
+/// with an "unavailable" human_summary), so this only returns None on a
+/// panic-like unwind path, which shouldn't happen.
+async fn simulate_and_serialize(op: &str, package: &str) -> Option<Value> {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        crate::tools::cow::simulate_package_op(op, package),
+    )
+    .await
+    {
+        Ok(Ok(diff)) => Some(diff.to_json()),
+        Ok(Err(_)) => None,
+        Err(_) => Some(json!({
+            "operation": op,
+            "bytes_delta": 0,
+            "file_count_delta": 0,
+            "affected_paths_sample": [],
+            "human_summary": "Preview unavailable: apt-get -s timed out after 15 s. Approve only if you trust the intent.",
+            "risk": "MED",
+            "reversible": false,
+        })),
+    }
 }
 
 async fn run_dpkg_query(pattern: &str) -> Result<Value> {
@@ -92,15 +123,26 @@ async fn run_dpkg_query(pattern: &str) -> Result<Value> {
     }))
 }
 
-fn cow_gate(operation: &str, package: &str) -> Value {
+/// Build a Tier 2/3 COW gate response for package.*. M7.0.1c will accept
+/// this `intent_id` back via `cow.commit` and run apt-get for real.
+///
+/// The `diff` param (M7.0.1b) carries the DryRunDiff.to_json() from
+/// `simulate_package_op`. `None` collapses to no `preview.diff` field — the
+/// classic ticket shape (operation + package + note) is preserved for
+/// backward compat with pre-v6.16 controllers.
+fn cow_gate(operation: &str, package: &str, diff: Option<Value>) -> Value {
+    let mut preview = json!({
+        "operation": operation,
+        "package": package,
+        "note": "M7.0.1c will commit this via cow.commit (real apt-get).",
+    });
+    if let Some(d) = diff {
+        preview["diff"] = d;
+    }
     json!({
         "status": "requires_cow_approval",
         "intent_id": uuid::Uuid::new_v4().to_string(),
-        "preview": {
-            "operation": operation,
-            "package": package,
-            "note": "Phase 3 will commit this via apt-get inside the COW overlay.",
-        },
+        "preview": preview,
     })
 }
 
@@ -211,6 +253,13 @@ mod tests {
         assert_eq!(r["status"], "requires_cow_approval");
         assert_eq!(r["preview"]["operation"], "package.install");
         assert_eq!(r["preview"]["package"], "nginx");
+        // M7.0.1b: preview.diff sub-object appears if the simulator returned
+        // Some. On macOS dev where apt-get is missing, the simulator returns
+        // Ok(DryRunDiff{human_summary: "Preview unavailable: ..."}) → Some,
+        // so we always see the field on macOS AND on any Linux that has
+        // apt-get (even if apt-get -s itself fails).
+        assert!(!r["preview"]["diff"].is_null(), "preview.diff must exist (M7.0.1b)");
+        assert_eq!(r["preview"]["diff"]["operation"], "package.install");
     }
 
     #[tokio::test]

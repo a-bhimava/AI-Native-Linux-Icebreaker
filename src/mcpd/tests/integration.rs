@@ -404,6 +404,13 @@ fn fs_delete_always_returns_cow_gate() {
     let intent_id = resp["result"]["intent_id"].as_str().unwrap();
     assert!(intent_id.len() >= 32, "intent_id should be a UUID-ish string");
     assert_eq!(resp["result"]["preview"]["operation"], "fs.delete");
+    // M7.0.1b: preview now carries a real diff. Path doesn't exist so
+    // bytes_delta is 0 and human_summary says "does not exist".
+    let diff = &resp["result"]["preview"]["diff"];
+    assert!(!diff.is_null(), "preview.diff must be populated (M7.0.1b)");
+    assert_eq!(diff["operation"], "fs.delete");
+    assert_eq!(diff["bytes_delta"], 0);
+    assert!(diff["human_summary"].as_str().unwrap().contains("does not exist"));
 }
 
 #[test]
@@ -419,6 +426,13 @@ fn fs_write_outside_home_returns_cow_gate() {
     assert_eq!(resp["result"]["status"], "requires_cow_approval");
     assert_eq!(resp["result"]["preview"]["operation"], "fs.write");
     assert_eq!(resp["result"]["preview"]["proposed_size_bytes"], 1);
+    // M7.0.1b: preview.diff carries the write simulator output.
+    let diff = &resp["result"]["preview"]["diff"];
+    assert!(!diff.is_null(), "preview.diff must be populated (M7.0.1b)");
+    assert_eq!(diff["operation"], "fs.write");
+    // Target doesn't exist under /etc — 1-byte write, bytes_delta = 1.
+    assert_eq!(diff["bytes_delta"], 1);
+    assert!(diff["human_summary"].as_str().unwrap().contains("new file"));
 }
 
 #[test]
@@ -584,6 +598,16 @@ fn package_install_returns_cow_gate() {
     assert_eq!(resp["result"]["status"], "requires_cow_approval");
     assert_eq!(resp["result"]["preview"]["operation"], "package.install");
     assert_eq!(resp["result"]["preview"]["package"], "nginx");
+    // M7.0.1b: preview.diff is populated whenever the simulator ran
+    // (either successfully or with a visible-warn on failure). On macOS
+    // dev / hosts without apt-get, `simulate_and_serialize` returns None
+    // and the field is absent — that's acceptable backward-compat. On
+    // Linux hosts with apt-get present, the field must exist.
+    let diff = &resp["result"]["preview"]["diff"];
+    if !diff.is_null() {
+        assert_eq!(diff["operation"], "package.install");
+        assert!(diff["human_summary"].is_string());
+    }
 }
 
 #[test]
