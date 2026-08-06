@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -889,11 +890,16 @@ class Controller:
                         intent["action"], _preview_params(intent),
                     )
                 except Exception as exc:  # noqa: BLE001
-                    # Visible-warn: user still sees the initial gate, just
-                    # without the diff. Better than a blocked turn.
-                    self._logger.log_exception(
-                        f"cow preview failed: {type(exc).__name__}: {exc}"
-                    ) if hasattr(self, "_logger") and self._logger else None
+                    # M7.0.1h (v6.16 post-ct-scan Defect #2 fix): correct
+                    # attribute is `_system_logger`; pre-fix `self._logger`
+                    # + `hasattr` guard silently no-op'd on every preview
+                    # failure. Visible-warn: user still sees the initial
+                    # gate without the diff — better than a blocked turn.
+                    _log_exception(
+                        self._system_logger,
+                        "controller.cow_preview_streaming",
+                        exc,
+                    )
                     yield _cot("cow_approval", "failed",
                                 body=f"Preview error: {type(exc).__name__}: {exc}")
                 else:
@@ -1986,10 +1992,22 @@ class Controller:
                     intent["action"], _preview_params(intent),
                 )
             except Exception as exc:  # noqa: BLE001
-                # Visible-warn — proceed to Step 4 without diff.
-                self._logger.log_exception(
-                    f"cow preview (non-streaming) failed: {type(exc).__name__}: {exc}"
-                ) if hasattr(self, "_logger") and self._logger else None
+                # M7.0.1h (v6.16 post-ct-scan Defect #2 fix): correct
+                # attribute is `_system_logger`; pre-fix `self._logger`
+                # + `hasattr` guard silently no-op'd on every preview
+                # failure. Non-streaming path also lacks a CoT event
+                # channel, so BOTH the SystemLogger sink AND stderr
+                # get the warning so a user running `icebreaker` from a
+                # terminal isn't left in the dark. Better than a blocked
+                # turn — HITL still fires without the diff.
+                _log_exception(
+                    self._system_logger,
+                    "controller.cow_preview_nonstreaming",
+                    exc,
+                )
+                sys.stderr.write(
+                    f"[cow-preview] {type(exc).__name__}: {exc}\n"
+                )
             else:
                 if cow_preview_result.requires_cow_approval:
                     cow_intent_id = cow_preview_result.cow_intent_id

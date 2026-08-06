@@ -481,21 +481,28 @@ def cow_preview_node(collab: dict) -> Callable[[GraphState], dict]:
     def _run(state: GraphState) -> dict:
         intent = collab["turn_content"].get(state.get("intent_id", ""))
         if not intent or intent.get("action") not in COW_ELIGIBLE:
-            # No-op for non-COW ops.
+            # No-op for non-COW ops. cow_preview_ok=True because the node
+            # ran to completion — dispatcher's COW-eligible guard doesn't
+            # apply here anyway (checked by action inclusion).
             return _mark("cow_preview", "done", {
                 "cow_pending_intent_id": None,
                 "cow_diff_json": None,
+                "cow_preview_ok": True,
             })
         try:
             preview_result: ToolResult = collab["mcpd"].call(
                 intent["action"], _cow_preview_params(intent),
             )
         except Exception as exc:  # noqa: BLE001
-            # Visible-warn — hitl_gate fires without diff. Better than a
-            # blocked turn.
+            # Visible-warn — hitl_gate fires without diff. cow_preview_ok
+            # stays False so the dispatcher REFUSES a raw mcpd.call for
+            # this COW-eligible action (would silently return a fresh
+            # ticket without executing — the exact failure the M7.0.1h
+            # Defect #1 fix targets).
             return _mark("cow_preview", "failed", {
                 "cow_pending_intent_id": None,
                 "cow_diff_json": None,
+                "cow_preview_ok": False,
                 "error_kind": "mcpd",
                 "error_reason": f"cow preview error: {type(exc).__name__}: {exc}"[:400],
             })
@@ -507,13 +514,16 @@ def cow_preview_node(collab: dict) -> Callable[[GraphState], dict]:
             return _mark("cow_preview", "done", {
                 "cow_pending_intent_id": getattr(preview_result, "cow_intent_id", None),
                 "cow_diff_json": getattr(preview_result, "dry_run_diff", None),
+                "cow_preview_ok": True,
             })
         # mcpd didn't gate (e.g. fs.write inside $HOME) — no diff, no
         # commit needed later; dispatcher will fall through to raw
-        # mcpd.call as usual.
+        # mcpd.call as usual. cow_preview_ok=True signals "preview ran
+        # cleanly, no gate needed" (distinct from the exception branch).
         return _mark("cow_preview", "done", {
             "cow_pending_intent_id": None,
             "cow_diff_json": None,
+            "cow_preview_ok": True,
         })
 
     return _run
@@ -958,7 +968,42 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
                         intent_obj["action"],
                         _cow_subject(intent_obj),
                     )
+                # M7.0.1h (v6.16 post-ct-scan Defect #1): if the intent IS
+                # COW-eligible AND cow_preview_ok is False (preview failed
+                # at cow_preview_node — errored or never ran), a raw
+                # mcpd.call would fire `fs.delete` etc → mcpd returns a
+                # fresh ticket → dispatcher would mark it "done" and the
+                # real op would silently NEVER RUN while the user believes
+                # they approved a delete. Fail loudly instead. Mirrors
+                # main.py:1694-1731 second-modal fallback semantics
+                # (return an err, don't pretend success).
+                #
+                # cow_preview_ok=True + no pending_intent_id means preview
+                # ran cleanly and mcpd said "no gate needed" (e.g. fs.write
+                # inside $HOME fast path) — raw dispatch is safe there.
+                elif (
+                    intent_obj
+                    and intent_obj.get("action") in COW_ELIGIBLE
+                    and not state.get("cow_preview_ok", False)
+                ):
+                    step_index = int(state.get("step_index", 0))
+                    total_steps = int(state.get("total_steps", 1))
+                    step_label = f"step {step_index + 1}/{total_steps}"
+                    return _mark("mcpd_dispatcher", "failed", {
+                        "error_kind": "mcpd",
+                        "error_reason": (
+                            f"{step_label} ({intent_obj.get('action', '')}): "
+                            "COW pre-flight failed and no pending intent_id — "
+                            "refusing to fire raw mcpd.call for a destructive op "
+                            "(would silently return a fresh ticket without executing). "
+                            "Retry the turn; if the preview keeps failing check "
+                            "mcpd + Landlock/seccomp posture."
+                        )[:400],
+                        "completed": True,
+                    })
                 else:
+                    # Non-COW-eligible action OR COW-eligible + preview
+                    # cleanly said "no gate needed" — dispatch normally.
                     result = collab["mcpd"].call(
                         method=tool_name,
                         params=tool_call.get("params", {}),

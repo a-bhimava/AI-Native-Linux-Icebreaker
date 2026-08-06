@@ -78,6 +78,14 @@ class GraphState(TypedDict, total=False):
     # raw mcpd.call. Persisted by SqliteSaver across the interrupt.
     cow_pending_intent_id: Annotated[Optional[str], last_write_wins]
     cow_diff_json: Annotated[Optional[dict], last_write_wins]
+    # M7.0.1h (v6.16 post-ct-scan Defect #1): distinguishes
+    # "cow_preview_node ran successfully — mcpd said no gate needed"
+    # (True, no pending intent_id, raw dispatch is fine) from
+    # "cow_preview_node errored OR never ran for a COW-eligible action"
+    # (False, dispatcher must refuse loudly rather than fire a raw
+    # mcpd.call that would return a ticket which the dispatcher would
+    # then mark 'done' — silent-execute failure).
+    cow_preview_ok: Annotated[bool, last_write_wins]
 
     # ── Error surface ───────────────────────────────────────────────
     error_kind: Annotated[
@@ -162,6 +170,7 @@ def make_initial_state(
         hitl_decision=None,
         cow_pending_intent_id=None,
         cow_diff_json=None,
+        cow_preview_ok=False,
         error_kind=None,
         error_reason=None,
         completed=False,
