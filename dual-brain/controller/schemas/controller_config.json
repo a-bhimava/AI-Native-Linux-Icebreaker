@@ -114,6 +114,11 @@
           "type": "boolean",
           "description": "v6.8 M7.2: skip PB grammar-decode for Tier 0 read-only intents whose intent -> tool_call mapping is deterministic (fs.list/read/stat, system.status/cpu/memory/disk/uptime, process.list/inspect, service.logs, network.status/dns.read, package.query). Removes a ~1-2s round-trip per read-only turn. INV-2 schema validation still runs on the constructed tool_call before mcpd dispatch. Set false to force every intent through PB.",
           "x-reload": "restart"
+        },
+        "pb_grammar_path": {
+          "type": ["string", "null"],
+          "description": "M7.0.2a (v6.16): absolute path to GBNF grammar file consumed by PB's LlamaCppLocalBackend. When set, PB's llama-server is invoked with --grammar-file and every completion is token-constrained to schema-valid JSON tool calls (whitepaper §6). null = PB runs unconstrained (audit row C-4 open). Recommended shipping path: /var/lib/icebreaker/grammars/mcp_tool_call.gbnf.",
+          "x-reload": "restart"
         }
       }
     },

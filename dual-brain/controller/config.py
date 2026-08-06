@@ -221,6 +221,14 @@ class RunConfig:
     # validation still runs on the constructed tool_call before dispatch.
     # See tier0_fast_path.py for the tool allowlist.
     tier0_fast_path: bool = True
+    # M7.0.2a (v6.16, 2026-08-06): GBNF grammar file for PB llama-server.
+    # Threaded into LlamaCppLocalBackend.__init__ via _build_pb; the
+    # backend already handles reading the file and setting payload["grammar"]
+    # (llama_local_backend.py:72-80). None = PB runs unconstrained (audit
+    # row C-4 non-compliant, whitepaper §6 promise unmet). Smoke-gate
+    # refuses ISO builds if the file is missing at the shipping path
+    # (belt-and-braces: build-time gate + runtime visible-warn).
+    pb_grammar_path: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -769,6 +777,8 @@ def _build_run_config(raw: dict) -> RunConfig:
         model_probe_timeout_seconds=section.get("model_probe_timeout_seconds", 5.0),
         # v6.8 M7.2 (2026-07-13).
         tier0_fast_path=section.get("tier0_fast_path", True),
+        # M7.0.2a (v6.16): GBNF grammar path — None disables (audit C-4 open).
+        pb_grammar_path=section.get("pb_grammar_path", None),
     )
 
 

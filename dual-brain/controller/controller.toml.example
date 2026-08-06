@@ -130,6 +130,14 @@ timeout_seconds = 30
 # qb_max_retries       = 3
 # mcpd_schemas_dir     = ""   # empty = auto-detected from mcpd_binary path
 # pb_transport         = "http"   # "http" (loopback) or "unix" (AF_UNIX socket for distro)
+# pb_grammar_path      = "/var/lib/icebreaker/grammars/mcp_tool_call.gbnf"
+#   M7.0.2a (v6.16): GBNF grammar file for PB's llama-server. When set, every
+#   PB completion is token-constrained to schema-valid JSON tool calls
+#   (whitepaper §6 "the model literally CANNOT generate invalid output").
+#   Leave unset / null to run PB unconstrained (audit row C-4 non-compliant;
+#   the existing post-hoc verifier still catches ~95% of schema violations).
+#   Recommended shipping path shown above. Smoke-gate refuses ISO builds
+#   without the file at this path.
 
 
 # REPL session — all optional; defaults shown.

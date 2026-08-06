@@ -167,6 +167,10 @@ def _build_qb_safe(cfg: ControllerConfig) -> Any:
 def _build_pb(cfg: ControllerConfig) -> Any:
     from .backends.llama_local_backend import LlamaCppLocalBackend
 
+    # M7.0.2a (v6.16): thread pb_grammar_path so LlamaCppLocalBackend
+    # sets payload["grammar"] on every complete() call (backend already
+    # handles the file read + None-default at llama_local_backend.py:72-80).
+    # Pre-M7.0.2a this arg was omitted → PB ran unconstrained (audit C-4).
     pb_cfg = BackendConfig(
         name="local",
         model=cfg.run.pb_model_id,
@@ -174,6 +178,7 @@ def _build_pb(cfg: ControllerConfig) -> Any:
         timeout_seconds=cfg.run.pb_timeout_seconds,
         endpoint=cfg.run.pb_endpoint,
         transport=cfg.run.pb_transport,
+        grammar_path=cfg.run.pb_grammar_path,
     )
     return LlamaCppLocalBackend(pb_cfg)
 
