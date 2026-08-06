@@ -145,7 +145,14 @@ See `docs/ROADMAP_Phase7_Phase8_2026-07-09.md` for full definitions.
 
 | Milestone | Sub-commit | Status | Commit SHA | ISO | Tests | Regression lock |
 |---|---|---|---|---|---|---|
-| M7.0.1 | COW real overlay + fs/package rewrite + AgentGraph branch | pending | — | v6.16 | — | `test_cow_real_overlay.rs` + `test_hitl_cow_summary_present.py` |
+| M7.0.1 | COW simulation dry-run + gated commit (both paths) — 7 sub-commits (a-g) | **SHIPPED 2026-08-06** | see below | v6.16 | 247 mcpd + 2235 controller | See F-109 in `incremental/GROUND_TRUTH.md § 7` |
+| M7.0.1a | mcpd cow.rs primitives (DryRunDiff + simulators + IntentStore) | shipped 2026-08-03 | `c3ac412` | v6.16 | 25 green | `src/mcpd/src/tools/cow.rs` inline tests |
+| M7.0.1b | Ticket envelope extension in fs.rs + package.rs | shipped 2026-08-03 | `2568391` | v6.16 | 8 green | `src/mcpd/tests/integration.rs::fs_delete/write/package_install_returns_cow_gate` |
+| M7.0.1c | cow.commit RPC + real-op commit handlers + guards | shipped 2026-08-03 | `6484ca6` | v6.16 | 8 integ + 2 unit | `src/mcpd/tests/integration.rs::cow_commit_*` |
+| M7.0.1d | controller cow_summary formatter + mcpd_client extension | shipped 2026-08-03 | `99a8c71` | v6.16 | 32 green | `test_cow_summary_formatter.py` + `test_mcpd_client_unit.py::test_dry_run_diff_*` |
+| M7.0.1e | streaming + non-streaming pre-pass + Step 10 rewrite | shipped 2026-08-06 | `7e1c195` | v6.16 | 1 updated | `test_e2e.py::test_tier3_hitl_deny_skips_dispatch` |
+| M7.0.1f | AgentGraph cow_preview_node + interrupt payload + dispatcher commit_cow | shipped 2026-08-06 | `ab991f6` | v6.16 | 2 updated | `test_agent_graph_run.py::test_tier2_pauses/deny_short_circuits` |
+| M7.0.1g | smoke-gate L6 assertions + § 10 dispositions + F-109 failure-log row | shipped 2026-08-06 | *(this commit)* | v6.16 | 0 new | smoke-gate: `strings mcpd \| grep cow.commit` + `command -v apt-get` |
 | M7.0.2 | PB grammar mandate (fail-loud + smoke-gate assert) | pending | — | v6.16 | — | `test_pb_grammar_mandatory.py` |
 | M7.0.3 | iceui audit sink + INV-8 field parity | pending | — | v6.17 | — | `test_iceui_audit_written.py` |
 | M7.1 | R13 startup enforcement + `docs/spec/trust-tiers.md` | pending | — | v6.17 | — | `test_r13_startup_refuse.rs` |

@@ -365,6 +365,21 @@ if [ "$LEVEL" -ge 6 ]; then
     in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -qE '(^|[^a-z])fsync([^a-z]|$)'" \
         && pass "mcpd links fsync (F-33 write path present)" \
         || fail "mcpd binary lacks fsync symbol — safe_write dropped, or wrong binary shipped (F-33)"
+    # F-109 (M7.0.1c, v6.16): mcpd registers the cow.commit RPC and lists
+    # it in the tools/list catalogue. Without this, the two-phase COW
+    # commit flow degrades to silent tickets that never execute — the
+    # exact state the whitepaper §5 promised to prevent (audit row C-1).
+    # Strings check because release binaries are stripped; the method
+    # name is embedded as a literal in server.rs::is_known_method.
+    in_chroot "strings /usr/libexec/icebreaker/mcpd | grep -q 'cow.commit'" \
+        && pass "F-109: mcpd carries cow.commit method (M7.0.1c/v6.16)" \
+        || fail "F-109: mcpd binary lacks cow.commit — M7.0.1c dispatch code missing, two-phase COW broken"
+    # F-109 (M7.0.1a, v6.16): apt-get -s is the simulator backend for
+    # package.* COW previews. Sanity check that apt-get exists in the
+    # chroot; the actual -s output shape is exercised by cargo tests.
+    in_chroot "command -v apt-get" >/dev/null 2>&1 \
+        && pass "F-109: apt-get present for package.* COW simulator" \
+        || fail "F-109: apt-get missing — package.* COW previews will visible-warn"
     # G1 / F-55 (Scope G, 2026-07-11): mcpd's seccomp allowlist must include
     # the faccessat / faccessat2 syscalls — arm64 kernels don't implement
     # access(2), so glibc routes access() through faccessat. Without either,
