@@ -48,6 +48,20 @@ _EXPLAIN_SCHEMA = {
     "additionalProperties": False,
 }
 
+# M7.0.2e (v6.16, 2026-08-06): schema for the QB-consult rescue path
+# called by PbRetryLoop after a PB attempt is rejected by the verifier.
+# One line, ≤200 chars, lands in F-41 intent.pb_hint for the next
+# PB attempt. Mirrors _EXPLAIN_SCHEMA + adds maxLength enforcement so
+# a chatty QB can't blow the hint budget.
+_PB_REPAIR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "pb_hint": {"type": "string", "maxLength": 200},
+    },
+    "required": ["pb_hint"],
+    "additionalProperties": False,
+}
+
 _MAX_MODIFY_CYCLES = 3
 
 # M7.0.1e (v6.16): destructive ops that require a COW dry-run + gated commit
@@ -2603,6 +2617,56 @@ class Controller:
             # what went wrong instead of a generic apology.
             _log_exception(self._system_logger, "controller.qb_explain", exc)
             return f"Could not generate explanation ({type(exc).__name__})."
+
+    def _qb_repair(
+        self,
+        intent: dict,
+        failed_tool_call: Optional[dict],
+        verifier_reason: str,
+        prior_attempts_count: int,
+    ) -> str:
+        """M7.0.2e (v6.16): QB-consult rescue for PbRetryLoop.
+
+        Called by pb_retry.PbRetryLoop after a PB attempt fails the
+        verifier (or raises a provider error). Returns a ≤200-char
+        repair hint that lands in F-41 intent.pb_hint for the NEXT
+        PB attempt.
+
+        INV-1-safe: user_msg carries only schema-validated intent
+        fields (action, target, reason, risk_level) + PB output
+        (schema-safe by construction) + verifier reason (already
+        sanitized upstream). NO raw user text ever reaches QB via
+        this path — mirrors the F-41 rich-envelope + INV-2-extended
+        _qb_summarise discipline.
+
+        Failure mode: any exception in the QB call is caught +
+        logged; returns a stub hint ("[qb-repair-failed: <exc>]")
+        so PbRetryLoop's next attempt still gets *some* signal
+        rather than crashing the whole retry loop (BP-13: hidden
+        failures worse than degraded coaching).
+        """
+        system = self._prompts.get("qb_pb_repair")
+        user_msg = json.dumps({
+            "action": intent.get("action", ""),
+            "target": intent.get("target", ""),
+            "reason": intent.get("reason", ""),
+            "risk_level": intent.get("risk_level", ""),
+            "failed_tool_call": failed_tool_call,
+            "verifier_reason": verifier_reason,
+            "attempt_number": prior_attempts_count,
+        }, separators=(",", ":"))
+        try:
+            resp = self._qb.complete(
+                system=system,
+                user=user_msg,
+                schema=_PB_REPAIR_SCHEMA,
+                max_retries=1,
+            )
+            hint = resp.content_json.get("pb_hint", "")
+            return hint[:200] if isinstance(hint, str) else ""
+        except Exception as exc:  # noqa: BLE001 — visible-warn per M7.0.2e design
+            _log_exception(self._system_logger, "controller.qb_pb_repair", exc)
+            return f"[qb-repair-failed: {type(exc).__name__}]"
 
     def _validate_tool_call(self, tool_call: dict, expected_action: str) -> None:
         if not isinstance(tool_call, dict):

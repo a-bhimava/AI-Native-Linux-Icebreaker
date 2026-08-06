@@ -133,6 +133,11 @@ class PromptsConfig:
     qb_openai: str = ""
     pb: str = ""
     qb_verifier: str = ""
+    # M7.0.2e (v6.16, 2026-08-06): repair-coach prompt for PbRetryLoop.
+    # Called by Controller._qb_repair after a PB attempt fails verifier
+    # (see pb_retry.py). PromptLoader._load reads this via getattr —
+    # no other loader change needed to pick up the new slot.
+    qb_pb_repair: str = ""
 
 
 class PromptLoader:
