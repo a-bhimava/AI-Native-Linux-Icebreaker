@@ -150,7 +150,19 @@ def test_tier0_happy_path():
 
 
 def test_tier3_hitl_deny_skips_dispatch():
-    """Tier 3 (fs.delete): HITL denied → mcpd never called; HITL_DENIED audited."""
+    """Tier 3 (fs.delete): HITL denied → no DESTRUCTIVE mcpd op; HITL_DENIED audited.
+
+    M7.0.1e (v6.16) semantic change: Step 3.5 pre-flights a COW preview
+    BEFORE HITL fires so the modal can show the diff at first ask
+    (whitepaper §8.2 / audit row B-2). The preview is non-destructive
+    — mcpd returns a ticket, does not touch the filesystem. On HITL
+    deny, the commit call (cow.commit) is skipped so the actual delete
+    never runs. This test now asserts:
+      (a) mcpd.call was invoked ONCE (the preview only),
+      (b) that ONE call was the preview (fs.delete), not cow.commit,
+      (c) PB was never invoked,
+      (d) HITL_DENIED is audited.
+    """
     delete_intent = {
         "intent_id": str(uuid.uuid4()),
         "action": "fs.delete",
@@ -159,9 +171,31 @@ def test_tier3_hitl_deny_skips_dispatch():
         "reason": "user_requested",
         "risk_level": "critical",
     }
+    # Preview return value: mcpd's requires_cow_approval ticket shape.
+    preview_ticket = ToolResult(
+        result={
+            "status": "requires_cow_approval",
+            "intent_id": "00000000-0000-0000-0000-000000000042",
+            "preview": {
+                "operation": "fs.delete",
+                "path": "/tmp/junk",
+                "diff": {
+                    "operation": "fs.delete",
+                    "bytes_delta": -100,
+                    "file_count_delta": -1,
+                    "affected_paths_sample": ["/tmp/junk"],
+                    "human_summary": "100 bytes will be freed. 1 file will be deleted.",
+                    "risk": "LOW",
+                    "reversible": False,
+                },
+            },
+        },
+        request_id=1,
+    )
     ctrl, qb, pb, mcpd, audit = _build(
         qb_side_effect=[_resp(delete_intent)],
     )
+    mcpd.call.return_value = preview_ticket
     session = _session()
 
     with patch("controller.main.HitlPrompt") as mock_hitl_cls:
@@ -170,7 +204,11 @@ def test_tier3_hitl_deny_skips_dispatch():
 
     assert result.success is False
     assert result.outcome == Outcome.HITL_DENIED
-    mcpd.call.assert_not_called()
+    # M7.0.1e: preview call is expected; cow.commit is NOT.
+    call_methods = [c.args[0] for c in mcpd.call.call_args_list]
+    assert "fs.delete" in call_methods, "preview call must fire"
+    assert "cow.commit" not in call_methods, "commit must NOT fire on deny"
+    assert mcpd.commit_cow.call_count == 0
     pb.complete.assert_not_called()
     written: AuditFields = audit.write_fields.call_args[0][0]
     assert written.outcome == Outcome.HITL_DENIED

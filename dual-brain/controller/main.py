@@ -21,6 +21,7 @@ from .hitl import Decision, HitlPresenter, HitlPrompt, TerminalPresenter
 from .presenters import make_presenter
 from .intent_schema import IntentValidationError, validate
 from .intent_store import IntentStore
+from .cow_summary import format_diff as _cow_format_diff
 from .mcpd_client import JsonRpcError, McpdClient, McpdProcessError, McpdTimeoutError, ToolResult
 from .risk_classifier import ClassificationResult, Tier, classify
 from .tier0_fast_path import try_fast_path as _try_tier0_fast_path
@@ -47,6 +48,42 @@ _EXPLAIN_SCHEMA = {
 }
 
 _MAX_MODIFY_CYCLES = 3
+
+# M7.0.1e (v6.16): destructive ops that require a COW dry-run + gated commit
+# via mcpd's cow.commit RPC. Streaming path Step 3.5 fires the preview
+# BEFORE the initial HITL gate so the modal renders the diff at first ask
+# (whitepaper §8.2). Non-eligible ops go through the normal single-shot
+# dispatch path.
+_COW_ELIGIBLE: frozenset[str] = frozenset({
+    "fs.delete",
+    "fs.write",
+    "package.install",
+    "package.remove",
+    "package.upgrade",
+})
+
+
+def _preview_params(intent: dict) -> dict:
+    """Build the mcpd call params for a COW preview. Reads directly from
+    the validated intent so the preview and the eventual commit both
+    reference the same subject."""
+    action = intent.get("action", "")
+    if action.startswith("fs."):
+        params: dict[str, Any] = {"path": intent.get("target", "")}
+        if action == "fs.write":
+            params["content"] = intent.get("content", "")
+        return params
+    if action.startswith("package."):
+        return {"package": intent.get("target", "")}
+    return {}
+
+
+def _cow_subject(intent: dict) -> str:
+    """The identifier that mcpd's IntentStore uses for subject-swap
+    protection. Same as `target` for both fs.* and package.* — the intent
+    schema uses one field for both. Central helper so a future rename
+    lands in one place."""
+    return intent.get("target", "")
 
 _PIPELINE_STEPS = [
     ("qb_intent",           "Generating intent..."),
@@ -830,6 +867,52 @@ class Controller:
                 yield _cot("trust_consult", "done", body="Skipped",
                             skipped=True)
 
+            # ── Step 3.5 (M7.0.1e): COW dry-run pre-pass ────────────────
+            # Runs when the HITL gate WILL fire AND the intent is a
+            # COW-eligible destructive op (fs.delete / fs.write outside
+            # $HOME / package.*). mcpd returns a ticket carrying a real
+            # diff (M7.0.1b) + registers a PendingIntent (M7.0.1c) that
+            # the eventual cow.commit will consume. The diff is formatted
+            # into cow_summary_text so the initial HITL gate at Step 4
+            # renders "3.2 GB will be freed. 847 files will be deleted."
+            # This retires the audit's B-2 finding (dry-run only in the
+            # second modal post-mcpd) and closes C-1 at the UX layer.
+            cow_intent_id: Optional[str] = None
+            cow_summary_text: Optional[str] = None
+            cow_preview_result: Optional[ToolResult] = None
+            if cls_result_requires_hitl and intent["action"] in _COW_ELIGIBLE:
+                yield _progress("cow_approval")
+                yield _cot("cow_approval", "active",
+                            body="Requesting COW dry-run from mcpd")
+                try:
+                    cow_preview_result = self._mcpd.call(
+                        intent["action"], _preview_params(intent),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # Visible-warn: user still sees the initial gate, just
+                    # without the diff. Better than a blocked turn.
+                    self._logger.log_exception(
+                        f"cow preview failed: {type(exc).__name__}: {exc}"
+                    ) if hasattr(self, "_logger") and self._logger else None
+                    yield _cot("cow_approval", "failed",
+                                body=f"Preview error: {type(exc).__name__}: {exc}")
+                else:
+                    if cow_preview_result.requires_cow_approval:
+                        cow_intent_id = cow_preview_result.cow_intent_id
+                        diff = cow_preview_result.dry_run_diff
+                        if diff is not None:
+                            cow_summary_text = _cow_format_diff(diff)
+                        yield _cot("cow_approval", "done",
+                                    body="Diff ready for HITL modal",
+                                    intent_id=cow_intent_id or "")
+                    else:
+                        # Tool didn't gate (e.g. fs.write inside $HOME).
+                        # Thread the ok result forward to skip Step 8-9's
+                        # normal mcpd dispatch — mcpd already ran the op.
+                        yield _cot("cow_approval", "done",
+                                    body="Tool executed synchronously — no COW gate",
+                                    skipped=True)
+
             # Step 4: HITL gate
             if cls_result_requires_hitl:
                 yield _progress("hitl_gate")
@@ -842,6 +925,7 @@ class Controller:
                         lockout_seconds=self._cfg.hitl.lockout_seconds,
                         timeout_seconds=self._cfg.hitl.timeout_seconds,
                         presenter=self._build_presenter(),
+                        cow_summary=cow_summary_text,  # M7.0.1e: diff at first ask
                     )
                     decision = hitl_prompt.ask()
                     hitl_extra = {
@@ -1541,8 +1625,77 @@ class Controller:
                     yield _cot("mcpd_dispatch", "done", body="Execution complete",
                                 requires_cow=tool_result.requires_cow_approval)
 
-            # Step 10: COW approval
-            if tool_result.requires_cow_approval:
+            # ── Step 10 (rewritten for M7.0.1e): COW commit ────────────
+            # PRIMARY PATH: Step 3.5 pre-flighted the diff, Step 4 already
+            # got user approval on that diff. Commit the pre-approved
+            # intent_id via cow.commit. This retires the audit's B-2
+            # finding — the user sees the diff at ONE modal (Step 4), not
+            # two.
+            #
+            # FALLBACK: Step 3.5 didn't fire (rare — e.g. Tier-1 tool
+            # escalated to Tier-3 inside mcpd, or the pre-pass hit an
+            # exception). Old second-HITL logic stays as safety net so
+            # pre-v6.16 mcpd behaviour still works.
+            if cow_intent_id is not None:
+                yield _progress("cow_approval")
+                yield _cot("cow_approval", "active",
+                            body=f"Committing pre-approved intent "
+                                 f"{cow_intent_id[:8]}...")
+                try:
+                    commit_result = self._mcpd.commit_cow(
+                        cow_intent_id,
+                        intent["action"],
+                        _cow_subject(intent),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    yield _cot("cow_approval", "failed",
+                                body=f"Commit RPC error: {type(exc).__name__}: {exc}")
+                    duration = (time.monotonic() - t0) * 1000
+                    yield ResultEvent(result=TurnResult(
+                        success=False,
+                        output=f"Commit failed: {exc}",
+                        outcome=Outcome.TOOL_ERROR,
+                        tier=int(cls_result.tier),
+                        backend=session.backend,
+                        duration_ms=duration,
+                        tokens_in=total_tokens_in,
+                        tokens_out=total_tokens_out,
+                        cost_usd=total_cost if total_cost > 0 else None,
+                    ))
+                    return
+                if commit_result.status == "err":
+                    # IntentStore refused (expired / op_mismatch /
+                    # subject_mismatch / invalid_intent_id / not_found).
+                    reason = commit_result.result.get("reason", "unknown")
+                    detail = commit_result.result.get("detail", "")
+                    yield _cot("cow_approval", "failed",
+                                body=f"Commit refused: {reason}",
+                                detail=detail)
+                    duration = (time.monotonic() - t0) * 1000
+                    yield ResultEvent(result=TurnResult(
+                        success=False,
+                        output=f"Commit refused ({reason}): {detail}",
+                        outcome=Outcome.TOOL_ERROR,
+                        tier=int(cls_result.tier),
+                        backend=session.backend,
+                        duration_ms=duration,
+                        tokens_in=total_tokens_in,
+                        tokens_out=total_tokens_out,
+                        cost_usd=total_cost if total_cost > 0 else None,
+                    ))
+                    return
+                # Success — thread the real commit envelope forward so
+                # Step 11's QB summariser reads what actually happened,
+                # not the preview ticket.
+                tool_result = commit_result
+                yield _cot("cow_approval", "done",
+                            body="Commit executed",
+                            op=intent["action"])
+            elif tool_result.requires_cow_approval:
+                # FALLBACK path — pre-pass didn't populate cow_intent_id
+                # but mcpd still gated. Keep the existing second-modal
+                # behaviour as a safety net. Backward-compat with older
+                # mcpd builds that don't emit a diff sub-object.
                 yield _progress("cow_approval")
                 yield _cot("cow_approval", "active",
                             body="Destructive op — awaiting COW preview approval")
@@ -1821,6 +1974,29 @@ class Controller:
         else:
             cls_result_requires_hitl = cls_result.requires_hitl
 
+        # ── Step 3.5 (M7.0.1e non-streaming twin): COW dry-run pre-pass ─────
+        # Mirrors the streaming path's Step 3.5. Runs BEFORE Step 4 so the
+        # initial HITL modal carries the diff (whitepaper §8.2). Retires
+        # audit row B-2 for the non-streaming path.
+        cow_intent_id: Optional[str] = None
+        cow_summary_text: Optional[str] = None
+        if cls_result_requires_hitl and intent["action"] in _COW_ELIGIBLE:
+            try:
+                cow_preview_result = self._mcpd.call(
+                    intent["action"], _preview_params(intent),
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Visible-warn — proceed to Step 4 without diff.
+                self._logger.log_exception(
+                    f"cow preview (non-streaming) failed: {type(exc).__name__}: {exc}"
+                ) if hasattr(self, "_logger") and self._logger else None
+            else:
+                if cow_preview_result.requires_cow_approval:
+                    cow_intent_id = cow_preview_result.cow_intent_id
+                    diff = cow_preview_result.dry_run_diff
+                    if diff is not None:
+                        cow_summary_text = _cow_format_diff(diff)
+
         # ── Step 4: HITL gate (Tier 3 only) ──────────────────────────────────
         if cls_result_requires_hitl:
             modify_count = 0
@@ -1831,6 +2007,7 @@ class Controller:
                     lockout_seconds=self._cfg.hitl.lockout_seconds,
                     timeout_seconds=self._cfg.hitl.timeout_seconds,
                     presenter=self._build_presenter(),
+                    cow_summary=cow_summary_text,  # M7.0.1e: diff at first ask
                 )
                 decision = hitl_prompt.ask()
 
@@ -2140,8 +2317,47 @@ class Controller:
                         tokens_in=total_tokens_in, tokens_out=total_tokens_out,
                     )
 
-        # ── Step 10: COW approval (if mcpd requires it) ───────────────────────
-        if tool_result.requires_cow_approval:
+        # ── Step 10 (rewritten for M7.0.1e non-streaming twin): COW commit ──
+        # PRIMARY: cow.commit(cow_intent_id) if Step 3.5 pre-flighted +
+        # Step 4 approved. FALLBACK: old second-modal for rare cases where
+        # mcpd gated but we didn't pre-flight.
+        if cow_intent_id is not None:
+            try:
+                commit_result = self._mcpd.commit_cow(
+                    cow_intent_id, intent["action"], _cow_subject(intent),
+                )
+            except Exception as exc:  # noqa: BLE001
+                duration = (time.monotonic() - t0) * 1000
+                return TurnResult(
+                    success=False,
+                    output=f"Commit failed: {type(exc).__name__}: {exc}",
+                    outcome=Outcome.TOOL_ERROR,
+                    tier=int(cls_result.tier),
+                    backend=session.backend,
+                    duration_ms=duration,
+                    tokens_in=total_tokens_in,
+                    tokens_out=total_tokens_out,
+                    cost_usd=total_cost if total_cost > 0 else None,
+                )
+            if commit_result.status == "err":
+                reason = commit_result.result.get("reason", "unknown")
+                detail = commit_result.result.get("detail", "")
+                duration = (time.monotonic() - t0) * 1000
+                return TurnResult(
+                    success=False,
+                    output=f"Commit refused ({reason}): {detail}",
+                    outcome=Outcome.TOOL_ERROR,
+                    tier=int(cls_result.tier),
+                    backend=session.backend,
+                    duration_ms=duration,
+                    tokens_in=total_tokens_in,
+                    tokens_out=total_tokens_out,
+                    cost_usd=total_cost if total_cost > 0 else None,
+                )
+            tool_result = commit_result
+        elif tool_result.requires_cow_approval:
+            # FALLBACK — Tier-1→Tier-3 escalation inside mcpd, or older
+            # mcpd without diff sub-object. Preserves pre-v6.16 behaviour.
             cow_preview_text = ""
             if tool_result.cow_preview:
                 cow_preview_text = json.dumps(tool_result.cow_preview, indent=2)
