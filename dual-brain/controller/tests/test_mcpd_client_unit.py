@@ -187,7 +187,10 @@ def test_requires_cow_approval_flagged_for_fs_delete():
         assert result.requires_cow_approval
         assert result.status == "requires_cow_approval"
         assert result.cow_intent_id == "00000000-0000-0000-0000-000000000001"
-        assert result.cow_preview == {"operation": "fs.delete", "path": "/tmp/x"}
+        # M7.0.1b/d: preview now includes a diff sub-object. Verify the
+        # classic fields (operation/path) survive alongside diff.
+        assert result.cow_preview["operation"] == "fs.delete"
+        assert result.cow_preview["path"] == "/tmp/x"
 
 
 def test_requires_cow_approval_flagged_for_package_install():
@@ -203,6 +206,61 @@ def test_non_cow_result_has_no_cow_helpers():
         assert not result.requires_cow_approval
         assert result.cow_intent_id is None
         assert result.cow_preview is None
+        assert result.dry_run_diff is None
+
+
+# ── M7.0.1d: dry_run_diff + commit_cow ────────────────────────────────────
+
+def test_dry_run_diff_populated_for_fs_delete():
+    """The diff sub-object from mcpd v6.16+ is exposed as ToolResult.dry_run_diff."""
+    with _spawn_fake("normal") as client:
+        result = client.call("fs.delete", {"path": "/tmp/x"})
+        diff = result.dry_run_diff
+        assert diff is not None
+        assert diff["operation"] == "fs.delete"
+        assert diff["bytes_delta"] == -1200
+        assert diff["file_count_delta"] == -3
+        assert diff["risk"] == "LOW"
+        assert diff["reversible"] is False
+        assert "1.2 KB" in diff["human_summary"]
+
+
+def test_dry_run_diff_populated_for_package_install():
+    with _spawn_fake("normal") as client:
+        result = client.call("package.install", {"package": "htop"})
+        diff = result.dry_run_diff
+        assert diff is not None
+        assert diff["operation"] == "package.install"
+        assert diff["file_count_delta"] == 4
+        assert diff["risk"] == "MED"
+
+
+def test_dry_run_diff_none_when_no_diff_field():
+    """Old mcpd (pre-v6.16) sends tickets without a diff — must return None."""
+    from controller.mcpd_client import ToolResult
+    old_ticket = ToolResult(
+        result={
+            "status": "requires_cow_approval",
+            "intent_id": "deadbeef-dead-beef-dead-beefdeadbeef",
+            "preview": {"operation": "fs.delete", "path": "/tmp/y"},
+        },
+        request_id=1,
+    )
+    assert old_ticket.requires_cow_approval
+    assert old_ticket.dry_run_diff is None
+
+
+def test_commit_cow_round_trip_via_fake():
+    """commit_cow() sends the right params + returns the fake's ok envelope."""
+    with _spawn_fake("normal") as client:
+        result = client.commit_cow(
+            "00000000-0000-0000-0000-000000000001",
+            "fs.delete",
+            "/tmp/x",
+        )
+        assert result.status == "ok"
+        assert result.result["operation"] == "fs.delete"
+        assert result.result["intent_id"] == "00000000-0000-0000-0000-000000000001"
 
 
 # ── JSON-RPC error path ────────────────────────────────────────────────────

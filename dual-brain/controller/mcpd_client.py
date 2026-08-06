@@ -177,6 +177,21 @@ class ToolResult:
         v = self.result.get("preview")
         return v if isinstance(v, dict) else None
 
+    @property
+    def dry_run_diff(self) -> Optional[dict]:
+        """M7.0.1d (v6.16): the rich diff sub-object added in M7.0.1b.
+
+        Present on tickets from mcpd v6.16+; absent on older mcpd. Callers
+        should treat None as "no diff available" — the ticket's classic
+        `path` / `current_size_bytes` / `proposed_size_bytes` fields are
+        still on `cow_preview` for fallback.
+        """
+        preview = self.cow_preview
+        if preview is None:
+            return None
+        diff = preview.get("diff")
+        return diff if isinstance(diff, dict) else None
+
 
 # ── Client ──────────────────────────────────────────────────────────────────
 
@@ -309,6 +324,34 @@ class McpdClient:
         """
         result = self.call("tools/list", {}, timeout=timeout)
         return result.result
+
+    def commit_cow(
+        self,
+        intent_id: str,
+        operation: str,
+        subject: str,
+        *,
+        timeout: Optional[float] = None,
+    ) -> ToolResult:
+        """M7.0.1d (v6.16): consume a previously-approved COW ticket.
+
+        Called by the Controller after the Tier-3 HITL modal is approved.
+        `intent_id` / `operation` / `subject` MUST match the values from
+        the original preview ticket — mcpd's IntentStore rejects any
+        mismatch with a `status: "err"` envelope (not a JSON-RPC error),
+        so this method returns a normal ToolResult whose `.status` may
+        be "err" with reason ∈ {not_found, expired, operation_mismatch,
+        subject_mismatch, invalid_intent_id}.
+
+        Caller is responsible for interpreting the err-status — a good
+        pattern is to surface `result.result.get("detail")` to the user
+        so they know why the commit refused.
+        """
+        return self.call(
+            "cow.commit",
+            {"intent_id": intent_id, "operation": operation, "subject": subject},
+            timeout=timeout,
+        )
 
     def call(
         self,

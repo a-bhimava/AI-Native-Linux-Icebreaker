@@ -89,13 +89,51 @@ def _build_result(method: str, params: dict) -> dict:
         return {
             "status": "requires_cow_approval",
             "intent_id": "00000000-0000-0000-0000-000000000001",
-            "preview": {"operation": "fs.delete", "path": params.get("path", "")},
+            "preview": {
+                "operation": "fs.delete",
+                "path": params.get("path", ""),
+                # M7.0.1b/d — diff sub-object mirrors real mcpd v6.16+.
+                "diff": {
+                    "operation": "fs.delete",
+                    "bytes_delta": -1200,
+                    "file_count_delta": -3,
+                    "affected_paths_sample": [
+                        params.get("path", ""),
+                        f"{params.get('path', '')}/a",
+                        f"{params.get('path', '')}/b",
+                    ],
+                    "human_summary": "1.2 KB will be freed. 3 files will be deleted.",
+                    "risk": "LOW",
+                    "reversible": False,
+                },
+            },
         }
     if method == "package.install":
         return {
             "status": "requires_cow_approval",
             "intent_id": "00000000-0000-0000-0000-000000000002",
-            "preview": {"operation": "package.install", "package": params.get("package", "")},
+            "preview": {
+                "operation": "package.install",
+                "package": params.get("package", ""),
+                "diff": {
+                    "operation": "package.install",
+                    "bytes_delta": 0,
+                    "file_count_delta": 4,
+                    "affected_paths_sample": [],
+                    "human_summary": "4 packages will be installed (1 will be upgraded).",
+                    "risk": "MED",
+                    "reversible": True,
+                },
+            },
+        }
+    if method == "cow.commit":
+        # M7.0.1c/d — canned success envelope, mirrors real mcpd's shape.
+        # Tests that need error branches (expired / op_mismatch) can build
+        # their own fake by copying this module and swapping this arm.
+        return {
+            "status": "ok",
+            "operation": params.get("operation", ""),
+            "intent_id": params.get("intent_id", ""),
         }
     return {"status": "ok", "echo": params}
 
