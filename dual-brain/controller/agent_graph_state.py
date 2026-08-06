@@ -71,6 +71,14 @@ class GraphState(TypedDict, total=False):
         Optional[Literal["approve", "deny"]], last_write_wins
     ]
 
+    # ── M7.0.1f (v6.16): COW pre-flight + gated commit ───────────────
+    # cow_preview_node stashes these BEFORE hitl_gate so the modal payload
+    # carries the diff (whitepaper §8.2 shape). mcpd_dispatcher checks
+    # cow_pending_intent_id post-approve → calls commit_cow instead of a
+    # raw mcpd.call. Persisted by SqliteSaver across the interrupt.
+    cow_pending_intent_id: Annotated[Optional[str], last_write_wins]
+    cow_diff_json: Annotated[Optional[dict], last_write_wins]
+
     # ── Error surface ───────────────────────────────────────────────
     error_kind: Annotated[
         Optional[
@@ -152,6 +160,8 @@ def make_initial_state(
         total_steps=1,
         hitl_required=False,
         hitl_decision=None,
+        cow_pending_intent_id=None,
+        cow_diff_json=None,
         error_kind=None,
         error_reason=None,
         completed=False,

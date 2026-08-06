@@ -30,6 +30,7 @@ import time
 from typing import Any, Iterator, Optional
 
 from .audit import Outcome
+from .cow_summary import format_diff as _cow_format_diff
 from .hitl import Decision, HitlDisplayData
 from .risk_classifier import Tier
 
@@ -167,16 +168,28 @@ def translate_interrupt_payload_to_display_data(
     except ValueError:
         tier = Tier.MEDIUM
 
+    # M7.0.1f (v6.16): if cow_preview_node stashed a diff, format it
+    # into cow_summary so the modal renders "3.2 GB will be freed. 847
+    # files will be deleted." at the initial HITL ask (whitepaper §8.2).
+    cow_diff = outcome.get("cow_diff_json")
+    cow_summary_text: Optional[str] = None
+    reversible_flag = False
+    if isinstance(cow_diff, dict):
+        cow_summary_text = _cow_format_diff(cow_diff)
+        # The diff's reversibility flag is a better signal than the
+        # historical hardcoded False.
+        reversible_flag = bool(cow_diff.get("reversible", False))
+
     return HitlDisplayData(
         action=action,
         target=target,
         tier=tier,
         risk_level=risk_level,
-        reversible=False,   # populated when Task #148/149 lands richer intent metadata
+        reversible=reversible_flag,
         backend=backend,
         reason=reason,
         blocked_pattern=None,
-        cow_summary=None,   # Task #148+ wires COW dry-run diff
+        cow_summary=cow_summary_text,
     )
 
 

@@ -226,6 +226,7 @@ class AgentGraph:
             after_executor, after_hitl, after_mcpd, after_planner,
             after_risk, after_verifier,
             audit_writer_node,               # v6.12 Fix A — terminal INV-8 writer
+            cow_preview_node,                # M7.0.1f (v6.16) — pre-flight before hitl_gate
             executor_node, hitl_gate_node, mcpd_dispatcher_node,
             make_collaborators, planner_node, responder_node,
             risk_classifier_node, verifier_node,
@@ -251,6 +252,11 @@ class AgentGraph:
         builder.add_node("planner", planner_node(collab))
         builder.add_node("risk_classifier", risk_classifier_node(collab))
         builder.add_node("verifier", verifier_node(collab))
+        # M7.0.1f (v6.16): cow_preview_node runs between verifier and
+        # hitl_gate. It pre-flights the destructive op so hitl_gate's
+        # modal renders the diff at first ask (whitepaper §8.2 / audit
+        # row B-2 closure). No-op for non-COW intents.
+        builder.add_node("cow_preview", cow_preview_node(collab))
         builder.add_node("hitl_gate", hitl_gate_node(collab))
         builder.add_node("executor", executor_node(collab))
         builder.add_node("mcpd_dispatcher", mcpd_dispatcher_node(collab))
@@ -295,10 +301,16 @@ class AgentGraph:
             "risk_classifier", after_risk,
             _route_end({"executor": "executor"}),
         )
+        # M7.0.1f: verifier now routes to cow_preview instead of hitl_gate
+        # directly. cow_preview is a no-op for non-COW intents (passes
+        # through with cow_pending_intent_id=None). Then straight edge
+        # to hitl_gate — the modal renders the diff when cow_preview
+        # stashed one, or renders the classic risk-only prompt otherwise.
         builder.add_conditional_edges(
             "verifier", after_verifier,
-            _route_end({"hitl_gate": "hitl_gate"}),
+            _route_end({"hitl_gate": "cow_preview"}),
         )
+        builder.add_edge("cow_preview", "hitl_gate")
         builder.add_conditional_edges(
             "hitl_gate", after_hitl,
             _route_end({"mcpd_dispatcher": "mcpd_dispatcher"}),
@@ -409,6 +421,11 @@ class AgentGraph:
             # through to the bridge so translate_outcome_to_events can
             # render the CoT panel from truth instead of inference.
             "visited_nodes": list(state.get("visited_nodes", []) or []),
+            # M7.0.1f (v6.16): propagate COW state so the bridge's
+            # translate_interrupt_payload_to_display_data can format the
+            # diff into the modal's cow_summary field.
+            "cow_pending_intent_id": state.get("cow_pending_intent_id"),
+            "cow_diff_json": state.get("cow_diff_json"),
         }
         if outcome != "paused":
             self._reset_turn()

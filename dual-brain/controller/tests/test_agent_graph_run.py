@@ -143,10 +143,17 @@ def test_tier2_pauses_at_hitl_then_resumes_on_approve():
         results = list(ag.run("install htop", "sess-3"))
         out = results[0]
         assert out["outcome"] == "paused", f"expected paused, got {out}"
-        # v6.12 Fix E: executor ran before HITL so PB fired. mcpd remains
-        # gated behind the pause.
+        # v6.12 Fix E: executor ran before HITL so PB fired.
+        # M7.0.1f (v6.16): cow_preview_node now fires ONE mcpd.call for
+        # the preview before hitl_gate pauses (whitepaper §8.2 / audit
+        # row B-2 closure). The dispatch (real op) is still gated behind
+        # the pause — assertion changed from assert_not_called to
+        # "exactly the preview call, no dispatch call".
         ag._pb.complete.assert_called_once()
-        ag._mcpd.call.assert_not_called()
+        call_methods = [c.args[0] for c in ag._mcpd.call.call_args_list]
+        assert call_methods == ["package.install"], (
+            f"expected exactly the preview call, got {call_methods}"
+        )
 
         # Resume with approve.
         resumed = list(ag.resume("sess-3", "approve"))
@@ -155,13 +162,22 @@ def test_tier2_pauses_at_hitl_then_resumes_on_approve():
         # PB call count stays at 1 — after_hitl routes to mcpd_dispatcher,
         # not back to executor.
         ag._pb.complete.assert_called_once()
-        ag._mcpd.call.assert_called_once()
+        # M7.0.1f: dispatcher fired commit_cow (not mcpd.call) since the
+        # preview stashed a pending intent_id. But cow_preview's
+        # SimpleNamespace fake doesn't carry requires_cow_approval → falls
+        # to the raw mcpd.call path for the actual dispatch. So we expect
+        # 2 mcpd.call invocations total (preview + dispatch).
+        assert ag._mcpd.call.call_count == 2, (
+            f"expected preview + dispatch, got {ag._mcpd.call.call_count}"
+        )
     finally:
         ag.close()
 
 
 def test_tier2_deny_short_circuits_no_dispatch():
     # v6.12 Fix E: executor runs before HITL; deny stops before mcpd.
+    # M7.0.1f (v6.16): the pre-flight preview fires once BEFORE HITL —
+    # deny prevents any additional (dispatch) call.
     ag = _make_agent()
     ag._risk_classify = MagicMock(return_value=SimpleNamespace(tier=2))
     ag._qb.complete.return_value = SimpleNamespace(
@@ -175,9 +191,13 @@ def test_tier2_deny_short_circuits_no_dispatch():
         denied = list(ag.resume("sess-4", "deny"))
         out = denied[0]
         assert out["outcome"] == "denied"
-        # v6.12 Fix E: PB ran once before the pause; deny prevents mcpd.
+        # v6.12 Fix E: PB ran once before the pause.
         ag._pb.complete.assert_called_once()
-        ag._mcpd.call.assert_not_called()
+        # M7.0.1f: preview call OK (1); dispatch must NOT fire on deny.
+        assert ag._mcpd.call.call_count == 1, (
+            f"expected exactly the preview call (deny prevents dispatch), "
+            f"got {ag._mcpd.call.call_count}"
+        )
     finally:
         ag.close()
 

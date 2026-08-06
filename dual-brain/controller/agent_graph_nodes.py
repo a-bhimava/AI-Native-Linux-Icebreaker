@@ -30,6 +30,40 @@ from typing import Any, Callable
 from .agent_graph_state import GraphState
 from .backends.base import BrainError, BrainProviderError
 from .mcpd_client import ToolResult
+
+# M7.0.1f (v6.16): destructive ops that need the two-phase COW flow.
+# Mirrors main.py::_COW_ELIGIBLE — single source of truth is cow.rs on
+# the mcpd side; both controller paths (streaming main.py + AgentGraph
+# here) enumerate the same set for the pre-flight gate. Kept in sync
+# by the test `test_hitl_cow_summary_present.py::test_cow_eligible_agrees`
+# added in the M7.0.1f test slice.
+COW_ELIGIBLE: frozenset[str] = frozenset({
+    "fs.delete",
+    "fs.write",
+    "package.install",
+    "package.remove",
+    "package.upgrade",
+})
+
+
+def _cow_preview_params(intent: dict) -> dict:
+    """Build mcpd call params for a COW preview. Mirror of
+    main.py::_preview_params — kept a local copy so agent_graph_nodes
+    stays importable without pulling main.py's controller-lifecycle
+    weight into the graph tests."""
+    action = intent.get("action", "")
+    if action.startswith("fs."):
+        params: dict[str, Any] = {"path": intent.get("target", "")}
+        if action == "fs.write":
+            params["content"] = intent.get("content", "")
+        return params
+    if action.startswith("package."):
+        return {"package": intent.get("target", "")}
+    return {}
+
+
+def _cow_subject(intent: dict) -> str:
+    return intent.get("target", "")
 from .plan_executor import (
     normalize_planner_output,
     plan_max_tier,
@@ -432,19 +466,77 @@ def verifier_node(collab: dict) -> Callable[[GraphState], dict]:
     return _run
 
 
+def cow_preview_node(collab: dict) -> Callable[[GraphState], dict]:
+    """M7.0.1f (v6.16): pre-flight the destructive op so hitl_gate's
+    modal renders the diff at first ask (whitepaper §8.2). No interrupt
+    here — this node is a side-effectful preview (mcpd.call) that runs
+    exactly once per turn. LangGraph does NOT re-run this node when
+    hitl_gate's interrupt resumes (only the interrupted node re-runs),
+    so the intent_id we stash here survives cleanly across the pause.
+
+    Non-COW ops pass through as no-ops. Preview failures degrade to
+    visible-warn — hitl_gate still fires, just without the diff.
+    """
+
+    def _run(state: GraphState) -> dict:
+        intent = collab["turn_content"].get(state.get("intent_id", ""))
+        if not intent or intent.get("action") not in COW_ELIGIBLE:
+            # No-op for non-COW ops.
+            return _mark("cow_preview", "done", {
+                "cow_pending_intent_id": None,
+                "cow_diff_json": None,
+            })
+        try:
+            preview_result: ToolResult = collab["mcpd"].call(
+                intent["action"], _cow_preview_params(intent),
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Visible-warn — hitl_gate fires without diff. Better than a
+            # blocked turn.
+            return _mark("cow_preview", "failed", {
+                "cow_pending_intent_id": None,
+                "cow_diff_json": None,
+                "error_kind": "mcpd",
+                "error_reason": f"cow preview error: {type(exc).__name__}: {exc}"[:400],
+            })
+        # Defensive: some tests use SimpleNamespace fakes that lack the
+        # ToolResult COW helpers. getattr() with False default treats
+        # those returns as "no gate needed" — same shape as an
+        # actually-executed op on the fs.write $HOME fast path.
+        if getattr(preview_result, "requires_cow_approval", False):
+            return _mark("cow_preview", "done", {
+                "cow_pending_intent_id": getattr(preview_result, "cow_intent_id", None),
+                "cow_diff_json": getattr(preview_result, "dry_run_diff", None),
+            })
+        # mcpd didn't gate (e.g. fs.write inside $HOME) — no diff, no
+        # commit needed later; dispatcher will fall through to raw
+        # mcpd.call as usual.
+        return _mark("cow_preview", "done", {
+            "cow_pending_intent_id": None,
+            "cow_diff_json": None,
+        })
+
+    return _run
+
+
 def hitl_gate_node(collab: dict) -> Callable[[GraphState], dict]:
     """HITL — pauses via LangGraph interrupt() until user approves/denies.
 
     Pure by construction: reads state + collab, calls interrupt() with a
     payload, returns the decision. Interrupt re-runs the node on resume
     — safe because we do no other side effects here.
+
+    M7.0.1f: when state carries `cow_diff_json` (populated by
+    `cow_preview_node`), the payload includes it so the client's bridge
+    can format the diff into the modal's cow_summary field. Non-COW ops
+    or non-COW-eligible flows carry the historical payload unchanged.
     """
 
     from langgraph.types import interrupt  # local import — see §13.5 pattern
 
     def _run(state: GraphState) -> dict:
         intent = collab["turn_content"].get(state.get("intent_id", ""))
-        payload = {
+        payload: dict[str, Any] = {
             "type": "hitl_prompt",
             "turn_id": state.get("turn_id", ""),
             "intent_id": state.get("intent_id", ""),
@@ -452,6 +544,14 @@ def hitl_gate_node(collab: dict) -> Callable[[GraphState], dict]:
             "tier": int(state.get("tier", -1)),
             "summary": (intent or {}).get("reason", ""),
         }
+        # M7.0.1f: enrich payload with the COW diff when cow_preview_node
+        # stashed one. Bridge picks this up in
+        # translate_interrupt_payload_to_display_data and formats via
+        # cow_summary.format_diff into cow_summary before the modal renders.
+        cow_diff = state.get("cow_diff_json")
+        if cow_diff:
+            payload["cow_diff_json"] = cow_diff
+            payload["cow_intent_id"] = state.get("cow_pending_intent_id", "")
         # interrupt() raises to pause; on resume the return value is the
         # user's decision passed via Command(resume="approve"|"deny").
         decision = interrupt(payload)
@@ -840,10 +940,29 @@ def mcpd_dispatcher_node(collab: dict) -> Callable[[GraphState], dict]:
                 _payload["subprocess_isolated"] = True   # provenance
                 result = ToolResult(result=_payload, request_id=0)
             else:
-                result = collab["mcpd"].call(
-                    method=tool_name,
-                    params=tool_call.get("params", {}),
-                )
+                # M7.0.1f (v6.16): if cow_preview_node stashed a pending
+                # intent_id AND hitl_gate approved, dispatch via cow.commit
+                # instead of a raw mcpd.call. This consumes the pre-approved
+                # intent from mcpd's IntentStore and executes the real op —
+                # the flagship two-phase commit path the whitepaper §5 promises.
+                cow_intent_id = state.get("cow_pending_intent_id")
+                intent_obj = collab["turn_content"].get(state.get("intent_id", ""))
+                if (
+                    cow_intent_id
+                    and state.get("hitl_decision") == "approve"
+                    and intent_obj
+                    and intent_obj.get("action") in COW_ELIGIBLE
+                ):
+                    result = collab["mcpd"].commit_cow(
+                        cow_intent_id,
+                        intent_obj["action"],
+                        _cow_subject(intent_obj),
+                    )
+                else:
+                    result = collab["mcpd"].call(
+                        method=tool_name,
+                        params=tool_call.get("params", {}),
+                    )
         except Exception as exc:  # noqa: BLE001 — wrap unknown mcpd faults
             step_index = int(state.get("step_index", 0))
             total_steps = int(state.get("total_steps", 1))
