@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "cow.commit",
+  "description": "Commit a previously-approved COW-gated intent. The client presents the intent_id it received in a `requires_cow_approval` ticket, plus the operation + subject for op-swap protection. mcpd validates against its IntentStore, consumes the intent, then dispatches to the real fs.delete / fs.write / package.* execution path. Failure modes surface as an err-status result (never -32603): expired, not-found, operation-mismatch, subject-mismatch. Added in M7.0.1c (v6.16).",
+  "type": "object",
+  "properties": {
+    "intent_id": {
+      "type": "string",
+      "minLength": 32,
+      "maxLength": 64,
+      "description": "UUID from the preview ticket (fs.delete / fs.write / package.* response's intent_id field)."
+    },
+    "operation": {
+      "type": "string",
+      "enum": ["fs.delete", "fs.write", "package.install", "package.remove", "package.upgrade"],
+      "description": "Must match the operation of the intent registered under intent_id. Op-swap protection."
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Path (for fs.*) or package name (for package.*). Must match the subject of the intent registered under intent_id. Subject-swap protection."
+    }
+  },
+  "required": ["intent_id", "operation", "subject"],
+  "additionalProperties": false,
+  "x-icebreaker-trust": {
+    "tier": 3,
+    "reversible": false,
+    "requires_hitl": true,
+    "requires_cow": false
+  }
+}

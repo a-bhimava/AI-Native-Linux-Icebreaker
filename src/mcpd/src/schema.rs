@@ -46,6 +46,8 @@ const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("package.install", include_str!("../schemas/package.install.json")),
     ("package.remove", include_str!("../schemas/package.remove.json")),
     ("package.upgrade", include_str!("../schemas/package.upgrade.json")),
+    // M7.0.1c (v6.16): cow.commit — consumes a preview intent_id + executes.
+    ("cow.commit",     include_str!("../schemas/cow.commit.json")),
 ];
 
 /// `tools/list` has no schema — it's the discovery endpoint, accepts any params.
@@ -189,10 +191,11 @@ mod tests {
     }
 
     #[test]
-    fn registered_methods_includes_all_twenty_three() {
+    fn registered_methods_includes_all_twenty_four() {
         // F-35: 22 real tools + system.unsupported (catalogue landing pad).
+        // M7.0.1c (v6.16): +cow.commit → 24 total.
         let methods: Vec<&str> = registered_methods().collect();
-        assert_eq!(methods.len(), 23);
+        assert_eq!(methods.len(), 24);
         assert!(methods.contains(&"system.status"));
         assert!(methods.contains(&"system.unsupported"));
         assert!(methods.contains(&"process.inspect"));
@@ -205,6 +208,7 @@ mod tests {
         assert!(methods.contains(&"service.stop"));
         assert!(methods.contains(&"service.restart"));
         assert!(methods.contains(&"service.logs"));
+        assert!(methods.contains(&"cow.commit"));
     }
 
     #[test]

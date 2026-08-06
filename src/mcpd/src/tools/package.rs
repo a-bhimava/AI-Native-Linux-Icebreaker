@@ -15,7 +15,7 @@
 /// Validation: package/pattern names must match Debian's allowed charset
 /// (`[a-z0-9][a-z0-9+\-.]*`) plus the `*` glob char for query patterns. No
 /// shell metacharacters reach the subprocess.
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 
 const MAX_NAME_LEN: usize = 128;
@@ -27,47 +27,147 @@ pub async fn query(pattern: &str) -> Result<Value> {
 
 pub async fn install(package: &str) -> Result<Value> {
     require_valid_package_name(package)?;
-    let diff = simulate_and_serialize("package.install", package).await;
-    Ok(cow_gate("package.install", package, diff))
+    let (diff_json, intent_id) = simulate_and_register("package.install", package).await;
+    Ok(cow_gate(intent_id, "package.install", package, diff_json))
 }
 
 pub async fn remove(package: &str) -> Result<Value> {
     require_valid_package_name(package)?;
-    let diff = simulate_and_serialize("package.remove", package).await;
-    Ok(cow_gate("package.remove", package, diff))
+    let (diff_json, intent_id) = simulate_and_register("package.remove", package).await;
+    Ok(cow_gate(intent_id, "package.remove", package, diff_json))
 }
 
 pub async fn upgrade(package: &str) -> Result<Value> {
     require_valid_package_name(package)?;
-    let diff = simulate_and_serialize("package.upgrade", package).await;
-    Ok(cow_gate("package.upgrade", package, diff))
+    let (diff_json, intent_id) = simulate_and_register("package.upgrade", package).await;
+    Ok(cow_gate(intent_id, "package.upgrade", package, diff_json))
 }
 
-/// M7.0.1b: run the async COW simulator and serialize its result to a
-/// serde_json::Value for embedding in the ticket's preview.diff field.
+/// M7.0.1b/c: run the async COW simulator, serialize its result for
+/// embedding in the ticket's preview.diff field, AND register the intent
+/// in the process-wide store so cow.commit can consume it. Returns
+/// `(diff_json_for_ticket, intent_id_for_ticket)`.
+///
 /// Wrapped in tokio::time::timeout so a hung apt-get can't stall the RPC
 /// past 15s — on timeout we return a visible-warn diff rather than
-/// silent-pass. Simulator failures return a Value too (they build a diff
-/// with an "unavailable" human_summary), so this only returns None on a
-/// panic-like unwind path, which shouldn't happen.
-async fn simulate_and_serialize(op: &str, package: &str) -> Option<Value> {
-    match tokio::time::timeout(
+/// silent-pass. Even on simulator failure or timeout we still register the
+/// intent (with a stub DryRunDiff) so the client can commit if the user
+/// approves anyway; the visible-warn text in the modal is the user's
+/// signal that they're going in blind.
+async fn simulate_and_register(op: &str, package: &str) -> (Option<Value>, uuid::Uuid) {
+    let (diff, diff_json) = match tokio::time::timeout(
         std::time::Duration::from_secs(15),
         crate::tools::cow::simulate_package_op(op, package),
     )
     .await
     {
-        Ok(Ok(diff)) => Some(diff.to_json()),
-        Ok(Err(_)) => None,
-        Err(_) => Some(json!({
+        Ok(Ok(d)) => (d.clone(), Some(d.to_json())),
+        Ok(Err(_)) => (
+            _stub_diff(op, "Preview unavailable: simulator errored."),
+            None,
+        ),
+        Err(_) => {
+            let d = _stub_diff(op, "Preview unavailable: apt-get -s timed out after 15 s. Approve only if you trust the intent.");
+            (d.clone(), Some(d.to_json()))
+        }
+    };
+    let intent_id = crate::tools::cow::register_intent(
+        op,
+        package,
+        diff,
+        None,
+        None,
+        None,
+    );
+    (diff_json, intent_id)
+}
+
+/// Fallback DryRunDiff used when the simulator can't produce a real one.
+/// Marked reversible=false and risk=MED to nudge the reviewer.
+fn _stub_diff(op: &str, msg: &str) -> crate::tools::cow::DryRunDiff {
+    crate::tools::cow::DryRunDiff {
+        operation: op.to_string(),
+        bytes_delta: 0,
+        file_count_delta: 0,
+        affected_paths_sample: vec![],
+        human_summary: msg.to_string(),
+        risk: "MED".to_string(),
+        reversible: false,
+    }
+}
+
+// ── Commit-path handlers (M7.0.1c) ──────────────────────────────────────────
+// Called only by server.rs::dispatch under the `cow.commit` match arm AFTER
+// the IntentStore has validated intent_id + operation + subject and
+// consumed the PendingIntent. These functions are the ONLY code path that
+// actually invokes apt-get on the real system.
+
+/// Real apt-get install. Shells `apt-get install -y --no-install-recommends
+/// <pkg>` with DEBIAN_FRONTEND=noninteractive.
+pub async fn commit_install(intent: &crate::tools::cow::PendingIntent) -> Result<Value> {
+    run_apt_op("install", &intent.subject, intent).await
+}
+
+pub async fn commit_remove(intent: &crate::tools::cow::PendingIntent) -> Result<Value> {
+    run_apt_op("remove", &intent.subject, intent).await
+}
+
+pub async fn commit_upgrade(intent: &crate::tools::cow::PendingIntent) -> Result<Value> {
+    // "upgrade this specific package" ≈ install --only-upgrade.
+    let apt_result = tokio::process::Command::new("apt-get")
+        .arg("install")
+        .arg("--only-upgrade")
+        .arg("-y")
+        .arg(&intent.subject)
+        .env("DEBIAN_FRONTEND", "noninteractive")
+        .output()
+        .await
+        .map_err(|e| anyhow!("apt-get spawn failed: {}", e))?;
+    apt_result_to_value("package.upgrade", &intent.subject, intent, apt_result)
+}
+
+async fn run_apt_op(
+    apt_verb: &str,
+    package: &str,
+    intent: &crate::tools::cow::PendingIntent,
+) -> Result<Value> {
+    let apt_result = tokio::process::Command::new("apt-get")
+        .arg(apt_verb)
+        .arg("-y")
+        .arg("--no-install-recommends")
+        .arg(package)
+        .env("DEBIAN_FRONTEND", "noninteractive")
+        .output()
+        .await
+        .map_err(|e| anyhow!("apt-get spawn failed: {}", e))?;
+    apt_result_to_value(&format!("package.{}", apt_verb), package, intent, apt_result)
+}
+
+fn apt_result_to_value(
+    op: &str,
+    package: &str,
+    intent: &crate::tools::cow::PendingIntent,
+    out: std::process::Output,
+) -> Result<Value> {
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    if out.status.success() {
+        Ok(json!({
+            "status": "ok",
             "operation": op,
-            "bytes_delta": 0,
-            "file_count_delta": 0,
-            "affected_paths_sample": [],
-            "human_summary": "Preview unavailable: apt-get -s timed out after 15 s. Approve only if you trust the intent.",
-            "risk": "MED",
-            "reversible": false,
-        })),
+            "package": package,
+            "intent_id": intent.intent_id.to_string(),
+            "stdout_tail": stdout.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>(),
+        }))
+    } else {
+        Ok(json!({
+            "status": "err",
+            "operation": op,
+            "package": package,
+            "intent_id": intent.intent_id.to_string(),
+            "exit_code": out.status.code(),
+            "stderr_tail": stderr.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>(),
+        }))
     }
 }
 
@@ -123,25 +223,26 @@ async fn run_dpkg_query(pattern: &str) -> Result<Value> {
     }))
 }
 
-/// Build a Tier 2/3 COW gate response for package.*. M7.0.1c will accept
-/// this `intent_id` back via `cow.commit` and run apt-get for real.
+/// Build a Tier 2/3 COW gate response for package.*. M7.0.1c: caller passes
+/// the `intent_id` already registered in `cow::intent_store()` so the
+/// ticket's id matches the one clients quote back to `cow.commit`.
 ///
 /// The `diff` param (M7.0.1b) carries the DryRunDiff.to_json() from
 /// `simulate_package_op`. `None` collapses to no `preview.diff` field — the
 /// classic ticket shape (operation + package + note) is preserved for
 /// backward compat with pre-v6.16 controllers.
-fn cow_gate(operation: &str, package: &str, diff: Option<Value>) -> Value {
+fn cow_gate(intent_id: uuid::Uuid, operation: &str, package: &str, diff: Option<Value>) -> Value {
     let mut preview = json!({
         "operation": operation,
         "package": package,
-        "note": "M7.0.1c will commit this via cow.commit (real apt-get).",
+        "note": "Approve via HITL, then call cow.commit {intent_id} to execute.",
     });
     if let Some(d) = diff {
         preview["diff"] = d;
     }
     json!({
         "status": "requires_cow_approval",
-        "intent_id": uuid::Uuid::new_v4().to_string(),
+        "intent_id": intent_id.to_string(),
         "preview": preview,
     })
 }

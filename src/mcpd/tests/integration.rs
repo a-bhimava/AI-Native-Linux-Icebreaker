@@ -976,3 +976,260 @@ fn full_handshake_initialize_then_tools_list_then_tools_call() {
     assert_eq!(call["result"]["isError"], false);
     assert!(call["result"]["content"][0]["text"].is_string());
 }
+
+// ── M7.0.1c (v6.16): cow.commit RPC + IntentStore ────────────────────────────
+
+#[test]
+fn cow_commit_round_trip_for_fs_delete() {
+    // Preview → HITL-approve (simulated) → commit executes the real delete.
+    // Uses /tmp/<unique> so we don't clobber anything real; /tmp is on the
+    // Landlock RW list.
+    // Use /tmp explicitly — macOS env::temp_dir() is /var/folders/... which
+    // is NOT on the Landlock whitelist. /tmp is.
+    let d = std::path::PathBuf::from(format!("/tmp/mcpd-cow-delete-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    let victim = d.join("victim.txt");
+    std::fs::write(&victim, b"hello").unwrap();
+    assert!(victim.exists());
+
+    let mut mcpd = Mcpd::spawn();
+
+    // 1. Preview — get the intent_id.
+    let preview = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.delete",
+        "params": {"path": victim.to_str().unwrap()},
+        "id": 1,
+    }));
+    assert!(preview["error"].is_null(), "preview failed: {:?}", preview["error"]);
+    assert_eq!(preview["result"]["status"], "requires_cow_approval");
+    let intent_id = preview["result"]["intent_id"].as_str().unwrap().to_string();
+    // File still exists — preview did NOT delete.
+    assert!(victim.exists(), "preview must not delete");
+
+    // 2. Commit — execute the real delete.
+    let commit = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "cow.commit",
+        "params": {
+            "intent_id": intent_id,
+            "operation": "fs.delete",
+            "subject": victim.to_str().unwrap(),
+        },
+        "id": 2,
+    }));
+    assert!(commit["error"].is_null(), "commit failed: {:?}", commit["error"]);
+    assert_eq!(commit["result"]["status"], "ok");
+    assert_eq!(commit["result"]["operation"], "fs.delete");
+    assert_eq!(commit["result"]["removed"], true);
+    assert_eq!(commit["result"]["kind"], "file");
+    assert!(!victim.exists(), "commit must actually delete");
+
+    std::fs::remove_dir_all(&d).ok();
+}
+
+#[test]
+fn cow_commit_round_trip_for_fs_write_outside_home() {
+    // Write to /tmp/<unique> which is on the RW list but NOT $HOME —
+    // so it takes the outside-home COW path.
+    let target = std::path::PathBuf::from(format!("/tmp/mcpd-cow-write-{}", std::process::id()));
+    // Ensure it doesn't exist yet.
+    std::fs::remove_file(&target).ok();
+
+    let mut mcpd = Mcpd::spawn();
+    let content = "committed content\n";
+
+    let preview = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.write",
+        "params": {"path": target.to_str().unwrap(), "content": content},
+        "id": 1,
+    }));
+    assert!(preview["error"].is_null());
+    assert_eq!(preview["result"]["status"], "requires_cow_approval");
+    let intent_id = preview["result"]["intent_id"].as_str().unwrap().to_string();
+    assert!(!target.exists(), "preview must not write");
+
+    let commit = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "cow.commit",
+        "params": {
+            "intent_id": intent_id,
+            "operation": "fs.write",
+            "subject": target.to_str().unwrap(),
+        },
+        "id": 2,
+    }));
+    assert!(commit["error"].is_null(), "commit failed: {:?}", commit["error"]);
+    assert_eq!(commit["result"]["status"], "ok");
+    assert_eq!(commit["result"]["bytes_written"], content.len());
+    let written = std::fs::read_to_string(&target).unwrap();
+    assert_eq!(written, content);
+
+    std::fs::remove_file(&target).ok();
+}
+
+#[test]
+fn cow_commit_rejects_op_swap() {
+    // Preview a fs.delete but try to commit it as fs.write — the
+    // IntentStore's operation guard must reject it and return an err
+    // Value (not a -32603 protocol error).
+    let d = std::path::PathBuf::from(format!("/tmp/mcpd-cow-opswap-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    let path = d.join("opswap.txt");
+    std::fs::write(&path, b"x").unwrap();
+
+    let mut mcpd = Mcpd::spawn();
+    let preview = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.delete",
+        "params": {"path": path.to_str().unwrap()},
+        "id": 1,
+    }));
+    let intent_id = preview["result"]["intent_id"].as_str().unwrap().to_string();
+
+    // Attempt to commit as fs.write instead.
+    let commit = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "cow.commit",
+        "params": {
+            "intent_id": intent_id,
+            "operation": "fs.write",
+            "subject": path.to_str().unwrap(),
+        },
+        "id": 2,
+    }));
+    assert!(commit["error"].is_null(), "op-swap must not be a protocol error");
+    assert_eq!(commit["result"]["status"], "err");
+    assert_eq!(commit["result"]["reason"], "operation_mismatch");
+    // Path still exists — no destructive op fired.
+    assert!(path.exists());
+
+    std::fs::remove_dir_all(&d).ok();
+}
+
+#[test]
+fn cow_commit_rejects_subject_swap() {
+    let d = std::path::PathBuf::from(format!("/tmp/mcpd-cow-subswap-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    let approved = d.join("approved.txt");
+    let unrelated = d.join("unrelated.txt");
+    std::fs::write(&approved, b"a").unwrap();
+    std::fs::write(&unrelated, b"u").unwrap();
+
+    let mut mcpd = Mcpd::spawn();
+    let preview = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "fs.delete",
+        "params": {"path": approved.to_str().unwrap()},
+        "id": 1,
+    }));
+    let intent_id = preview["result"]["intent_id"].as_str().unwrap().to_string();
+
+    // Attempt to commit against a different path.
+    let commit = mcpd.call(&json!({
+        "jsonrpc": "2.0",
+        "method": "cow.commit",
+        "params": {
+            "intent_id": intent_id,
+            "operation": "fs.delete",
+            "subject": unrelated.to_str().unwrap(),
+        },
+        "id": 2,
+    }));
+    assert!(commit["error"].is_null());
+    assert_eq!(commit["result"]["status"], "err");
+    assert_eq!(commit["result"]["reason"], "subject_mismatch");
+    // Both files still present.
+    assert!(approved.exists());
+    assert!(unrelated.exists());
+
+    std::fs::remove_dir_all(&d).ok();
+}
+
+#[test]
+fn cow_commit_replay_after_success_returns_not_found() {
+    let d = std::path::PathBuf::from(format!("/tmp/mcpd-cow-replay-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    let path = d.join("replay.txt");
+    std::fs::write(&path, b"r").unwrap();
+
+    let mut mcpd = Mcpd::spawn();
+    let preview = mcpd.call(&json!({
+        "jsonrpc": "2.0", "method": "fs.delete",
+        "params": {"path": path.to_str().unwrap()}, "id": 1,
+    }));
+    let intent_id = preview["result"]["intent_id"].as_str().unwrap().to_string();
+
+    // First commit succeeds.
+    let commit1 = mcpd.call(&json!({
+        "jsonrpc": "2.0", "method": "cow.commit",
+        "params": {"intent_id": intent_id.clone(),
+                    "operation": "fs.delete",
+                    "subject": path.to_str().unwrap()},
+        "id": 2,
+    }));
+    assert_eq!(commit1["result"]["status"], "ok");
+
+    // Replay of the same intent_id must fail with not_found (consumed).
+    let commit2 = mcpd.call(&json!({
+        "jsonrpc": "2.0", "method": "cow.commit",
+        "params": {"intent_id": intent_id,
+                    "operation": "fs.delete",
+                    "subject": path.to_str().unwrap()},
+        "id": 3,
+    }));
+    assert!(commit2["error"].is_null());
+    assert_eq!(commit2["result"]["status"], "err");
+    assert_eq!(commit2["result"]["reason"], "not_found");
+
+    std::fs::remove_dir_all(&d).ok();
+}
+
+#[test]
+fn cow_commit_bad_uuid_returns_err_not_protocol_error() {
+    let mut mcpd = Mcpd::spawn();
+    let commit = mcpd.call(&json!({
+        "jsonrpc": "2.0", "method": "cow.commit",
+        "params": {
+            // Length is in the 32-64 range so schema passes, but not a real UUID.
+            "intent_id": "not-a-uuid-not-a-uuid-not-a-uuid-really",
+            "operation": "fs.delete",
+            "subject": "/tmp/whatever",
+        },
+        "id": 1,
+    }));
+    assert!(commit["error"].is_null());
+    assert_eq!(commit["result"]["status"], "err");
+    assert_eq!(commit["result"]["reason"], "invalid_intent_id");
+}
+
+#[test]
+fn cow_commit_bad_operation_enum_rejected_by_schema() {
+    // Operation not in the schema's enum → -32602 (protocol layer).
+    let mut mcpd = Mcpd::spawn();
+    let commit = mcpd.call(&json!({
+        "jsonrpc": "2.0", "method": "cow.commit",
+        "params": {
+            "intent_id": "00000000-0000-0000-0000-000000000000",
+            "operation": "system.unsupported", // NOT in the enum
+            "subject": "irrelevant",
+        },
+        "id": 1,
+    }));
+    assert_eq!(commit["error"]["code"], -32602);
+}
+
+#[test]
+fn cow_commit_in_tools_list_catalogue() {
+    let mut mcpd = Mcpd::spawn();
+    let list = mcpd.call(&json!({"jsonrpc": "2.0", "method": "tools/list", "id": 1}));
+    let tools = list["result"]["tools"].as_array().unwrap();
+    let cow = tools.iter().find(|t| t["name"] == "cow.commit")
+        .expect("cow.commit must appear in tools/list catalogue");
+    assert_eq!(cow["category"], "cow");
+    assert_eq!(cow["tier"], 3);
+    assert_eq!(cow["read_only"], false);
+    // Schema is inlined
+    assert_eq!(cow["params_schema"]["required"][0], "intent_id");
+}

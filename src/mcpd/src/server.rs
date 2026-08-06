@@ -355,6 +355,11 @@ async fn dispatch(mut req: JsonRpcRequest) -> Result<JsonRpcResponse> {
             tools::package::upgrade(package).await
         }
 
+        // M7.0.1c (v6.16): consume a previously-approved COW ticket and
+        // dispatch to the real op. IntentStore validation enforces
+        // op-swap + subject-swap protection.
+        "cow.commit" => cow_commit_dispatch(&req.params).await,
+
         // Unreachable: is_known_method() gates this match above.
         other => unreachable!("dispatch reached unknown method '{}' after is_known_method check", other),
     };
@@ -394,6 +399,51 @@ fn mcp_error(msg: &str) -> Value {
     })
 }
 
+/// M7.0.1c (v6.16): consume a previously-approved COW intent and dispatch
+/// to the real op. Fails soft (returns an `err`-status Value, not a
+/// JSON-RPC error) on IntentStore validation failure so the client can
+/// surface the reason to the user without treating it as a protocol
+/// error. Fails hard (bail!) only if the intent's operation is one we
+/// don't route to yet — that shape indicates a store/dispatch drift and
+/// warrants investigation, not a user-visible ok-err.
+async fn cow_commit_dispatch(params: &Value) -> anyhow::Result<Value> {
+    let intent_id_str = params["intent_id"].as_str().expect("schema-validated");
+    let operation = params["operation"].as_str().expect("schema-validated");
+    let subject = params["subject"].as_str().expect("schema-validated");
+    let intent_id = match uuid::Uuid::parse_str(intent_id_str) {
+        Ok(id) => id,
+        Err(e) => return Ok(serde_json::json!({
+            "status": "err",
+            "reason": "invalid_intent_id",
+            "detail": e.to_string(),
+        })),
+    };
+    let intent = match tools::cow::intent_store().take(intent_id, operation, subject) {
+        Ok(i) => i,
+        Err(cow_err) => {
+            let reason = match cow_err {
+                tools::cow::CowError::NotFound(_) => "not_found",
+                tools::cow::CowError::Expired(_, _) => "expired",
+                tools::cow::CowError::OperationMismatch { .. } => "operation_mismatch",
+                tools::cow::CowError::SubjectMismatch { .. } => "subject_mismatch",
+            };
+            return Ok(serde_json::json!({
+                "status": "err",
+                "reason": reason,
+                "detail": cow_err.to_string(),
+            }));
+        }
+    };
+    match intent.operation.as_str() {
+        "fs.delete" => tools::fs::commit_delete(&intent).await,
+        "fs.write" => tools::fs::commit_write(&intent).await,
+        "package.install" => tools::package::commit_install(&intent).await,
+        "package.remove" => tools::package::commit_remove(&intent).await,
+        "package.upgrade" => tools::package::commit_upgrade(&intent).await,
+        other => anyhow::bail!("cow.commit: unsupported operation in intent: {}", other),
+    }
+}
+
 /// Returns true if `method` is one of the methods this dispatcher routes.
 /// Single source of truth for both the -32601 check and the match arms.
 fn is_known_method(method: &str) -> bool {
@@ -406,5 +456,6 @@ fn is_known_method(method: &str) -> bool {
         | "service.start" | "service.stop" | "service.restart" | "service.logs"
         | "network.status" | "network.dns.read"
         | "package.query" | "package.install" | "package.remove" | "package.upgrade"
+        | "cow.commit"  // M7.0.1c (v6.16)
     )
 }

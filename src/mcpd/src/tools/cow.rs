@@ -29,7 +29,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 use uuid::Uuid;
 use walkdir::WalkDir;
@@ -463,6 +463,9 @@ pub struct PendingIntent {
     /// commit, mcpd writes these atomically. `None` for fs.delete /
     /// package.*.
     pub proposed_bytes: Option<Vec<u8>>,
+    /// For fs.write only — target file mode (rwx bits). None → uses the
+    /// module default (0o644).
+    pub proposed_mode: Option<u32>,
     /// For fs.write only — snapshot of the prior file contents so we can
     /// roll back on future undo requests. Only populated when the target
     /// existed and was small enough (see `MAX_UNDO_SNAPSHOT_BYTES`).
@@ -568,6 +571,46 @@ impl Default for IntentStore {
     fn default() -> Self {
         Self::with_default_ttl()
     }
+}
+
+// ── Process-wide accessor (used by preview + commit paths) ──────────────────
+
+/// The single mcpd-process IntentStore. Preview handlers (`fs::delete`,
+/// `fs::write` outside home, `package::install/remove/upgrade`) call
+/// `register_intent(...)` to reserve the intent_id they emit in the
+/// ticket; the `cow.commit` RPC handler calls `intent_store().take(...)`
+/// to consume it before executing the real op.
+///
+/// Follows the same lazy-init pattern as `fs::home()` and
+/// `schema::registry()` — no config plumbing needed to reach it from any
+/// tool handler.
+pub fn intent_store() -> &'static IntentStore {
+    static STORE: OnceLock<IntentStore> = OnceLock::new();
+    STORE.get_or_init(IntentStore::with_default_ttl)
+}
+
+/// Convenience wrapper: mint a fresh Uuid, wrap the caller's op-specific
+/// bits in a PendingIntent, register it, return the id. Preview handlers
+/// use this to keep the "reserve + return-ticket" flow one line.
+pub fn register_intent(
+    operation: &str,
+    subject: &str,
+    diff: DryRunDiff,
+    proposed_bytes: Option<Vec<u8>>,
+    proposed_mode: Option<u32>,
+    prior_snapshot: Option<Vec<u8>>,
+) -> Uuid {
+    let intent = PendingIntent {
+        intent_id: Uuid::new_v4(),
+        operation: operation.to_string(),
+        subject: subject.to_string(),
+        proposed_bytes,
+        proposed_mode,
+        prior_snapshot,
+        diff_snapshot: diff,
+        expires_at: SystemTime::now() + INTENT_TTL,
+    };
+    intent_store().register(intent)
 }
 
 // ── Unit tests ───────────────────────────────────────────────────────────────
@@ -799,6 +842,7 @@ Purg deprecated-thing [2.0]
             operation: op.to_string(),
             subject: subject.to_string(),
             proposed_bytes: None,
+            proposed_mode: None,
             prior_snapshot: None,
             diff_snapshot: DryRunDiff {
                 operation: op.to_string(),
@@ -907,6 +951,56 @@ Purg deprecated-thing [2.0]
         std::thread::sleep(Duration::from_millis(10));
         store.gc();
         assert_eq!(store.len(), 0);
+    }
+
+    // --- register_intent + intent_store() convenience ---
+
+    #[test]
+    fn register_intent_uses_process_store() {
+        // Serialization guard: this test shares the process-wide store with
+        // any parallel test invocation; we only assert our own id survives
+        // long enough to be `take`n by us.
+        let diff = DryRunDiff {
+            operation: "fs.delete".to_string(),
+            bytes_delta: -100,
+            file_count_delta: -1,
+            affected_paths_sample: vec![],
+            human_summary: "test".to_string(),
+            risk: "LOW".to_string(),
+            reversible: false,
+        };
+        let id = register_intent("fs.delete", "/tmp/rit-test", diff, None, None, None);
+        let taken = intent_store()
+            .take(id, "fs.delete", "/tmp/rit-test")
+            .expect("register_intent id must be takeable");
+        assert_eq!(taken.operation, "fs.delete");
+        assert_eq!(taken.subject, "/tmp/rit-test");
+    }
+
+    #[test]
+    fn register_intent_fs_write_carries_bytes_and_mode() {
+        let diff = DryRunDiff {
+            operation: "fs.write".to_string(),
+            bytes_delta: 5,
+            file_count_delta: 1,
+            affected_paths_sample: vec![],
+            human_summary: "test".to_string(),
+            risk: "MED".to_string(),
+            reversible: true,
+        };
+        let id = register_intent(
+            "fs.write",
+            "/etc/rit-write-test",
+            diff,
+            Some(b"hello".to_vec()),
+            Some(0o600),
+            None,
+        );
+        let taken = intent_store()
+            .take(id, "fs.write", "/etc/rit-write-test")
+            .expect("takeable");
+        assert_eq!(taken.proposed_bytes.as_deref(), Some(&b"hello"[..]));
+        assert_eq!(taken.proposed_mode, Some(0o600));
     }
 
     // The `Write` import is used indirectly by TempDir tests writing binary

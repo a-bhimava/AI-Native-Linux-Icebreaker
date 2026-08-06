@@ -74,6 +74,12 @@ const TOOLS: &[ToolDescriptor] = &[
                      category: "package", tier: 2, read_only: false },
     ToolDescriptor { name: "package.upgrade", description: "Upgrade a Debian package (returns COW approval ticket).",
                      category: "package", tier: 2, read_only: false },
+    // M7.0.1c (v6.16): commit a previously-approved COW ticket. Consumes
+    // the intent_id from the store and dispatches to the real op.
+    // Tier 3 because it can execute destructive ops; the safety comes
+    // from the caller having already approved the preview via HITL.
+    ToolDescriptor { name: "cow.commit", description: "Commit a previously-approved COW ticket by intent_id (executes the real fs.delete / fs.write / package.* op that was previewed).",
+                     category: "cow", tier: 3, read_only: false },
 ];
 
 /// Returns the complete MCP tool catalogue for discovery (`tools/list`).
@@ -137,6 +143,7 @@ fn category_from_name(name: &str) -> &'static str {
         "service" => "service",
         "network" => "network",
         "package" => "package",
+        "cow" => "cow",
         _ => "misc",
     }
 }
@@ -146,11 +153,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn list_all_advertises_twenty_three_tools() {
+    fn list_all_advertises_twenty_four_tools() {
         // F-35: 22 real tools + system.unsupported landing pad.
+        // M7.0.1c (v6.16): +cow.commit → 24 total.
         let v = list_all().unwrap();
         let tools = v["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 23);
+        assert_eq!(tools.len(), 24);
     }
 
     #[test]

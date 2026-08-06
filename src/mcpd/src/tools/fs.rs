@@ -28,6 +28,7 @@ use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use uuid::Uuid;
 
 const STATIC_ROOTS: &[&str] = &["/proc", "/sys", "/tmp", "/var/log", "/etc"];
 const MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
@@ -203,6 +204,12 @@ pub async fn list(path: &str) -> Result<Value> {
     }))
 }
 
+/// Snapshot cap: fs.write commit path stashes the prior file contents
+/// under `PendingIntent.prior_snapshot` so an undo RPC can restore later.
+/// We only stash small files to bound RAM — files above this size are
+/// non-recoverable via mcpd's own store (user still gets the diff preview).
+const MAX_UNDO_SNAPSHOT_BYTES: u64 = 1024 * 1024;
+
 /// fs.write — Tier 1 inside safe $HOME, Tier 3 (COW gate) everywhere else.
 /// INV-6: writes outside $HOME never execute synchronously in Phase 1.
 pub async fn write(path: &str, content: &str, mode: Option<u32>) -> Result<Value> {
@@ -216,16 +223,44 @@ pub async fn write(path: &str, content: &str, mode: Option<u32>) -> Result<Value
         // and embed it in the ticket's preview so the Controller can show
         // "N bytes will be written to /etc/hosts (grow by K bytes, ...)"
         // at the initial Tier-3 HITL gate.
+        //
+        // M7.0.1c: also REGISTER the intent in the process-wide store so
+        // the client's subsequent `cow.commit {intent_id}` can consume it
+        // and re-dispatch to the real write path. The registered intent
+        // carries the proposed bytes + mode so the commit doesn't need the
+        // client to re-supply them (defends against tampering between
+        // preview and commit — the client can only approve or deny, not
+        // change what happens).
         let abs = v.root.join(&v.rel);
-        let diff = crate::tools::cow::simulate_fs_write_outside_home(&abs, content.len() as u64)
+        let diff = crate::tools::cow::simulate_fs_write_outside_home(&abs, content.len() as u64)?;
+        let prior_snapshot = safe_open_readonly(&v.root, &v.rel)
             .ok()
-            .map(|d| d.to_json());
-        return Ok(cow_gate_response_with_size(
+            .and_then(|mut f| {
+                use std::io::Read;
+                f.metadata().ok().and_then(|m| {
+                    if m.len() <= MAX_UNDO_SNAPSHOT_BYTES {
+                        let mut buf = Vec::with_capacity(m.len() as usize);
+                        f.read_to_end(&mut buf).ok().map(|_| buf)
+                    } else {
+                        None
+                    }
+                })
+            });
+        let intent_id = crate::tools::cow::register_intent(
+            "fs.write",
+            path,
+            diff.clone(),
+            Some(content.as_bytes().to_vec()),
+            mode,
+            prior_snapshot,
+        );
+        return Ok(cow_gate_response_with_id_and_size(
+            intent_id,
             "fs.write",
             path,
             0,
             content.len() as u64,
-            diff,
+            Some(diff.to_json()),
         ));
     }
 
@@ -253,11 +288,81 @@ pub async fn delete(path: &str) -> Result<Value> {
     // target, sums sizes, counts entries) and embed it in the preview so
     // the Controller can show "3.2 GB will be freed. 847 files will be
     // deleted." at the initial Tier-3 HITL gate.
+    //
+    // M7.0.1c: also REGISTER the intent so cow.commit can re-dispatch to
+    // the real delete path after user approval.
     let abs = v.root.join(&v.rel);
-    let diff = crate::tools::cow::simulate_fs_delete(&abs)
-        .ok()
-        .map(|d| d.to_json());
-    Ok(cow_gate_response_with_size("fs.delete", path, preview_size, 0, diff))
+    let diff = crate::tools::cow::simulate_fs_delete(&abs)?;
+    let intent_id = crate::tools::cow::register_intent(
+        "fs.delete",
+        path,
+        diff.clone(),
+        None,
+        None,
+        None,
+    );
+    Ok(cow_gate_response_with_id_and_size(
+        intent_id,
+        "fs.delete",
+        path,
+        preview_size,
+        0,
+        Some(diff.to_json()),
+    ))
+}
+
+// ── Commit-path handlers (M7.0.1c) ──────────────────────────────────────────
+// Called by server.rs::dispatch under the `cow.commit` match arm AFTER the
+// IntentStore has validated intent_id + operation + subject and consumed
+// the PendingIntent. These functions are the ONLY code path that actually
+// mutates the filesystem outside $HOME.
+
+/// Real fs.delete — remove the file/dir at the subject path. Called only
+/// from the cow.commit dispatch after IntentStore validation.
+pub async fn commit_delete(intent: &crate::tools::cow::PendingIntent) -> Result<Value> {
+    let v = validate(&intent.subject)?;
+    let abs = v.root.join(&v.rel);
+    let meta = std::fs::symlink_metadata(&abs);
+    let (removed, kind) = match meta {
+        Ok(m) if m.is_dir() => {
+            std::fs::remove_dir_all(&abs)?;
+            (true, "dir")
+        }
+        Ok(_) => {
+            std::fs::remove_file(&abs)?;
+            (true, "file")
+        }
+        Err(_) => (false, "missing"),
+    };
+    Ok(json!({
+        "status": "ok",
+        "operation": "fs.delete",
+        "path": intent.subject,
+        "removed": removed,
+        "kind": kind,
+        "intent_id": intent.intent_id.to_string(),
+    }))
+}
+
+/// Real fs.write outside home — write the proposed bytes at the subject
+/// path with the proposed mode. Called only from the cow.commit dispatch
+/// after IntentStore validation.
+pub async fn commit_write(intent: &crate::tools::cow::PendingIntent) -> Result<Value> {
+    let bytes = intent.proposed_bytes.as_ref()
+        .ok_or_else(|| anyhow!("commit_write: PendingIntent lacks proposed_bytes"))?;
+    let mode = intent.proposed_mode.unwrap_or(DEFAULT_FILE_MODE);
+    let v = validate(&intent.subject)?;
+    let content = std::str::from_utf8(bytes)
+        .map_err(|e| anyhow!("commit_write: proposed_bytes not valid UTF-8: {}", e))?;
+    safe_write(&v.root, &v.rel, content, mode)?;
+    Ok(json!({
+        "status": "ok",
+        "operation": "fs.write",
+        "path": intent.subject,
+        "bytes_written": bytes.len(),
+        "mode": format!("{:o}", mode),
+        "intent_id": intent.intent_id.to_string(),
+    }))
 }
 
 /// `Tier 1` predicate: under $HOME and NOT in a sensitive subdir.
@@ -275,15 +380,17 @@ fn is_tier_1_safe(v: &ValidatedPath) -> bool {
     true
 }
 
-/// Build a Tier 3 COW gate response (INV-6). M7.0.1c will accept this
-/// `intent_id` back via `cow.commit` and run the actual op for real.
+/// Build a Tier 3 COW gate response (INV-6). M7.0.1c: caller passes the
+/// `intent_id` already registered in `cow::intent_store()` so the ticket's
+/// id matches the one clients quote back to `cow.commit`.
 ///
 /// The `diff` param (M7.0.1b) carries the DryRunDiff.to_json() output when
 /// available; controllers render its `human_summary` in the Tier-3 HITL
 /// modal. `None` means no simulator was available (e.g. macOS dev running
 /// against a Linux-only tool) — the ticket still ships with the classic
 /// path/size fields for backward compat.
-fn cow_gate_response_with_size(
+fn cow_gate_response_with_id_and_size(
+    intent_id: Uuid,
     operation: &str,
     path: &str,
     current_size: u64,
@@ -301,7 +408,7 @@ fn cow_gate_response_with_size(
     }
     json!({
         "status": "requires_cow_approval",
-        "intent_id": uuid::Uuid::new_v4().to_string(),
+        "intent_id": intent_id.to_string(),
         "preview": preview,
     })
 }
