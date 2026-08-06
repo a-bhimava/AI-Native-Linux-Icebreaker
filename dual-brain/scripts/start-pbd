@@ -58,12 +58,33 @@ if [ -e "${SOCKET_PATH}" ]; then
     rm -f "${SOCKET_PATH}"
 fi
 
+# ── Grammar file (M7.0.2b, v6.16) ───────────────────────────────────────
+# GBNF grammar constrains PB's token generation to schema-valid JSON tool
+# calls (whitepaper §6). Pre-M7.0.2b start-pbd shipped WITHOUT --grammar-file
+# and explicitly said "PB uses no grammar — relies on post-hoc tool-call
+# validation" — that comment reflected reality but violated audit row C-4.
+#
+# Belt-and-braces: smoke-gate refuses ISO builds without the file at the
+# path below; runtime warns loudly but keeps PB alive if operator manages
+# to break the install (degrade-not-crash per user's 2026-08-06 design).
+GRAMMAR_FILE="${ICEBREAKER_PB_GRAMMAR:-/var/lib/icebreaker/grammars/mcp_tool_call.gbnf}"
+if [ -f "${GRAMMAR_FILE}" ]; then
+    GRAMMAR_ARGS=(--grammar-file "${GRAMMAR_FILE}")
+    echo "[start-pbd] grammar: ${GRAMMAR_FILE}"
+else
+    GRAMMAR_ARGS=()
+    echo "[start-pbd] ERROR: grammar file not found at ${GRAMMAR_FILE}" >&2
+    echo "[start-pbd] ERROR: PB will run WITHOUT grammar constraint —" >&2
+    echo "[start-pbd] ERROR:   whitepaper §6 non-compliant, audit row C-4 open." >&2
+    echo "[start-pbd] ERROR:   Restore the file OR set ICEBREAKER_PB_GRAMMAR env var." >&2
+fi
+
 # ── Launch llama-server on UNIX socket ──────────────────────────────────
 # llama-server binds to a UNIX socket when --host ends with .sock.
-# PB uses no grammar — relies on post-hoc tool-call validation.
 echo "[start-pbd] binding to ${SOCKET_PATH}"
 exec "${ICEBREAKER_LLAMA_SERVER}" \
     --model "${MODEL_FILE}" \
+    "${GRAMMAR_ARGS[@]}" \
     -ngl 99 \
     --host "${SOCKET_PATH}" \
     --no-warmup

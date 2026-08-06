@@ -60,7 +60,15 @@ fi
 # Grammar path is RELATIVE to project root, not dual-brain — resolve.
 ABS_GRAMMAR="${ICEBREAKER_PROJECT_ROOT}/${PB_GRAMMAR}"
 if [ ! -f "${ABS_GRAMMAR}" ]; then
-  echo "[start_pb] WARNING: grammar file not found at ${ABS_GRAMMAR}; launching without grammar" >&2
+  # M7.0.2b (v6.16, 2026-08-06): degrade-not-crash preserved per user's
+  # middle-ground design (belt-and-braces: smoke-gate refuses ISO builds
+  # without the file; runtime warns but keeps PB alive for operator
+  # recovery). WARNING escalated to a 3-line ERROR block so a boot-time
+  # regression is impossible to miss in `journalctl -u icebreaker-pbd`.
+  echo "[start_pb] ERROR: grammar file not found at ${ABS_GRAMMAR}" >&2
+  echo "[start_pb] ERROR: PB will run WITHOUT grammar constraint —" >&2
+  echo "[start_pb] ERROR:   whitepaper §6 non-compliant, audit row C-4 open." >&2
+  echo "[start_pb] ERROR:   Restore the file OR set [run] pb_grammar_path to a real path." >&2
   ABS_GRAMMAR=""
 fi
 
