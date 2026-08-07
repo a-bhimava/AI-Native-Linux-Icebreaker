@@ -7,6 +7,26 @@
 
 ---
 
+## Status update — 2026-08-06 (v6.16 pre-build)
+
+**5 of 26 departures closed** by the v6.16 milestone landing on `feat/v6.16-safety-invariants`. The two flagship Tier A safety claims (#1 COW imagination layer, #2 GBNF-constrained PB) are now real. This ledger's original body below is preserved verbatim as the audit-time snapshot; the closures show up as `→ F-109` or `→ F-110` in the Status column of individual rows.
+
+| Row | Original state | Now | Closed by |
+|---|---|---|---|
+| **C-1** (Tier A #1) — COW imagination layer | DEPARTED — cow.rs doesn't exist | **SHIPPED (simulation, not literal overlayfs — user-approved design 2026-08-03)** | v6.16 M7.0.1a-h · commits `c3ac412..630aa54` · F-109 |
+| **C-4** (Tier A #2) — GBNF-constrained PB | DEPARTED — PB launched without --grammar-file | **SHIPPED (wire-up + bounded retry loop with QB-consult rescue for edge cases)** | v6.16 M7.0.2a-g · commits `977bdea..39a991d` · F-110 |
+| **B-2** — HITL Tier-3 shows dry-run diff | Tier-3 gate carries `cow_summary=None` | **SHIPPED — streaming Step 3.5 pre-pass populates diff at INITIAL gate** | v6.16 M7.0.1e · F-109 |
+| **B-3** — AgentGraph has COW branch | AgentGraph mcpd_dispatcher_node had no COW path | **SHIPPED — new `cow_preview_node` between verifier + hitl_gate** | v6.16 M7.0.1f · F-109 |
+| **B-4** — GBNF constraint | Controller-side `_build_pb` omitted grammar_path; server-side silently degraded | **SHIPPED — both sides wired + build-time smoke-gate + first-boot warn-not-crash** | v6.16 M7.0.2a-g · F-110 |
+
+**Whitepaper §5 text update** (acknowledging simulation approach over literal overlayfs) still deferred to M7.6b per the M7.0.1 design decision. **Per-tool GBNF tightening** (enumerate 25 tool names + per-tool params shape in the grammar) deferred to v6.17 — the M7.0.2 generic `{"tool": <str>, "params": <obj>}` grammar closes §6's shape guarantee; per-tool schema violations that survive it are caught by the bounded retry loop.
+
+**Tier A #3 (OC edition INV-1 gap — A-1..A-9)** remains open. Scheduled for v6.18 (M7.6a-1: submit_intent MCP surface).
+
+**21 departures remain**. Next tracked in `docs/2026-08-03_phase7_convergence_tracker.md` progress ledger.
+
+---
+
 ## What this document is
 
 An honest ledger of every place the shipping code has departed from the whitepaper's architectural claims. It was triggered by a user question during v6.15 OC-edition verification: *"we are using gemini via opencode for everything — this isn't a dual-brain architecture at all. why?"* That question turned out to be the tip of a much bigger drift.
@@ -116,10 +136,10 @@ Skim the tiers first if you have five minutes; drop into A/B/C only for the spec
 
 | # | Whitepaper §  | Expected | Actual | Evidence | Status |
 |---|---|---|---|---|---|
-| C-1 | §5 COW dry-run | tmpfs/overlayfs mount before destructive ops; "imagination layer" | ticket-only stub — no `cow.rs` file exists; `fs.write` outside `$HOME` and `fs.delete` return `requires_cow_approval` ticket without any actual overlay | `src/mcpd/src/tools/fs.rs:215,238,258-278`; grep for `src/mcpd/src/sandbox/cow.rs` → does not exist | **DEPARTED / deferred** |
+| C-1 | §5 COW dry-run | tmpfs/overlayfs mount before destructive ops; "imagination layer" | ticket-only stub — no `cow.rs` file exists; `fs.write` outside `$HOME` and `fs.delete` return `requires_cow_approval` ticket without any actual overlay | `src/mcpd/src/tools/fs.rs:215,238,258-278`; grep for `src/mcpd/src/sandbox/cow.rs` → does not exist | **SHIPPED 2026-08-06 → F-109** (v6.16 M7.0.1a-h: `src/mcpd/src/tools/cow.rs` new + IntentStore + cow.commit RPC + controller two-phase commit; simulation approach per user design 2026-08-03, not literal overlayfs) |
 | C-2 | §5 <10ms overhead | benchmark | none — only mcpd tools/list p95 | `src/mcpd/ci.sh:133-181` | NOT-STARTED |
 | C-3 | §6 Speculative decoding | draft+target on PB | no draft ships; PB launched without `--draft-model` | `dual-brain/scripts/start-pbd:65-69`; no draft GGUF in tree | **DEPARTED (PB)** |
-| C-4 | §6 Grammar-constrained decoding | PB uses `mcp_tool_call.gbnf` — "the model literally CANNOT generate invalid output" | PB explicitly grammarless; `dual-brain/scripts/start-pbd:63` comment says "PB uses no grammar — relies on post-hoc tool-call validation." QB gets `--grammar-file`, PB does not | `dual-brain/scripts/start-pbd:63`; `dual-brain/scripts/start-qbd:116` | **DEPARTED — flagship §6 claim** |
+| C-4 | §6 Grammar-constrained decoding | PB uses `mcp_tool_call.gbnf` — "the model literally CANNOT generate invalid output" | PB explicitly grammarless; `dual-brain/scripts/start-pbd:63` comment says "PB uses no grammar — relies on post-hoc tool-call validation." QB gets `--grammar-file`, PB does not | `dual-brain/scripts/start-pbd:63`; `dual-brain/scripts/start-qbd:116` | **SHIPPED 2026-08-06 → F-110** (v6.16 M7.0.2a-g: controller `_build_pb` passes grammar_path + start-pbd wires --grammar-file + v6.manifest ships file + smoke-gate + bounded PbRetryLoop with QB-consult rescue for per-tool violations that survive generic grammar; per-tool GBNF tightening deferred to v6.17) |
 | C-5 | §6 ~2 GB RAM footprint | measured | prose only | `docs/ARCHITECTURE.md:66` | NOT-STARTED |
 | C-6 | INV-7 sha256 pin | receipts for all shipped GGUFs | only 1 file listed (`run7_cot_q4km.gguf`); no draft, no QB entries | `models/checksums.sha256` | PARTIAL |
 | C-7 | §9 live-build | Debian live-build | debootstrap + mksquashfs + xorriso; live-build broken on Noble | `cx-distro/build.sh:549-550` (documented) | DEPARTED (deliberate) |
@@ -134,10 +154,10 @@ Skim the tiers first if you have five minutes; drop into A/B/C only for the spec
 | C-16 | BP-3 sanitize before terminal | universal ANSI/C0 scrub on model stream | applied on GUI audit fields only | `dual-brain/controller/audit.py:224,227`; `dual-brain/controller/main.py:1280,1322,1429` | PARTIAL |
 | C-17 | BP-13 no repeat regressions | every F-xx has named regression lock | 48/94 F-xx rows have `regression lock` (~51%) | `incremental/GROUND_TRUTH.md § 7` | PARTIAL |
 
-### Two findings worth highlighting
+### Two findings worth highlighting (2026-08-03 audit-time; both now closed)
 
-- **C-1 (COW is a stub)**: the whitepaper's flagship "Imagination Layer" — the thing that separates Icebreaker from "an AI that can make mistakes" from "an AI that cannot make irreversible ones" — is not implemented. mcpd returns a ticket that tells the caller "you should run this through COW"; nobody actually does. Both editions of HITL preview show the tool args, not a diff.
-- **C-4 (PB has no GBNF)**: §6 says "the model literally CANNOT generate invalid output — it is mathematically impossible." Reality: PB is launched without `--grammar-file`; only the QB gets grammar constraints. All PB safety comes from post-hoc validation, which the whitepaper explicitly says is inferior to constrained generation.
+- **C-1 (COW was a stub)**: the whitepaper's flagship "Imagination Layer" — the thing that separates Icebreaker from "an AI that can make mistakes" from "an AI that cannot make irreversible ones" — was not implemented. mcpd returned a ticket that told the caller "you should run this through COW"; nobody actually did. Both editions of HITL preview showed the tool args, not a diff. **CLOSED 2026-08-06 by v6.16 M7.0.1a-h (F-109)** — simulation-based per user's 2026-08-03 design (walkdir+du + stat + apt-get -s); user-outcome-identical to literal overlayfs without the seccomp weakening. See `incremental/GROUND_TRUTH.md § 7 F-109` for full commit trail.
+- **C-4 (PB had no GBNF)**: §6 said "the model literally CANNOT generate invalid output — it is mathematically impossible." Reality: PB was launched without `--grammar-file`; only the QB got grammar constraints. All PB safety came from post-hoc validation, which the whitepaper explicitly said is inferior to constrained generation. **CLOSED 2026-08-06 by v6.16 M7.0.2a-g (F-110)** — controller-side wire-up + server-side grammar arg + build-time smoke-gate + first-boot phase + bounded retry loop with QB-consult rescue for per-tool violations that survive the generic grammar. Per-tool GBNF tightening deferred to v6.17.
 
 ---
 
@@ -145,19 +165,23 @@ Skim the tiers first if you have five minutes; drop into A/B/C only for the spec
 
 ### Tier A — Whitepaper claims that are **flatly false today** (both editions)
 
-| # | Claim | Reality |
-|---|---|---|
-| **1** | "The AI cannot make irreversible mistakes — COW imagination layer" (§5) | `src/mcpd/src/sandbox/cow.rs` **does not exist**. mcpd returns a `requires_cow_approval` ticket; no tmpfs/overlayfs mount ever happens. Neither edition shows a real dry-run diff at the approval gate. This is the flagship safety feature of the whitepaper — it's a stub. (C-1) |
-| **2** | "The model literally CANNOT generate invalid output — mathematically impossible" (§6) | PB launched WITHOUT `--grammar-file` from the controller side; server-side `start_pb.sh --grammar-file` **silently degrades to unconstrained** if the file doesn't resolve. Only the QB gets grammar-bound. (C-4, B-4) |
-| **3** | "QB has zero direct access to system execution tools" (INV-1, §3) | **OC edition**: QB (Gemini via opencode) invokes mcpd + iceui tools directly. No Intent Object. No Controller. No PB. (A-1..A-8) |
+**As of 2026-08-06**: items #1 and #2 shipped in v6.16; item #3 (OC edition INV-1 gap) scheduled for v6.18 (M7.6a-1).
+
+| # | Claim | Reality | v6.16 status |
+|---|---|---|---|
+| **1** | "The AI cannot make irreversible mistakes — COW imagination layer" (§5) | Pre-v6.16: `src/mcpd/src/sandbox/cow.rs` **did not exist**. mcpd returned a `requires_cow_approval` ticket; no tmpfs/overlayfs mount ever happened. Neither edition showed a real dry-run diff at the approval gate. This was the flagship safety feature of the whitepaper — it was a stub. (C-1) | **SHIPPED → F-109** (M7.0.1a-h). Simulation-based per user design 2026-08-03 (walkdir+du for fs.delete; stat for fs.write; apt-get -s for package.*) — user-outcome-identical to literal overlayfs without moving `SYS_mount`/`SYS_umount2`/`SYS_unshare` from seccomp DENY→ALLOW. Whitepaper §5 text update deferred to M7.6b to acknowledge the implementation approach. |
+| **2** | "The model literally CANNOT generate invalid output — mathematically impossible" (§6) | Pre-v6.16: PB launched WITHOUT `--grammar-file` from the controller side; server-side `start_pb.sh --grammar-file` **silently degraded to unconstrained** if the file didn't resolve. Only the QB got grammar-bound. (C-4, B-4) | **SHIPPED → F-110** (M7.0.2a-g). Controller-side + server-side wired end-to-end + build-time smoke-gate refuses ISO if grammar file missing + first-boot warn-not-crash. Bounded PbRetryLoop with QB-consult rescue catches per-tool schema violations that survive the generic grammar. Per-tool GBNF tightening (enumerate 25 tool names) deferred to v6.17. |
+| **3** | "QB has zero direct access to system execution tools" (INV-1, §3) | **OC edition**: QB (Gemini via opencode) invokes mcpd + iceui tools directly. No Intent Object. No Controller. No PB. (A-1..A-8) | **OPEN** — scheduled for v6.18 M7.6a-1 (submit_intent MCP surface). |
 
 ### Tier B — Whitepaper claims that are **partial or drifted** in current edition too
 
-| # | Claim | Reality |
-|---|---|---|
-| **4** | PB "receives only opaque reference IDs" (INV-1) | PB gets `intent_id + target + expected_content + pb_hint` (F-27, F-41). Documented in code as a "rich envelope"; whitepaper §3 line 152 was never updated to match. (B-1) |
-| **5** | HITL Tier-3 prompt shows dry-run diff (§8.2) | Tier-3 gate carries `cow_summary=None`. Dry-run only in a **second** gate after mcpd, and only on streaming path. AgentGraph path has NO COW branch at all. (B-2, B-3) |
-| **6** | GUI/RPA flows through mcpd (§4 tool domains, §6 arch diagram) | AgentGraph `mcpd_dispatcher_node` bypasses mcpd for `gui.*`/`rpa.*`, dispatches to `controller.gui_worker` directly. Streaming path still uses mcpd. Two paths, two rules. (B-5) |
+**As of 2026-08-06**: item #5 (B-2 + B-3) shipped as part of v6.16 M7.0.1e/f. Items #4 (B-1) + #6 (B-5) remain open — both scheduled for v6.19 M7.6b (whitepaper §3/§4/§6 realignment + R14 backfill).
+
+| # | Claim | Reality | v6.16 status |
+|---|---|---|---|
+| **4** | PB "receives only opaque reference IDs" (INV-1) | PB gets `intent_id + target + expected_content + pb_hint` (F-27, F-41). Documented in code as a "rich envelope"; whitepaper §3 line 152 was never updated to match. (B-1) | **OPEN** — whitepaper text realignment scheduled for v6.19 M7.6b (code is the source of truth; whitepaper §3 needs the rich-envelope acknowledgement). |
+| **5** | HITL Tier-3 prompt shows dry-run diff (§8.2) | Pre-v6.16: Tier-3 gate carried `cow_summary=None`. Dry-run only in a **second** gate after mcpd, and only on streaming path. AgentGraph path had NO COW branch at all. (B-2, B-3) | **SHIPPED → F-109** (M7.0.1e streaming Step 3.5 pre-pass + M7.0.1f AgentGraph `cow_preview_node`). Real diff at initial HITL gate on BOTH paths. Second post-mcpd modal retained as fallback for pre-v6.16-mcpd operator downgrade. |
+| **6** | GUI/RPA flows through mcpd (§4 tool domains, §6 arch diagram) | AgentGraph `mcpd_dispatcher_node` bypasses mcpd for `gui.*`/`rpa.*`, dispatches to `controller.gui_worker` directly. Streaming path still uses mcpd. Two paths, two rules. (B-5) | **OPEN** — subprocess isolation preserves the sandbox invariant; whitepaper diagram is over-specific about transport. Scheduled for v6.19 M7.6b whitepaper edit (documents the AgentGraph subprocess route as compliant per INV-5/6 discipline). |
 
 ### Tier C — Whitepaper claims that are **entirely aspirational** (not started)
 
