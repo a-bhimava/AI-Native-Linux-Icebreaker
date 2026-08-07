@@ -46,6 +46,14 @@ audit_log          = "/var/log/icebreaker/controller-audit.log"
 pb_endpoint        = "unix:///run/icebreaker/pbd.sock"
 pb_transport       = "unix"
 pb_model_id        = "qwen-2.5-coder-1.5b-instruct-q4_k_m"
+# v6.16 M7.0.2 (2026-08-06): explicit belt-and-braces path to the
+# GBNF grammar file. When set, controller-side LlamaCppLocalBackend
+# threads `grammar` into the payload it sends to llama-server —
+# constraint enforced client-side AND server-side (start-pbd --grammar-file).
+# Whitepaper §6 mandate — see F-110 in incremental/GROUND_TRUTH.md § 7.
+# Ships to this path via incremental/versions/v6.manifest Step 1b;
+# runtime absence surfaces as first-boot phase_result "pb_grammar" warn.
+pb_grammar_path    = "/var/lib/icebreaker/grammars/mcp_tool_call.gbnf"
 # v6.65: bumped 256 → 1024. PB emits structured tool-call JSON that
 # rarely exceeds 200 tokens in practice, but headroom prevents
 # truncation on write intents with long content payloads.

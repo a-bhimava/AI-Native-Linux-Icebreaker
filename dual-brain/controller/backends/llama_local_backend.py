@@ -67,8 +67,13 @@ class LlamaCppLocalBackend(BrainBackend):
                 "(e.g. http://127.0.0.1:8081)"
             )
 
-        # grammar_path is optional: QB needs GBNF for constrained decoding;
-        # PB relies on post-hoc tool-call validation instead.
+        # v6.16 M7.0.2 (2026-08-06): grammar_path is optional in the schema
+        # so tests + backward-compat can construct without it, but PRODUCTION
+        # PB ships with it set — cx-distro/distro/controller.toml [run]
+        # pb_grammar_path pins /var/lib/icebreaker/grammars/mcp_tool_call.gbnf
+        # (belt-and-braces with start-pbd --grammar-file). Pre-M7.0.2 this
+        # comment claimed "PB relies on post-hoc tool-call validation" —
+        # that was the audit row C-4 stub-state, now closed. See F-110.
         if config.grammar_path is not None:
             grammar_path = Path(config.grammar_path).expanduser()
             if not grammar_path.is_file():
