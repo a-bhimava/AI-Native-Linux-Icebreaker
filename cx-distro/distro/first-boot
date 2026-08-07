@@ -106,6 +106,23 @@ else
         "{\"checked\":$CHECKSUMS_CHECKED,\"failures\":0}"
 fi
 
+# ── Step 1b: PB grammar (v6.16 M7.0.2g / F-110) ────────────────────────
+# start-pbd's --grammar-file flag reads from this path (see M7.0.2b
+# wiring). Missing = PB emits schema-invalid JSON at ~5% + audit row
+# C-4 stays open + whitepaper §6 non-compliant. Runtime degrades
+# gracefully (start-pbd stderr-warns and drops the flag) so this is a
+# `warn` not a `red` — the daemon still boots, but the operator sees
+# the phase result in the first-boot journal.
+STEP1B_GRAMMAR="/var/lib/icebreaker/grammars/mcp_tool_call.gbnf"
+if [ -f "$STEP1B_GRAMMAR" ]; then
+    phase_result "pb_grammar" "ok" 0 \
+        "{\"path\":\"$STEP1B_GRAMMAR\",\"present\":true}"
+else
+    warn "PB grammar missing at $STEP1B_GRAMMAR — PB will emit ~5% schema-invalid JSON (audit row C-4 open)"
+    phase_result "pb_grammar" "warn" 0 \
+        "{\"path\":\"$STEP1B_GRAMMAR\",\"present\":false,\"impact\":\"pb_unconstrained\"}"
+fi
+
 # ── Step 2: Health polling ──────────────────────────────────────────────
 poll_health() {
     local name="$1" sock="$2"

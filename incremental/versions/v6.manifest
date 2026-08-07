@@ -10,6 +10,9 @@
 #     shipped by v2 creates the user at boot)
 #   - reverts v2's ICEBREAKER_SOCKET_TIMEOUT=0 hack so wait-for-sockets
 #     actually waits for pbd.sock at controller start
+#   - v6.16 M7.0.2g: mcp_tool_call.gbnf → /var/lib/icebreaker/grammars/
+#     (start-pbd reads --grammar-file from here; without it PB emits
+#     schema-invalid JSON at ~5%; audit row C-4 stays open; F-110)
 # mcpd + schemas already installed by v2. HITL flow is in the controller code.
 # Gate: GROUND_TRUTH.md § 3 V6.
 
@@ -70,6 +73,26 @@ version_overlay() {
     grep -E '\.gguf$' "${repo}/models/checksums.sha256" \
         > "${chroot}/var/lib/icebreaker/models/checksums.sha256"
     chmod 644 "${chroot}/var/lib/icebreaker/models/checksums.sha256"
+
+    # ── 1b. PB grammar (v6.16 M7.0.2g / F-110) ─────────────────────────
+    # start-pbd's --grammar-file flag reads from
+    # /var/lib/icebreaker/grammars/mcp_tool_call.gbnf (see M7.0.2b wiring).
+    # Without this file the grammar arg is empty and PB generates
+    # tool calls with a ~5% schema-invalid rate — audit row C-4 stays
+    # open + whitepaper §6 "the model literally CANNOT generate
+    # invalid output" is not compliant. Source lives in
+    # privileged-brain/inference/grammar/ (kept separate from the
+    # controller's grammars/ dir which has qb_intent.gbnf).
+    #
+    # ARM/AMD-neutral (GBNF is plain text). No per-arch variants.
+    local _v6_grammar_src="${repo}/privileged-brain/inference/grammar/mcp_tool_call.gbnf"
+    [ -f "$_v6_grammar_src" ] || {
+        echo "FATAL[v6]: F-110 — PB grammar not staged at ${_v6_grammar_src}" >&2
+        echo "  Whitepaper §6 requires GBNF-constrained decoding; audit row C-4 open." >&2
+        return 1
+    }
+    install -Dm644 "$_v6_grammar_src" \
+        "${chroot}/var/lib/icebreaker/grammars/mcp_tool_call.gbnf"
 
     # ── 2. llama-server (static, F-21) ──
     [ -f "$_V6_LLAMA_STATIC" ] || {

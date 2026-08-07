@@ -310,6 +310,18 @@ if [ "$LEVEL" -ge 6 ]; then
     check_exec /usr/libexec/icebreaker/llama-server "llama-server missing"
     check_exec /usr/libexec/icebreaker/start-pbd "start-pbd missing"
     check_file /etc/systemd/system/icebreaker-pbd.service "pbd unit missing"
+    # v6.16 M7.0.2g (F-110): PB grammar file MUST be present at the
+    # shipping path start-pbd reads --grammar-file from. Missing =
+    # audit row C-4 open + whitepaper §6 non-compliant. Build-time
+    # gate (belt-and-braces alongside start-pbd's runtime visible-warn).
+    check_file /var/lib/icebreaker/grammars/mcp_tool_call.gbnf \
+        "F-110: PB grammar missing at /var/lib/icebreaker/grammars/ — start-pbd will drop --grammar-file, PB emits schema-invalid JSON at ~5%, audit row C-4 stays open"
+    # Sanity: grammar file must be non-empty text (guards against a
+    # zero-byte install failure or accidental binary swap).
+    _grammar_size=$(stat -c '%s' "${CHROOT}/var/lib/icebreaker/grammars/mcp_tool_call.gbnf" 2>/dev/null || echo 0)
+    [ "$_grammar_size" -ge 100 ] \
+        && pass "F-110: PB grammar file present (${_grammar_size} bytes)" \
+        || fail "F-110: PB grammar file too small (${_grammar_size} bytes) — expected >100 bytes"
     MODEL_OK=0
     for m in "${CHROOT}/var/lib/icebreaker/models/"*.gguf; do
         [ -f "$m" ] && MODEL_OK=1 && break
