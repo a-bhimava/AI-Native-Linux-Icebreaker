@@ -120,6 +120,10 @@ def _build(
         store=store,
         prompt_loader=prompts,
     )
+    # v6.16 M7.0.2f: pin single-attempt so existing single-shot semantics tests
+    # (verifier_rejection_audited etc) preserve their outcome expectations.
+    from controller.pb_retry import PbRetryConfig
+    ctrl._pb_retry_cfg = PbRetryConfig(max_attempts=1)
     return ctrl, qb, pb, mcpd, audit
 
 
@@ -299,3 +303,38 @@ def test_tool_timeout_audited():
     audit.write_fields.assert_called_once()
     written: AuditFields = audit.write_fields.call_args[0][0]
     assert written.outcome == Outcome.TOOL_TIMEOUT
+
+
+# ── v6.16 M7.0.2f: non-streaming PbRetryLoop wire-up ─────────────────────────
+
+def test_pb_retry_exhausted_outcome_emitted_non_streaming():
+    """Non-streaming twin — multi-attempt exhaustion → PB_RETRY_EXHAUSTED.
+
+    Locks the parity between streaming and non-streaming paths that
+    M7.0.2f enforces (both use the same PbRetryLoop + adapter shape).
+    Also serves as the non-streaming coverage that pre-M7.0.2 lacked
+    (streaming had verifier retry, non-streaming did not)."""
+    from controller.pb_retry import PbRetryConfig
+    ctrl, qb, pb, mcpd, audit = _build(
+        qb_side_effect=[
+            _resp(_intent()),
+            _resp({"verified": False, "reason": "no1"}),
+            _resp({"pb_hint": "hint1"}),
+            _resp({"verified": False, "reason": "no2"}),
+            _resp({"pb_hint": "hint2"}),
+            _resp({"verified": False, "reason": "no3"}),
+            _resp({"pb_hint": "hint3"}),
+        ],
+    )
+    ctrl._pb_retry_cfg = PbRetryConfig(max_attempts=3, consult_qb_after_attempt=1)
+    session = _session()
+
+    result = ctrl.run_turn("show system status", session)
+
+    assert result.success is False
+    assert result.outcome == Outcome.PB_RETRY_EXHAUSTED
+    mcpd.call.assert_not_called()
+    written: AuditFields = audit.write_fields.call_args[0][0]
+    assert written.outcome == Outcome.PB_RETRY_EXHAUSTED
+    assert written.extra["pb_attempts"] == 3
+    assert written.extra["pb_final_reason"] == "max_attempts_exhausted"

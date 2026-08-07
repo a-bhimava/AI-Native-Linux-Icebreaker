@@ -175,6 +175,13 @@ def _build(
         store=store,
         prompt_loader=prompts,
     )
+    # v6.16 M7.0.2f (2026-08-06): pin single-attempt retry so pre-M7.0.2
+    # single-shot behaviour tests (verifier_rejection, pb_schema_error,
+    # happy_path) keep their exact QB_VERIFIER_REJECTED / PB_SCHEMA_ERROR
+    # semantics. Multi-attempt retry-loop coverage lives in the new
+    # test_pb_retry_streaming block at the bottom of this file.
+    from controller.pb_retry import PbRetryConfig
+    ctrl._pb_retry_cfg = PbRetryConfig(max_attempts=1)
     session = _session()
     return ctrl, qb, pb, mcpd, audit, session
 
@@ -576,3 +583,87 @@ def test_hitl_denied_yields_result_event():
     result_events = [e for e in events if isinstance(e, ResultEvent)]
     assert len(result_events) == 1
     assert result_events[0].result.outcome == Outcome.HITL_DENIED
+
+
+# ── v6.16 M7.0.2f: PbRetryLoop wire-up regression locks ─────────────────────
+
+def test_pb_retry_exhausted_outcome_emitted():
+    """Multi-attempt exhaustion → PB_RETRY_EXHAUSTED (not
+    QB_VERIFIER_REJECTED, not PB_SCHEMA_ERROR). Verifier rejects every
+    attempt; loop runs max_attempts times and returns success=False."""
+    from controller.pb_retry import PbRetryConfig
+    ctrl, qb, pb, mcpd, audit, session = _build(
+        qb_side_effect=[
+            _resp(_valid_intent()),   # step 1: intent
+            _resp({"verified": False, "reason": "attempt 1 no"}),
+            _resp({"pb_hint": "try shorter path"}),   # qb_repair after attempt 1
+            _resp({"verified": False, "reason": "attempt 2 no"}),
+            _resp({"pb_hint": "path must be absolute"}),   # qb_repair after 2
+            _resp({"verified": False, "reason": "attempt 3 no"}),
+            _resp({"pb_hint": "give up"}),   # qb_repair after 3 (not used)
+        ],
+    )
+    # Enable 3-attempt loop (default); tests need explicit override
+    # because _build pins max_attempts=1.
+    ctrl._pb_retry_cfg = PbRetryConfig(max_attempts=3, consult_qb_after_attempt=1)
+    events = _collect_events(ctrl, "show status", session)
+
+    result_events = [e for e in events if isinstance(e, ResultEvent)]
+    assert len(result_events) == 1
+    assert result_events[0].result.outcome == Outcome.PB_RETRY_EXHAUSTED
+    # Audit row should carry pb_attempts + repair_hints extra.
+    audit_call = audit.write_fields.call_args_list[-1]
+    fields = audit_call.args[0] if audit_call.args else audit_call.kwargs["fields"]
+    assert fields.outcome == Outcome.PB_RETRY_EXHAUSTED
+    assert fields.extra["pb_attempts"] == 3
+    assert fields.extra["pb_final_reason"] == "max_attempts_exhausted"
+
+
+def test_pb_retry_two_attempt_success():
+    """Attempt 1 fails verifier, QB repair fires, attempt 2 succeeds.
+    Turn completes with EXECUTED outcome; audit carries pb_attempts=2
+    in extra."""
+    from controller.pb_retry import PbRetryConfig
+    intent = _valid_intent()
+    ctrl, qb, pb, mcpd, audit, session = _build(
+        qb_side_effect=[
+            _resp(intent),                          # intent
+            _resp({"verified": False, "reason": "wrong tool"}),  # verifier attempt 1
+            _resp({"pb_hint": "use fs.list not fs.read"}),  # qb_repair
+            _resp({"verified": True, "reason": "ok"}),  # verifier attempt 2
+            _resp({"summary": "System is running."}),   # summarise (non-streaming)
+        ],
+    )
+    ctrl._pb_retry_cfg = PbRetryConfig(max_attempts=3, consult_qb_after_attempt=1)
+    events = _collect_events(ctrl, "show status", session)
+
+    result_events = [e for e in events if isinstance(e, ResultEvent)]
+    assert len(result_events) == 1
+    assert result_events[0].result.outcome == Outcome.EXECUTED
+    # Audit should reflect the two-attempt path (extra field always
+    # written on success too — inspect the successful audit row).
+    # NOTE: successful path uses different audit shape; per-attempt
+    # provenance for success cases would be a future observability
+    # improvement (v6.17 refinement). This test locks the outcome
+    # semantic; per-attempt reporting on success is out of scope for
+    # M7.0.2f.
+
+
+def test_pb_retry_disabled_via_max_attempts_1_single_shot_semantics():
+    """[pb_retry] max_attempts=1 → verifier rejection on attempt 1
+    → single-attempt semantics preserved: QB_VERIFIER_REJECTED (NOT
+    PB_RETRY_EXHAUSTED). Regression lock for _map_pb_failure_outcome
+    single-attempt branch."""
+    from controller.pb_retry import PbRetryConfig
+    ctrl, qb, pb, mcpd, audit, session = _build(
+        qb_side_effect=[
+            _resp(_valid_intent()),
+            _resp({"verified": False, "reason": "mismatch"}),
+        ],
+    )
+    ctrl._pb_retry_cfg = PbRetryConfig(max_attempts=1)
+    events = _collect_events(ctrl, "show status", session)
+
+    result_events = [e for e in events if isinstance(e, ResultEvent)]
+    assert len(result_events) == 1
+    assert result_events[0].result.outcome == Outcome.QB_VERIFIER_REJECTED

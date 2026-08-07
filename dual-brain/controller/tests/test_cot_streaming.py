@@ -129,6 +129,10 @@ def _build(
         cfg, qb_backend=qb, pb_backend=pb, mcpd_client=mcpd,
         audit_log=audit, store=store, prompt_loader=prompts,
     )
+    # v6.16 M7.0.2f: pin single-attempt retry so pre-M7.0.2 cot event
+    # assertions (pb_tool_call/tool_validation/qb_verify) still fire.
+    from controller.pb_retry import PbRetryConfig
+    ctrl._pb_retry_cfg = PbRetryConfig(max_attempts=1)
     session = _session()
     return ctrl, qb, pb, mcpd, audit, session
 

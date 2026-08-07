@@ -641,22 +641,87 @@ def executor_node(collab: dict) -> Callable[[GraphState], dict]:
             tool_call = try_fast_path(intent, tier)
 
         if tool_call is None:
-            # Slow path — call PB via HTTP.
+            # v6.16 M7.0.2f: slow path via PbRetryLoop. AgentGraph runs
+            # the verifier as a SEPARATE downstream node (verifier_node
+            # at agent_graph_nodes.py:387), so we skip verification
+            # inside the loop to avoid double-vote. QB-consult is also
+            # skipped here — AgentGraph doesn't have the coaching
+            # channel wired; adding it risks INV-1 leakage without a
+            # design pass. Deferred to v6.17. Retry + cost-ceiling +
+            # logging discipline still apply.
+            from .pb_retry import PbRetryLoop, PbCallResult, PbRetryConfig
+            import dataclasses as _dc
             try:
                 session_state = collab["session_store"].get(state["session_id"])
+            except (AttributeError, KeyError):
+                return _mark("executor", "failed", {
+                    "tool_call_valid": False,
+                    "error_kind": "internal",
+                    "error_reason": "executor: session lookup miss",
+                    "completed": True,
+                })
+
+            pb_system = collab["prompts"].get("pb")
+
+            def _pb_complete_fn(intent_arg, current_pb_hint):
                 pb_user = session_state.build_pb_user_turn(
                     state.get("intent_id", ""),
-                    intent["action"],
+                    intent_arg["action"],
                     tool_schema={},
-                    target=intent.get("target", ""),
-                    content=intent.get("content", ""),
-                    pb_hint=intent.get("pb_hint", ""),
+                    target=intent_arg.get("target", ""),
+                    content=intent_arg.get("content", ""),
+                    pb_hint=current_pb_hint,
                 )
-                pb_system = collab["prompts"].get("pb")
                 resp = collab["pb"].complete(
-                    system=pb_system, user=pb_user, schema=None, max_retries=1,
+                    system=pb_system, user=pb_user,
+                    schema=None, max_retries=1,
                 )
-                tool_call = resp.content_json
+                # No _validate_tool_call in AgentGraph — mcpd_dispatcher
+                # validates downstream. Matches pre-M7.0.2 AgentGraph
+                # behaviour. getattr fallbacks tolerate test doubles
+                # that omit cost/token attributes on SimpleNamespace.
+                return PbCallResult(
+                    tool_call=resp.content_json,
+                    cost_usd=float(getattr(resp, "cost_usd", 0.0) or 0.0),
+                    tokens_in=int(getattr(resp, "tokens_in", 0) or 0),
+                    tokens_out=int(getattr(resp, "tokens_out", 0) or 0),
+                )
+
+            def _verify_fn(_intent_arg, _tool_call_arg):
+                # Verifier runs as its own node — synthesize a pass so
+                # PbRetryLoop treats attempt 1 as success (no retry
+                # unless PB call raises).
+                from .verifier import VerifierResult
+                return VerifierResult(
+                    verified=True,
+                    reason="deferred to verifier_node",
+                    votes_cast=0, verified_count=0,
+                )
+
+            def _qb_repair_fn(*_args):
+                return ""  # QB-consult deferred to v6.17
+
+            # Look up PbRetryConfig from either `controller_cfg` (real
+            # AgentGraph wiring in agent_graph.py) or `cfg` (some test
+            # kits). Falls back to defaults if neither is present.
+            _cfg_holder = (
+                collab.get("controller_cfg") or collab.get("cfg")
+            )
+            _pb_retry_cfg_raw = getattr(_cfg_holder, "pb_retry", None)
+            if _pb_retry_cfg_raw is not None:
+                pb_retry_cfg = PbRetryConfig(**_dc.asdict(_pb_retry_cfg_raw))
+            else:
+                pb_retry_cfg = PbRetryConfig()
+
+            try:
+                _loop = PbRetryLoop(
+                    cfg=pb_retry_cfg,
+                    pb_complete_fn=_pb_complete_fn,
+                    verify_fn=_verify_fn,
+                    qb_repair_fn=_qb_repair_fn,
+                    logger=None,
+                )
+                pb_result = _loop.run(intent)
             except BrainError as exc:
                 return _mark("executor", "failed", {
                     "tool_call_valid": False,
@@ -664,13 +729,18 @@ def executor_node(collab: dict) -> Callable[[GraphState], dict]:
                     "error_reason": f"{type(exc).__name__}: {exc}"[:400],
                     "completed": True,
                 })
-            except AttributeError:
+
+            if not pb_result.success:
                 return _mark("executor", "failed", {
                     "tool_call_valid": False,
-                    "error_kind": "internal",
-                    "error_reason": "executor: session lookup miss",
+                    "error_kind": "pb",
+                    "error_reason": (
+                        f"pb retry exhausted: {pb_result.final_reason}"
+                    )[:400],
+                    "pb_attempts": len(pb_result.attempts),
                     "completed": True,
                 })
+            tool_call = pb_result.final_tool_call
 
         # Stash tool_call by hash so mcpd_dispatcher can retrieve it.
         tc_hash = _sha(tool_call)

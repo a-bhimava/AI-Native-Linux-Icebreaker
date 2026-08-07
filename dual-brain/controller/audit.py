@@ -91,6 +91,13 @@ class Outcome(str, Enum):
     BRAIN_ERROR             = "brain_error"              # QB / PB exception or truncation
     QB_VERIFIER_REJECTED    = "qb_verifier_rejected"     # M2.12 round-trip "no"
     PB_SCHEMA_ERROR         = "pb_schema_error"          # M2.12 PB output failed tool schema check
+    # v6.16 M7.0.2f: distinct from PB_SCHEMA_ERROR (single-attempt PB REFUSE /
+    # one-shot schema failure) and QB_VERIFIER_REJECTED (single verifier "no").
+    # Emitted only when the bounded PB retry loop exhausts all attempts —
+    # operators can distinguish "PB got it wrong once" from "PB couldn't
+    # produce a valid call after N tries + QB coaching". Retry provenance
+    # (attempts count, repair hints, final_reason) rides in AuditFields.extra.
+    PB_RETRY_EXHAUSTED      = "pb_retry_exhausted"
 
     # Trust grants (M5.1)
     TRUST_APPLIED           = "trust_applied"            # auto-approved via trust grant

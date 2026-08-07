@@ -307,6 +307,27 @@ class VerifierConfig:
 
 
 @dataclass(frozen=True)
+class PbRetryConfig:
+    """v6.16 M7.0.2f — operator-facing knobs for the PbRetryLoop.
+
+    Mirrors `controller.pb_retry.PbRetryConfig` field-for-field. Kept
+    as a separate dataclass (not a re-export) so config.py owns TOML
+    loading + validation and pb_retry.py stays framework-agnostic.
+    __init__ converts to the runtime shape via
+    `PbRetryConfig(**dataclasses.asdict(cfg.pb_retry))`.
+
+    Rollback knobs:
+    - `max_attempts = 1` disables retry entirely (pre-M7.0.2 behaviour)
+    - `consult_qb_after_attempt = 999` disables QB-consult rescue
+    - `retry_mode = "off"` equivalent to max_attempts=1
+    """
+    max_attempts: int = 3
+    consult_qb_after_attempt: int = 1
+    cost_ceiling_usd_per_turn: float = 0.005
+    retry_mode: str = "on_any_rejection"
+
+
+@dataclass(frozen=True)
 class AgentGraphConfig:
     """v6.8 Task #146 (2026-07-13) — LangGraph runtime orchestration.
 
@@ -493,6 +514,8 @@ class ControllerConfig:
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     undo: UndoConfig = field(default_factory=UndoConfig)
     verifier: VerifierConfig = field(default_factory=VerifierConfig)
+    # v6.16 M7.0.2f: bounded PB retry loop with QB-consult rescue.
+    pb_retry: PbRetryConfig = field(default_factory=PbRetryConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     agent_graph: AgentGraphConfig = field(default_factory=AgentGraphConfig)
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
@@ -860,6 +883,17 @@ def _build_verifier_config(raw: dict) -> VerifierConfig:
     )
 
 
+def _build_pb_retry_config(raw: dict) -> PbRetryConfig:
+    """v6.16 M7.0.2f — load [pb_retry] section into PbRetryConfig."""
+    section = raw.get("pb_retry", {})
+    return PbRetryConfig(
+        max_attempts=section.get("max_attempts", 3),
+        consult_qb_after_attempt=section.get("consult_qb_after_attempt", 1),
+        cost_ceiling_usd_per_turn=section.get("cost_ceiling_usd_per_turn", 0.005),
+        retry_mode=section.get("retry_mode", "on_any_rejection"),
+    )
+
+
 def _build_daemon_config(raw: dict) -> DaemonConfig:
     section = raw.get("daemon", {})
     return DaemonConfig(
@@ -1028,6 +1062,7 @@ def _build_config(raw: dict, config_path: Path) -> ControllerConfig:
         limits=_build_limits_config(raw),
         undo=_build_undo_config(raw),
         verifier=_build_verifier_config(raw),
+        pb_retry=_build_pb_retry_config(raw),
         debug=_build_debug_config(raw),
         agent_graph=_build_agent_graph_config(raw),
         daemon=_build_daemon_config(raw),

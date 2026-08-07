@@ -239,6 +239,34 @@ def test_executor_fast_path_off_forces_pb():
     collab["pb"].complete.assert_called_once()
 
 
+def test_executor_node_pb_retry_exhausted_marks_failed():
+    """v6.16 M7.0.2f: PbRetryLoop wire-up in AgentGraph executor_node.
+
+    When controller_cfg exposes multi-attempt PbRetryConfig AND the PB
+    keeps raising, the loop retries N times and executor_node returns
+    _mark("executor", "failed", ...) with error_kind='pb' + pb_attempts
+    in the state update. Regression lock for the AgentGraph adapter."""
+    from dataclasses import dataclass, field as _field
+    from controller.config import PbRetryConfig
+
+    @dataclass(frozen=True)
+    class _StubCfg:
+        pb_retry: PbRetryConfig = _field(default_factory=PbRetryConfig)
+
+    collab = _kit()
+    collab["controller_cfg"] = _StubCfg(pb_retry=PbRetryConfig(max_attempts=3))
+    collab["turn_content"]["iid"] = {"action": "package.install", "target": "htop"}
+    collab["pb"].complete.side_effect = BrainProviderError("pb persistently offline")
+    result = executor_node(collab)(_state(intent_id="iid", tier=2))
+
+    assert result["error_kind"] == "pb"
+    assert result["completed"] is True
+    assert result["pb_attempts"] == 3
+    assert "retry exhausted" in result["error_reason"]
+    # Loop actually retried — assert_called count reflects max_attempts.
+    assert collab["pb"].complete.call_count == 3
+
+
 # ── McpdDispatcher node ───────────────────────────────────────────────
 
 

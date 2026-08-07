@@ -711,3 +711,69 @@ def test_rpa_legacy_screenshot_every_step_maps_to_policy():
         "screenshot_policy": "none",
     }})
     assert explicit_wins.screenshot_policy == "none"
+
+
+# ── v6.16 M7.0.2f: PbRetryConfig loading ────────────────────────────────────
+
+def test_pb_retry_config_defaults_when_section_missing(tmp_path, monkeypatch):
+    """Absent [pb_retry] section → PbRetryConfig with all-default values.
+
+    Regression lock for the M7.0.2f wire-up: a TOML file without
+    [pb_retry] must still produce a valid ControllerConfig with the
+    retry loop enabled at defaults (max_attempts=3). If someone
+    accidentally drops the ``pb_retry=_build_pb_retry_config(raw)``
+    line from _build_config, this test fails.
+    """
+    cfg = load(_write_toml(tmp_path, _LOCAL_TOML))
+    assert cfg.pb_retry.max_attempts == 3
+    assert cfg.pb_retry.consult_qb_after_attempt == 1
+    assert cfg.pb_retry.cost_ceiling_usd_per_turn == 0.005
+    assert cfg.pb_retry.retry_mode == "on_any_rejection"
+
+
+def test_pb_retry_config_overrides_from_toml(tmp_path, monkeypatch):
+    """[pb_retry] TOML section maps to ControllerConfig.pb_retry.
+
+    Documents the rollback knobs mentioned in the [pb_retry] section
+    of controller.toml.example: max_attempts=1 disables retry;
+    consult_qb_after_attempt=999 disables QB-consult; retry_mode='off'
+    forces single-attempt.
+    """
+    body = _LOCAL_TOML + (
+        '\n[pb_retry]\n'
+        'max_attempts = 5\n'
+        'consult_qb_after_attempt = 2\n'
+        'cost_ceiling_usd_per_turn = 0.02\n'
+        'retry_mode = "on_verifier_fail"\n'
+    )
+    cfg = load(_write_toml(tmp_path, body))
+    assert cfg.pb_retry.max_attempts == 5
+    assert cfg.pb_retry.consult_qb_after_attempt == 2
+    assert cfg.pb_retry.cost_ceiling_usd_per_turn == 0.02
+    assert cfg.pb_retry.retry_mode == "on_verifier_fail"
+
+
+def test_pb_retry_config_rollback_knobs_load(tmp_path):
+    """Explicit test that max_attempts=1 + consult_qb_after_attempt=999
+    both parse cleanly — these are the documented rollback paths."""
+    body = _LOCAL_TOML + (
+        '\n[pb_retry]\n'
+        'max_attempts = 1\n'
+        'consult_qb_after_attempt = 999\n'
+    )
+    cfg = load(_write_toml(tmp_path, body))
+    assert cfg.pb_retry.max_attempts == 1
+    assert cfg.pb_retry.consult_qb_after_attempt == 999
+    # Unchanged defaults for unspecified fields.
+    assert cfg.pb_retry.cost_ceiling_usd_per_turn == 0.005
+    assert cfg.pb_retry.retry_mode == "on_any_rejection"
+
+
+def test_pb_retry_config_is_frozen():
+    """ControllerConfig.pb_retry is a frozen dataclass — attempts to
+    mutate fail with FrozenInstanceError. Same discipline as
+    VerifierConfig + all other sub-configs."""
+    from controller.config import PbRetryConfig
+    cfg = PbRetryConfig()
+    with pytest.raises(FrozenInstanceError):
+        cfg.max_attempts = 99

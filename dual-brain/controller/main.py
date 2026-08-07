@@ -509,6 +509,20 @@ class Controller:
         self._verifier: VerifierStrategy = make_verifier(vcfg)
         self._rpa_step_events: list = []
         self._system_logger = SystemLogger("/var/log/icebreaker/system.jsonl")
+        # v6.16 M7.0.2f: bridge config.py's PbRetryConfig to pb_retry.py's
+        # runtime dataclass at boot. Two dataclasses (not a re-export) so
+        # config.py owns TOML loading + validation and pb_retry.py stays
+        # framework-agnostic. Held on self so streaming, non-streaming, and
+        # AgentGraph twins all use the same runtime knobs.
+        from . import pb_retry as _pb_retry_mod
+        import dataclasses as _dataclasses
+        _cfg_pb_retry = getattr(cfg, "pb_retry", None)
+        if _cfg_pb_retry is not None:
+            self._pb_retry_cfg = _pb_retry_mod.PbRetryConfig(
+                **_dataclasses.asdict(_cfg_pb_retry)
+            )
+        else:
+            self._pb_retry_cfg = _pb_retry_mod.PbRetryConfig()
 
     def backend_name(self) -> str:
         return self._cfg.qb.name
@@ -1053,28 +1067,36 @@ class Controller:
                 total_tokens_in = qb_tokens_in
                 total_tokens_out = qb_tokens_out
             else:
-                # Step 6: PB → tool call (slow path)
+                # v6.16 M7.0.2f: Steps 6-8 folded into PbRetryLoop —
+                # bounded PB generation with post-hoc validate + verifier
+                # vote + QB-consult rescue. Loop encapsulates all N
+                # attempts and returns aggregate cost/tokens/attempts.
                 yield _progress("pb_tool_call")
                 yield _cot("pb_tool_call", "active",
-                            body="Privileged Brain generating MCP tool call")
-                tool_schema = self._get_tool_schema(intent["action"])
-                # F-27: pass the validated intent target so PB doesn't hallucinate
-                # F-41: forward QB's `content` + `pb_hint` when present so PB has
-                # the verbatim bytes + format coaching it needs (fixes the "column
-                # of ones" CSV bug and similar content-fabrication regressions).
-                pb_user = session.build_pb_user_turn(
-                    intent_id, intent["action"], tool_schema,
-                    target=intent.get("target", ""),
-                    content=intent.get("content", ""),
-                    pb_hint=intent.get("pb_hint", ""),
-                )
+                            body=f"PB generating tool call "
+                                 f"(max {self._pb_retry_cfg.max_attempts} attempts)")
+
+                from .pb_retry import PbRetryLoop
                 pb_system = self._prompts.get("pb")
+                verifier_system = self._prompts.get("qb_verifier")
                 try:
-                    pb_response = self._pb.complete(
-                        system=pb_system, user=pb_user, schema=None, max_retries=1,
+                    loop = PbRetryLoop(
+                        cfg=self._pb_retry_cfg,
+                        pb_complete_fn=self._make_pb_complete_fn(
+                            session, intent_id, pb_system,
+                        ),
+                        verify_fn=self._make_verify_fn(
+                            int(cls_result.tier), verifier_system,
+                        ),
+                        qb_repair_fn=self._make_qb_repair_fn(),
+                        logger=self._system_logger,
                     )
-                    tool_call = pb_response.content_json
+                    pb_result = loop.run(intent)
                 except BrainSchemaError as exc:
+                    # PB REFUSE: prefix bubbles through the loop's PB
+                    # adapter — same handling as pre-M7.0.2 (no retry,
+                    # hard-fail with PB_SCHEMA_ERROR). Retrying a
+                    # refusal doesn't help and would burn budget.
                     raw = exc.last_payload_excerpt.strip()
                     if raw.upper().startswith("REFUSE:"):
                         reason = raw[len("REFUSE:"):].strip()
@@ -1106,120 +1128,128 @@ class Controller:
                         ))
                         return
                     raise
-                pb_cost = pb_response.cost_usd or 0.0
-                total_cost = qb_cost + pb_cost
-                total_tokens_in = qb_tokens_in + pb_response.tokens_in
-                total_tokens_out = qb_tokens_out + pb_response.tokens_out
-                yield _cot("pb_tool_call", "done",
-                            body=f"Tool call: {tool_call.get('tool', '?')}",
-                            tool=tool_call.get("tool", ""))
 
-            # Step 7: Validate tool call
-            yield _progress("tool_validation")
-            yield _cot("tool_validation", "active",
-                        body="Validating PB output against tool schema")
-            try:
-                self._validate_tool_call(tool_call, intent["action"])
-            except ValueError as exc:
-                yield _cot("tool_validation", "failed", body=str(exc))
-                duration = (time.monotonic() - t0) * 1000
-                self._audit.write_fields(AuditFields(
-                    session_id=session.session_id, turn_index=session.turn_index,
-                    intent_id=intent_id, action=intent["action"],
-                    target=intent["target"], tier=int(cls_result.tier),
-                    reason=intent["reason"], risk_level=intent["risk_level"],
-                    outcome=Outcome.PB_SCHEMA_ERROR, duration_ms=duration,
-                    backend=session.backend, model=self._cfg.qb.model,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                    cost_estimate_usd=total_cost,
-                ))
-                yield ResultEvent(result=TurnResult(
-                    success=False, output=f"PB output validation failed: {exc}",
-                    outcome=Outcome.PB_SCHEMA_ERROR, tier=int(cls_result.tier),
-                    backend=session.backend, duration_ms=duration,
-                    cost_usd=total_cost if total_cost > 0 else None,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                ))
-                return
-            yield _cot("tool_validation", "done", body="Tool call valid")
-
-            # Step 8: QB verifier
-            yield _progress("qb_verify")
-            verifier_system = self._prompts.get("qb_verifier")
-            # v6.8 M7.1 (2026-07-13): tier_floor is the first-class skip gate.
-            # F-49 skip_tier_01 retry_mode is honored for backward compat via
-            # verifier.should_skip_verifier(). Both call sites (this streaming
-            # branch and the non-streaming branch at ~L1745) go through the
-            # same helper so the semantics can't drift.
-            _vcfg = getattr(self._cfg, "verifier", None)
-            retry_mode = getattr(_vcfg, "retry_mode", "on_call_failed_only")
-            _skip_verifier = _vcfg is not None and should_skip_verifier(_vcfg, int(cls_result.tier))
-            if _skip_verifier:
-                _tier_floor = getattr(_vcfg, "tier_floor", 2)
-                yield _cot("qb_verify", "done",
-                            body=f"Skipped (tier={int(cls_result.tier)} < tier_floor={_tier_floor})",
-                            skipped=True, retry_mode=retry_mode,
-                            tier_floor=_tier_floor,
-                            skip_reason="tier_gate")
-                # Fake a passing vresult so downstream flow continues.
-                from .verifier import VerifierResult
-                vresult = VerifierResult(
-                    verified=True,
-                    reason=f"skipped (tier < tier_floor)",
-                    votes_cast=0,
-                    verified_count=0,
-                )
-            else:
-                yield _cot("qb_verify", "active",
-                            body="QB verifying intent↔tool-call alignment",
-                            retry_mode=retry_mode)
-                vresult = self._verifier.verify(
-                    intent, tool_call, self._qb, verifier_system,
-                )
-                if not vresult.verified and _should_retry_verifier(
-                    retry_mode, vresult
-                ):
-                    yield _cot("qb_verify", "active",
-                                body=f"Retry 1/1 ({retry_mode}): {vresult.reason}",
-                                retry_mode=retry_mode)
-                    vresult = self._verifier.verify(
-                        intent, tool_call, self._qb, verifier_system,
+                # Retroactive per-attempt streaming events. Loop is
+                # opaque; emit attempt cot events after aggregate
+                # returns. Small UX regression vs pre-M7.0.2 (users
+                # see attempts at end vs streamed); real-time
+                # per-attempt streaming is a v6.17 refinement.
+                for record in pb_result.attempts:
+                    if record.verifier_result and record.verifier_result.verified:
+                        _status = "done"
+                    else:
+                        _status = "failed"
+                    body_parts = [
+                        f"attempt {record.attempt}/{self._pb_retry_cfg.max_attempts}",
+                    ]
+                    if record.error:
+                        body_parts.append(f"error: {record.error}")
+                    elif record.verifier_result:
+                        if record.verifier_result.verified:
+                            body_parts.append("verifier: verified")
+                        else:
+                            body_parts.append(
+                                f"verifier: {record.verifier_result.reason}",
+                            )
+                    yield _cot(
+                        "pb_retry_attempt", _status,
+                        body=" — ".join(body_parts),
+                        attempt=record.attempt,
+                        cost_usd=record.cost_usd,
+                        pb_hint_used_len=len(record.pb_hint_used),
                     )
-            if not vresult.verified:
-                yield _cot("qb_verify", "failed",
-                            body=f"Rejected: {vresult.reason}",
-                            reason=vresult.reason,
-                            votes_cast=vresult.votes_cast,
-                            verified_count=vresult.verified_count)
-                duration = (time.monotonic() - t0) * 1000
-                extra = {}
-                if vresult.votes_cast > 1:
-                    extra["verifier_votes"] = vresult.votes_cast
-                    extra["verified_count"] = vresult.verified_count
-                self._audit.write_fields(AuditFields(
-                    session_id=session.session_id, turn_index=session.turn_index,
-                    intent_id=intent_id, action=intent["action"],
-                    target=intent["target"], tier=int(cls_result.tier),
-                    reason=intent["reason"], risk_level=intent["risk_level"],
-                    outcome=Outcome.QB_VERIFIER_REJECTED, duration_ms=duration,
-                    backend=session.backend, model=self._cfg.qb.model,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                    cost_estimate_usd=total_cost,
-                    extra=extra if extra else None,
-                ))
-                yield ResultEvent(result=TurnResult(
-                    success=False,
-                    output=f"Verifier rejected: {vresult.reason}",
-                    outcome=Outcome.QB_VERIFIER_REJECTED, tier=int(cls_result.tier),
-                    backend=session.backend, duration_ms=duration,
-                    cost_usd=total_cost if total_cost > 0 else None,
-                    tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                ))
-                return
-            yield _cot("qb_verify", "done",
-                        body="Verified",
-                        votes_cast=vresult.votes_cast,
-                        verified_count=vresult.verified_count)
+
+                pb_cost = pb_result.total_cost_usd
+                total_cost = qb_cost + pb_cost
+                total_tokens_in = qb_tokens_in + pb_result.total_tokens_in
+                total_tokens_out = qb_tokens_out + pb_result.total_tokens_out
+
+                if not pb_result.success:
+                    # Semantic mapping: single-attempt failures preserve
+                    # the pre-M7.0.2 outcome (PB_SCHEMA_ERROR or
+                    # QB_VERIFIER_REJECTED); multi-attempt exhaustion
+                    # emits PB_RETRY_EXHAUSTED. See _map_pb_failure_outcome.
+                    _outcome, _msg = self._map_pb_failure_outcome(pb_result)
+                    # Also emit per-step cot events for tool_validation
+                    # and qb_verify so pipeline-step assertions keep
+                    # passing. Tag which step actually failed based on
+                    # the last attempt's error/verifier state.
+                    _last = pb_result.attempts[-1] if pb_result.attempts else None
+                    if _last is not None and _last.error is not None:
+                        yield _cot("tool_validation", "failed", body=_last.error)
+                    else:
+                        yield _cot("tool_validation", "done", body="Tool call valid")
+                        if (_last is not None and _last.verifier_result is not None
+                                and not _last.verifier_result.verified):
+                            yield _cot(
+                                "qb_verify", "failed",
+                                body=f"Rejected: {_last.verifier_result.reason}",
+                                reason=_last.verifier_result.reason,
+                            )
+                    yield _cot(
+                        "pb_tool_call", "failed",
+                        body=f"{_msg} "
+                             f"(attempts={len(pb_result.attempts)}, "
+                             f"final_reason={pb_result.final_reason})",
+                    )
+                    duration = (time.monotonic() - t0) * 1000
+                    extra: dict = {
+                        "pb_attempts": len(pb_result.attempts),
+                        "pb_final_reason": pb_result.final_reason,
+                    }
+                    if pb_result.repair_hints:
+                        extra["pb_repair_hints"] = pb_result.repair_hints
+                    self._audit.write_fields(AuditFields(
+                        session_id=session.session_id,
+                        turn_index=session.turn_index,
+                        intent_id=intent_id, action=intent["action"],
+                        target=intent["target"], tier=int(cls_result.tier),
+                        reason=intent["reason"],
+                        risk_level=intent["risk_level"],
+                        outcome=_outcome,
+                        duration_ms=duration,
+                        backend=session.backend, model=self._cfg.qb.model,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                        cost_estimate_usd=total_cost,
+                        extra=extra,
+                    ))
+                    yield ResultEvent(result=TurnResult(
+                        success=False,
+                        output=_msg,
+                        outcome=_outcome,
+                        tier=int(cls_result.tier),
+                        backend=session.backend, duration_ms=duration,
+                        cost_usd=total_cost if total_cost > 0 else None,
+                        tokens_in=total_tokens_in, tokens_out=total_tokens_out,
+                    ))
+                    return
+
+                tool_call = pb_result.final_tool_call
+                yield _cot(
+                    "pb_tool_call", "done",
+                    body=f"Tool call: {tool_call.get('tool', '?')} "
+                         f"(attempts={len(pb_result.attempts)})",
+                    tool=tool_call.get("tool", ""),
+                    attempts=len(pb_result.attempts),
+                )
+                # Emit synthetic tool_validation + qb_verify cot events
+                # so pipeline-step assertions (test_happy_path_emits_cot)
+                # continue to pass. The retry loop performs both checks
+                # inside pb_complete_fn + verify_fn — these events
+                # reflect the aggregate result for observability.
+                yield _cot("tool_validation", "done", body="Tool call valid")
+                _last_ok = pb_result.attempts[-1]
+                if _last_ok.verifier_result is not None:
+                    yield _cot(
+                        "qb_verify",
+                        ("done" if _last_ok.verifier_result.verified else "failed"),
+                        body=(
+                            "Verified" if _last_ok.verifier_result.verified
+                            else f"Rejected: {_last_ok.verifier_result.reason}"
+                        ),
+                        votes_cast=_last_ok.verifier_result.votes_cast,
+                        verified_count=_last_ok.verifier_result.verified_count,
+                    )
 
             # Step 9: tool dispatch (mcpd, GUI Agent, or RPA Bridge)
             tool_name = tool_call.get("tool", "")
@@ -2113,25 +2143,27 @@ class Controller:
         # ── Step 5: Store intent → opaque UUID ───────────────────────────────
         intent_id = self._store.put(intent)
 
-        # ── Step 6: PB → tool call ────────────────────────────────────────────
-        tool_schema = self._get_tool_schema(intent["action"])
-        # F-27 + F-41: pass validated intent target so PB doesn't hallucinate;
-        # forward QB's content + pb_hint when present so PB uses verbatim bytes.
-        pb_user = session.build_pb_user_turn(
-            intent_id, intent["action"], tool_schema,
-            target=intent.get("target", ""),
-            content=intent.get("content", ""),
-            pb_hint=intent.get("pb_hint", ""),
-        )
+        # ── Steps 6-8: PbRetryLoop ────────────────────────────────────────────
+        # v6.16 M7.0.2f: same folded loop as streaming twin. Bonus: pre-M7.0.2
+        # this non-streaming path had ZERO verifier retry — the streaming
+        # path had _should_retry_verifier, this one skipped straight to
+        # fail. PbRetryLoop gives both paths identical retry semantics.
+        from .pb_retry import PbRetryLoop
         pb_system = self._prompts.get("pb")
+        verifier_system = self._prompts.get("qb_verifier")
         try:
-            pb_response = self._pb.complete(
-                system=pb_system,
-                user=pb_user,
-                schema=None,
-                max_retries=1,
+            loop = PbRetryLoop(
+                cfg=self._pb_retry_cfg,
+                pb_complete_fn=self._make_pb_complete_fn(
+                    session, intent_id, pb_system,
+                ),
+                verify_fn=self._make_verify_fn(
+                    int(cls_result.tier), verifier_system,
+                ),
+                qb_repair_fn=self._make_qb_repair_fn(),
+                logger=self._system_logger,
             )
-            tool_call = pb_response.content_json
+            pb_result = loop.run(intent)
         except BrainSchemaError as exc:
             raw = exc.last_payload_excerpt.strip()
             if raw.upper().startswith("REFUSE:"):
@@ -2161,76 +2193,42 @@ class Controller:
                     tokens_in=total_tokens_in, tokens_out=0,
                 )
             raise
-        pb_cost = pb_response.cost_usd or 0.0
+
+        pb_cost = pb_result.total_cost_usd
         total_cost = qb_cost + pb_cost
-        total_tokens_in = qb_tokens_in + pb_response.tokens_in
-        total_tokens_out = qb_tokens_out + pb_response.tokens_out
+        total_tokens_in = qb_tokens_in + pb_result.total_tokens_in
+        total_tokens_out = qb_tokens_out + pb_result.total_tokens_out
 
-        # ── Step 7: Post-validate tool call ───────────────────────────────────
-        try:
-            self._validate_tool_call(tool_call, intent["action"])
-        except ValueError as exc:
+        if not pb_result.success:
+            _outcome_ns, _msg_ns = self._map_pb_failure_outcome(pb_result)
             duration = (time.monotonic() - t0) * 1000
+            extra_ns: dict = {
+                "pb_attempts": len(pb_result.attempts),
+                "pb_final_reason": pb_result.final_reason,
+            }
+            if pb_result.repair_hints:
+                extra_ns["pb_repair_hints"] = pb_result.repair_hints
             self._audit.write_fields(AuditFields(
                 session_id=session.session_id, turn_index=session.turn_index,
                 intent_id=intent_id, action=intent["action"],
                 target=intent["target"], tier=int(cls_result.tier),
                 reason=intent["reason"], risk_level=intent["risk_level"],
-                outcome=Outcome.PB_SCHEMA_ERROR, duration_ms=duration,
+                outcome=_outcome_ns, duration_ms=duration,
                 backend=session.backend, model=self._cfg.qb.model,
                 tokens_in=total_tokens_in, tokens_out=total_tokens_out,
                 cost_estimate_usd=total_cost,
-            ))
-            return TurnResult(
-                success=False, output=f"PB output validation failed: {exc}",
-                outcome=Outcome.PB_SCHEMA_ERROR, tier=int(cls_result.tier),
-                backend=session.backend, duration_ms=duration,
-                cost_usd=total_cost if total_cost > 0 else None,
-                tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-            )
-
-        # ── Step 8: QB verifier round-trip ────────────────────────────────────
-        verifier_system = self._prompts.get("qb_verifier")
-        # v6.8 M7.1 (2026-07-13): honour tier_floor + skip_tier_01 here too
-        # (this branch was missing the gate that the streaming branch had —
-        # a real coverage hole, non-streaming clients were paying the vote
-        # latency on Tier 0/1 intents).
-        _vcfg_ns = getattr(self._cfg, "verifier", None)
-        if _vcfg_ns is not None and should_skip_verifier(_vcfg_ns, int(cls_result.tier)):
-            from .verifier import VerifierResult
-            vresult = VerifierResult(
-                verified=True,
-                reason="skipped (tier < tier_floor)",
-                votes_cast=0,
-                verified_count=0,
-            )
-        else:
-            vresult = self._verifier.verify(intent, tool_call, self._qb, verifier_system)
-        if not vresult.verified:
-            duration = (time.monotonic() - t0) * 1000
-            extra = {}
-            if vresult.votes_cast > 1:
-                extra["verifier_votes"] = vresult.votes_cast
-                extra["verified_count"] = vresult.verified_count
-            self._audit.write_fields(AuditFields(
-                session_id=session.session_id, turn_index=session.turn_index,
-                intent_id=intent_id, action=intent["action"],
-                target=intent["target"], tier=int(cls_result.tier),
-                reason=intent["reason"], risk_level=intent["risk_level"],
-                outcome=Outcome.QB_VERIFIER_REJECTED, duration_ms=duration,
-                backend=session.backend, model=self._cfg.qb.model,
-                tokens_in=total_tokens_in, tokens_out=total_tokens_out,
-                cost_estimate_usd=total_cost,
-                extra=extra if extra else None,
+                extra=extra_ns,
             ))
             return TurnResult(
                 success=False,
-                output=f"Verifier rejected: {vresult.reason}",
-                outcome=Outcome.QB_VERIFIER_REJECTED, tier=int(cls_result.tier),
+                output=_msg_ns,
+                outcome=_outcome_ns, tier=int(cls_result.tier),
                 backend=session.backend, duration_ms=duration,
                 cost_usd=total_cost if total_cost > 0 else None,
                 tokens_in=total_tokens_in, tokens_out=total_tokens_out,
             )
+
+        tool_call = pb_result.final_tool_call
 
         # ── Step 9: Dispatch via McpdClient or GUI Agent ───────────────────
         tool_name = tool_call.get("tool", "")
@@ -2667,6 +2665,120 @@ class Controller:
         except Exception as exc:  # noqa: BLE001 — visible-warn per M7.0.2e design
             _log_exception(self._system_logger, "controller.qb_pb_repair", exc)
             return f"[qb-repair-failed: {type(exc).__name__}]"
+
+    # ── M7.0.2f adapter builders ──────────────────────────────────────
+    #
+    # Three closures that adapt Controller's per-turn state (session,
+    # intent_id, tier, prompts) into the callable signatures PbRetryLoop
+    # expects. Extracted as helpers so streaming + non-streaming twins +
+    # AgentGraph (future) share ONE adapter shape without drift.
+
+    def _make_pb_complete_fn(self, session: Any, intent_id: str, pb_system: str):
+        """PbRetryLoop adapter for PB.complete + validate.
+
+        Runs BOTH the raw PB call AND the post-hoc _validate_tool_call —
+        schema-invalid outputs raise ValueError, which PbRetryLoop catches
+        and retries (with QB coaching from attempt N ≥ consult threshold).
+
+        BrainSchemaError with REFUSE: prefix re-raises unchanged — the
+        caller catches it OUTSIDE the loop and emits PB_SCHEMA_ERROR /
+        "Privileged Brain refused" as today. Retrying a refusal doesn't
+        help and would burn budget for no gain.
+        """
+        from .pb_retry import PbCallResult
+
+        def _pb_complete_fn(intent: dict, current_pb_hint: str) -> PbCallResult:
+            tool_schema = self._get_tool_schema(intent["action"])
+            pb_user = session.build_pb_user_turn(
+                intent_id, intent["action"], tool_schema,
+                target=intent.get("target", ""),
+                content=intent.get("content", ""),
+                pb_hint=current_pb_hint,
+            )
+            pb_response = self._pb.complete(
+                system=pb_system, user=pb_user,
+                schema=None, max_retries=1,
+            )
+            tool_call = pb_response.content_json
+            # Post-hoc validation — raises ValueError; loop catches + retries.
+            self._validate_tool_call(tool_call, intent["action"])
+            return PbCallResult(
+                tool_call=tool_call,
+                cost_usd=pb_response.cost_usd or 0.0,
+                tokens_in=pb_response.tokens_in or 0,
+                tokens_out=pb_response.tokens_out or 0,
+            )
+        return _pb_complete_fn
+
+    def _make_verify_fn(self, tier: int, verifier_system: str):
+        """PbRetryLoop adapter for verifier vote. Honours tier_floor skip
+        via should_skip_verifier — if skipped, synthesizes a verified=True
+        result so the retry loop treats attempt 1 as success (no wasted
+        retries on Tier 0/1 auto-execute intents)."""
+        from .verifier import VerifierResult, should_skip_verifier
+        _vcfg = getattr(self._cfg, "verifier", None)
+        _skip = _vcfg is not None and should_skip_verifier(_vcfg, tier)
+
+        def _verify_fn(intent: dict, tool_call: dict) -> VerifierResult:
+            if _skip:
+                return VerifierResult(
+                    verified=True,
+                    reason="skipped (tier < tier_floor)",
+                    votes_cast=0, verified_count=0,
+                )
+            return self._verifier.verify(intent, tool_call, self._qb, verifier_system)
+        return _verify_fn
+
+    def _make_qb_repair_fn(self):
+        """PbRetryLoop adapter for QB-consult rescue. Converts the loop's
+        callable shape (which passes prior_attempts: list[PbAttemptRecord])
+        into _qb_repair's signature (prior_attempts_count: int). Keeps
+        pb_retry.PbAttemptRecord out of main.py's import surface."""
+        def _qb_repair_fn(intent, failed_call, verifier_reason, prior_attempts):
+            return self._qb_repair(
+                intent, failed_call, verifier_reason, len(prior_attempts),
+            )
+        return _qb_repair_fn
+
+    @staticmethod
+    def _map_pb_failure_outcome(pb_result: Any) -> tuple[Outcome, str]:
+        """v6.16 M7.0.2f: map a failed PbRetryResult to (Outcome, user_msg).
+
+        Semantic preservation of pre-M7.0.2 outcomes:
+        - Single attempt (max_attempts=1 OR loop stopped after one try due
+          to on_verifier_fail semantics on a provider error): route to
+          the CAUSE outcome — PB_SCHEMA_ERROR (attempt.error set) or
+          QB_VERIFIER_REJECTED (verifier verdict=false).
+        - Multiple attempts exhausted: emit PB_RETRY_EXHAUSTED with the
+          aggregate reason.
+
+        Keeps operator audit surface interpretable: PB_RETRY_EXHAUSTED
+        specifically means "the loop actually retried and ran out",
+        distinct from "single-shot failure classification".
+        """
+        attempts = pb_result.attempts
+        if len(attempts) <= 1 and attempts:
+            single = attempts[0]
+            if single.error is not None:
+                # PB call raised (schema, provider, validation). Preserve
+                # the pre-M7.0.2 PB_SCHEMA_ERROR mapping for callers that
+                # ran with max_attempts=1.
+                return (
+                    Outcome.PB_SCHEMA_ERROR,
+                    f"PB output validation failed: {single.error}",
+                )
+            if (single.verifier_result is not None
+                    and not single.verifier_result.verified):
+                return (
+                    Outcome.QB_VERIFIER_REJECTED,
+                    f"Verifier rejected: {single.verifier_result.reason}",
+                )
+        # Multi-attempt exhaustion (or cost ceiling breach with no attempt yet).
+        return (
+            Outcome.PB_RETRY_EXHAUSTED,
+            f"PB retry exhausted after {len(attempts)} attempts: "
+            f"{pb_result.final_reason}",
+        )
 
     def _validate_tool_call(self, tool_call: dict, expected_action: str) -> None:
         if not isinstance(tool_call, dict):

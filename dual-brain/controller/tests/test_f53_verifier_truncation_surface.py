@@ -294,22 +294,31 @@ def test_verifier_reason_prefix_string_survives() -> None:
 
 
 def test_main_pipes_verifier_reason_into_user_output() -> None:
-    """F-53's user-visible surface: main.py must plumb ``vresult.reason``
-    (which now contains ``type(exc).__name__``) all the way into the
-    ``TurnResult.output`` string. If someone replaces
-    ``f"Verifier rejected: {vresult.reason}"`` with a generic
+    """F-53's user-visible surface: main.py must plumb the verifier's
+    reason string (which contains ``type(exc).__name__``) all the way
+    into the ``TurnResult.output`` string. If someone replaces
+    ``f"Verifier rejected: {…reason}"`` with a generic
     ``"Verifier rejected"``, the user loses the ``BrainTruncationError``
-    hint and F-53's whole point (naming the failure) is undone."""
+    hint and F-53's whole point (naming the failure) is undone.
+
+    v6.16 M7.0.2f (2026-08-06): pre-M7.0.2 this fired at two duplicated
+    sites (streaming + non-streaming twins) via ``{vresult.reason}``.
+    Post-M7.0.2 both twins funnel through ``_map_pb_failure_outcome``
+    which uses ``{single.verifier_result.reason}`` — regex updated
+    to accept either pattern (single shared helper OR duplicated
+    call sites) so the F-53 discipline is enforced regardless of
+    how many call sites the streaming/non-streaming paths use."""
     src = _read_source(_MAIN_PY)
-    # There are two ``Verifier rejected: {vresult.reason}`` surfacing
-    # sites: streaming (~line 906) and non-streaming (~line 1765).
+    # Accept either legacy ``{vresult.reason}`` (in case someone
+    # brings back the inline version) OR the M7.0.2f-shape
+    # ``{...verifier_result.reason}`` inside a "Verifier rejected:" string.
     matches = re.findall(
-        r'Verifier rejected: \{vresult\.reason\}',
+        r'Verifier rejected: \{[^}]*(?:vresult|verifier_result)\.reason\}',
         src,
     )
-    assert len(matches) >= 2, (
-        f"F-53 regression: main.py has fewer than 2 sites that surface "
-        f"vresult.reason to the user. Found {len(matches)}. The verifier "
+    assert len(matches) >= 1, (
+        f"F-53 regression: main.py has ZERO sites that surface the "
+        f"verifier reason to the user. Found {len(matches)}. The verifier "
         f"can produce BrainTruncationError-shaped reasons, but if main.py "
         f"drops the reason, the user still sees only 'Verifier rejected'."
     )

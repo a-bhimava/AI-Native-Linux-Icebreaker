@@ -268,6 +268,30 @@
         }
       }
     },
+    "pb_retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "v6.16 M7.0.2f: bounded PB retry loop with QB-consult rescue. On verifier rejection or schema-invalid PB output, retry up to max_attempts. From consult_qb_after_attempt onward, QB emits a repair hint (INV-1-safe) that lands in the next attempt's F-41 pb_hint slot.",
+      "properties": {
+        "max_attempts": {
+          "type": "integer", "minimum": 1, "maximum": 10,
+          "description": "Total PB attempts including the first. 1 = disable retry (pre-M7.0.2 behaviour). Default 3."
+        },
+        "consult_qb_after_attempt": {
+          "type": "integer", "minimum": 1, "maximum": 999,
+          "description": "1-indexed threshold. After attempt N fails, if N >= this value, QB is consulted for a repair hint. Default 1 = QB coaches from attempt 2 onward. Set to 999 to disable QB-consult entirely."
+        },
+        "cost_ceiling_usd_per_turn": {
+          "type": "number", "minimum": 0.0, "maximum": 1.0,
+          "description": "Per-turn rescue budget (BP-10). Sum of all PB call costs + QB-consult costs. Pre-checked before each attempt; on breach the loop returns success=false with final_reason='cost_exceeded'. Default 0.005 USD."
+        },
+        "retry_mode": {
+          "type": "string",
+          "enum": ["off", "on_verifier_fail", "on_any_rejection"],
+          "description": "off = single attempt only (equivalent to max_attempts=1); on_verifier_fail = retry only when the verifier rejects (provider errors return provider_terminal_error); on_any_rejection = retry on verifier rejection AND provider errors (default; broadest recovery)."
+        }
+      }
+    },
     "agent_graph": {
       "type": "object",
       "additionalProperties": false,

@@ -208,6 +208,24 @@ timeout_seconds = 30
 # timeout_seconds = 30      # per-vote timeout
 
 
+# v6.16 M7.0.2f: PB bounded retry loop with QB-consult rescue.
+# When PB emits schema-invalid JSON or the verifier rejects the tool call,
+# the loop retries up to `max_attempts` times. From attempt
+# `consult_qb_after_attempt` onward, QB gets the failed call + verifier
+# reason and emits a ≤200-char repair hint that lands in PB's next attempt
+# via the F-41 pb_hint envelope field (INV-1-safe: structured facts only).
+#
+# Rollback: set `max_attempts = 1` to disable retry entirely
+# (pre-M7.0.2 behaviour). Set `consult_qb_after_attempt = 999` to keep
+# retry but disable QB-consult coaching.
+#
+# [pb_retry]
+# max_attempts                 = 3          # 1 = disable retry
+# consult_qb_after_attempt     = 1          # QB coaches from attempt N+1; 999 disables
+# cost_ceiling_usd_per_turn    = 0.005      # sum of PB + QB-consult per turn
+# retry_mode                   = "on_any_rejection"  # off | on_verifier_fail | on_any_rejection
+
+
 # Daemon mode — persistent background service (BP-2: opt-in).
 # Start: python3 -m controller --daemon
 # Connect: python3 -m controller --connect

@@ -255,6 +255,10 @@ def test_all_outcome_enum_values_present():
         # F-35 (2026-07-07): system.unsupported outcome for intents with no
         # matching tool — user-visible "I can't do that" landing pad.
         "unsupported",
+        # v6.16 M7.0.2f (2026-08-06): bounded PB retry loop terminal
+        # outcome when all attempts exhausted (distinct from single
+        # PB_SCHEMA_ERROR + single QB_VERIFIER_REJECTED — see audit.py).
+        "pb_retry_exhausted",
     }
     actual = {o.value for o in Outcome}
     assert actual == expected, f"Outcome enum drifted: {actual.symmetric_difference(expected)}"
