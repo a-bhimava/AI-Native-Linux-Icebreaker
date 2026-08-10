@@ -114,6 +114,13 @@ class OpencodeOcConfig:
     audit_bridge_enabled: bool = True
     mcpd_audit_path: str = "/var/log/mcpd/audit.log"
     config_path: str = "/etc/icebreaker/qb_oc.json"
+    # v6.17 M7.6a-1d: optional Gemini overrides for OC-mode native QB.
+    # Absent → __main__.py::_try_build_oc_native_qb uses defaults
+    # (gemini-2.5-flash, 8192 max_tokens, 60s timeout). Populated via
+    # [qb.opencode_oc.native_qb] TOML sub-section. Kept as a plain dict
+    # (not a nested dataclass) to preserve PF-10 backward compat — old
+    # configs without the sub-section deserialize with native_qb=None.
+    native_qb: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -1088,11 +1095,18 @@ def _build_opencode_oc_config(raw: dict) -> OpencodeOcConfig | None:
     if section is None and qb.get("backend") != "opencode_oc":
         return None
     section = section or {}
+    # v6.17 M7.6a-1d: read optional [qb.opencode_oc.native_qb] sub-section.
+    # Absent → native_qb=None → __main__.py uses shipping-safe defaults.
+    # Preserved as a plain dict (not a nested dataclass) for PF-10
+    # backward compat with old configs.
+    native_qb_raw = section.get("native_qb")
+    native_qb = dict(native_qb_raw) if isinstance(native_qb_raw, dict) else None
     return OpencodeOcConfig(
         enabled=bool(section.get("enabled", True)),
         audit_bridge_enabled=bool(section.get("audit_bridge_enabled", True)),
         mcpd_audit_path=str(section.get("mcpd_audit_path", "/var/log/mcpd/audit.log")),
         config_path=str(section.get("config_path", "/etc/icebreaker/qb_oc.json")),
+        native_qb=native_qb,
     )
 
 

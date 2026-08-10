@@ -132,6 +132,32 @@ def _build_qb(cfg: ControllerConfig) -> Any:
     from .backends import anthropic_backend, gemini_backend, llama_local_backend, openai_backend  # noqa: F401
     from .fallback_backend import FallbackChain
 
+    # v6.17 M7.6a-1d: OC-edition Gemini wire-up.
+    # When cfg.qb.name == "opencode_oc" the registry would return a NoOp
+    # (backends/opencode_oc.py) that raises RuntimeError on every
+    # .complete() call. That's correct for pre-M7.6a-1c OC mode where
+    # every self._qb touch WAS a bug (F-92 short-circuit gated them).
+    # Post-M7.6a-1c, run_turn_from_intent legitimately needs QB for
+    # Step 8 verifier + Step 6r qb_repair + Step 11 summariser. Build
+    # a real GeminiBackend using GEMINI_API_KEY (same env var the
+    # `icebreaker-oc` launcher sources from /etc/icebreaker/locations.env).
+    #
+    # M7.6a-1c invariant lock (test_run_turn_streaming_without_from_intent_
+    # still_short_circuits_in_oc_mode) proves no OC-mode code path
+    # touches self._qb outside the from_intent flow, so promoting the
+    # NoOp to a real Gemini is safe.
+    #
+    # Graceful degradation (PF-1, PF-9): if GEMINI_API_KEY is missing
+    # OR the GeminiBackend constructor raises for any reason, log a
+    # visible warning and fall through to the NoOp — submit_intent will
+    # then fail with a clear per-turn error rather than the daemon
+    # crash-looping at startup.
+    if cfg.qb.name == "opencode_oc":
+        native_qb = _try_build_oc_native_qb(cfg)
+        if native_qb is not None:
+            return native_qb
+        # Fell through — return the registry NoOp (unchanged pre-M7.6a-1d).
+
     primary = make_backend(cfg)
     if not cfg.qb_fallbacks:
         return primary
@@ -151,6 +177,80 @@ def _build_qb(cfg: ControllerConfig) -> Any:
     if not fallbacks:
         return primary
     return FallbackChain(primary=primary, fallbacks=fallbacks)
+
+
+def _try_build_oc_native_qb(cfg: ControllerConfig) -> Any:
+    """v6.17 M7.6a-1d: build a real GeminiBackend for OC mode.
+
+    Returns the backend instance on success, or None to signal the caller
+    should fall through to the registry NoOp. Never raises — every failure
+    mode logs to stderr and returns None so daemon startup stays resilient.
+
+    GEMINI_API_KEY is the env var opencode already requires; sourcing
+    from /etc/icebreaker/locations.env via the systemd EnvironmentFile
+    directive puts it in the daemon's environment too (PF-1).
+
+    Optional overrides come from `[qb.opencode_oc.native_qb]` TOML
+    sub-section — falls back to shipping-safe defaults matching what
+    the current-edition [qb.gemini] section carries.
+    """
+    import os
+    from .backends import gemini_backend  # noqa: F401 — trigger registry
+    from .backends.gemini_backend import GeminiBackend
+    from .backends.sanitize import SecretRef
+
+    api_key_env = "GEMINI_API_KEY"
+    if not os.environ.get(api_key_env, "").strip():
+        # PF-1 fail-safe: no key → daemon boots with NoOp; submit_intent
+        # will surface a clear per-turn error rather than crash-looping.
+        print(
+            f"WARN[M7.6a-1d]: {api_key_env} not set in daemon environment. "
+            "OC mode will boot with a stub QB — submit_intent turns will "
+            "fail. Set the key via `ib-setup-key` and restart "
+            "icebreaker-controller.service to enable QB.",
+            file=sys.stderr,
+        )
+        return None
+
+    # Optional override sub-section (PF-10 backward compat: absent = defaults).
+    oc_cfg = getattr(cfg, "opencode_oc", None)
+    native_overrides = None
+    if oc_cfg is not None:
+        native_overrides = getattr(oc_cfg, "native_qb", None)
+
+    # Defaults chosen to match current-edition [qb.gemini] shipping config.
+    model = "gemini-2.5-flash"
+    max_tokens = 8192
+    timeout_seconds = 60
+    if native_overrides is not None:
+        model = native_overrides.get("model", model)
+        max_tokens = native_overrides.get("max_tokens", max_tokens)
+        timeout_seconds = native_overrides.get("timeout_seconds", timeout_seconds)
+
+    try:
+        native_cfg = BackendConfig(
+            name="gemini",  # registers as gemini for cost accounting
+            model=model,
+            max_tokens=int(max_tokens),
+            timeout_seconds=int(timeout_seconds),
+            api_key=SecretRef(api_key_env),
+        )
+        backend = GeminiBackend(native_cfg)
+        print(
+            f"[M7.6a-1d] OC mode native QB: GeminiBackend model={model} "
+            f"max_tokens={max_tokens} timeout={timeout_seconds}s "
+            f"(GEMINI_API_KEY sourced from environment)",
+            file=sys.stderr,
+        )
+        return backend
+    except Exception as exc:  # noqa: BLE001 — PF-9 fail-safe
+        print(
+            f"WARN[M7.6a-1d]: GeminiBackend construction failed: "
+            f"{type(exc).__name__}: {exc}. Falling back to NoOp — "
+            "submit_intent will fail per-turn until this is fixed.",
+            file=sys.stderr,
+        )
+        return None
 
 
 def _build_qb_safe(cfg: ControllerConfig) -> Any:
