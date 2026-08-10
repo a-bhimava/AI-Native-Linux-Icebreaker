@@ -629,16 +629,48 @@ class Controller:
             )
         return result
 
+    def run_turn_from_intent(self, intent: dict, session: Any) -> Generator:
+        """v6.17 M7.6a-1c: Step-1-skipping entry into the streaming pipeline.
+
+        Receives a pre-formed intent object (opencode/Gemini already
+        translated the user text in the OC edition submit_intent flow)
+        and drives Steps 2-11 unchanged: schema validation, risk
+        classification, COW preview (M7.0.1), HITL, intent store, PB
+        grammar-constrained tool call with bounded retry + QB-consult
+        rescue (M7.0.2), verifier, mcpd dispatch + cow.commit,
+        summariser, audit.
+
+        INV-1 preservation: the intent has already been schema-shaped
+        by opencode/Gemini; Step 2 re-validates against intent.json
+        (strips shell metachars, enforces action allowlist), Step 3
+        re-classifies risk (Gemini's advisory value is overridden by
+        risk_classifier.py), Step 8 verifier vote covers alignment.
+        NO raw user text ever reaches this method — opencode holds it.
+
+        Thin wrapper around run_turn_streaming with from_intent set.
+        The OC short-circuit is bypassed for this entry point only —
+        stray calls to run_turn_streaming (no from_intent) in OC mode
+        still return the "use opencode" redirect via F-92 short-circuit.
+        """
+        yield from self.run_turn_streaming("", session, from_intent=intent)
+
     def run_turn_streaming(
-        self, user_input: str, session: Any
+        self, user_input: str, session: Any, *, from_intent: dict | None = None,
     ) -> Generator:
         """Yield TurnEvent objects for each pipeline step.
 
         The existing ``run_turn()`` is unchanged (BP-2 backward compat).
+
+        v6.17 M7.6a-1c: `from_intent` param — when provided, skips Step 1
+        (qb_intent) and uses the caller-provided intent directly. Bypasses
+        the F-92 OC short-circuit so submit_intent from opencode can reach
+        Steps 2-11. When None (default), behavior is unchanged from v6.16.
         """
         # F-92: OC-edition — short-circuit before ANY planner branch (AgentGraph
         # or legacy). See `_opencode_oc_short_circuit` for full rationale.
-        if self._is_opencode_oc():
+        # v6.17 M7.6a-1c: only fire when NOT called via submit_intent
+        # (from_intent path is the sanctioned OC → Controller entry).
+        if self._is_opencode_oc() and from_intent is None:
             from .turn_events import ResultEvent, TokenEvent
             t0 = time.monotonic()
             result = self._opencode_oc_short_circuit(session, t0)
@@ -730,31 +762,66 @@ class Controller:
             qb_tokens_in = qb_tokens_out = 0
 
             # Step 1: QB → Intent Object
+            # v6.17 M7.6a-1c: skip QB call when from_intent is set — the
+            # caller (submit_intent MCP tool → intent.run daemon RPC) has
+            # already translated user text into a structured intent via
+            # opencode/Gemini. We synthesize a QB-response shim so
+            # downstream cost/token accounting stays consistent (both zero
+            # since opencode paid the translation cost).
             yield _progress("qb_intent")
-            yield _cot("qb_intent", "active",
-                        body="Parsing natural language into structured intent")
-            session.add_user_message(user_input)
-            # V6B Stage 2: prepend a <context> block if the caller provided
-            # shell state (cwd, recent commands). Lets QB resolve "here",
-            # "this folder", relative paths against the actual environment.
-            qb_input = _build_qb_input(session, user_input)
-            qb_response = self._qb.complete(
-                system=qb_system, user=qb_input,
-                schema=self._backend_intent_schema,
-                max_retries=self._cfg.run.qb_max_retries,
-            )
-            raw_intent = qb_response.content_json
-            # F-43 + F-47 (2026-07-09): overwrite server-owned fields — see
-            # _normalize_server_owned_fields() docstring for the full context.
-            _normalize_server_owned_fields(raw_intent)
-            session.add_assistant_message(json.dumps(raw_intent))
-            qb_cost += qb_response.cost_usd or 0.0
-            qb_tokens_in += qb_response.tokens_in
-            qb_tokens_out += qb_response.tokens_out
-            yield _cot("qb_intent", "done", body="Intent generated",
-                        action=raw_intent.get("action", ""),
-                        target=raw_intent.get("target", ""),
-                        risk_level=raw_intent.get("risk_level", ""))
+            if from_intent is not None:
+                yield _cot("qb_intent", "done",
+                            body=("Intent supplied externally "
+                                  "(opencode/Gemini via submit_intent — Step 1 skipped)"),
+                            action=from_intent.get("action", ""),
+                            target=from_intent.get("target", ""),
+                            risk_level=from_intent.get("risk_level", ""),
+                            source="submit_intent")
+                # DEEP-COPY the intent so schema normalization + downstream
+                # mutation don't leak back into the caller's dict.
+                import copy as _copy
+                raw_intent = _copy.deepcopy(from_intent)
+                # Server-owned fields still injected (intent_id UUID etc)
+                # so the intent passes intent.json validation at Step 2.
+                _normalize_server_owned_fields(raw_intent)
+                # Record the synthesized intent in session history so
+                # verifier + summariser have context. No user_input to
+                # add — opencode owns the raw text.
+                session.add_assistant_message(json.dumps(raw_intent))
+                # Synthetic zero-cost qb_response — used by downstream
+                # cost aggregation at Steps 6 (PB) + 8 (verifier) + 11.
+                from types import SimpleNamespace as _SN
+                qb_response = _SN(
+                    content_json=raw_intent,
+                    cost_usd=0.0,
+                    tokens_in=0,
+                    tokens_out=0,
+                )
+            else:
+                yield _cot("qb_intent", "active",
+                            body="Parsing natural language into structured intent")
+                session.add_user_message(user_input)
+                # V6B Stage 2: prepend a <context> block if the caller provided
+                # shell state (cwd, recent commands). Lets QB resolve "here",
+                # "this folder", relative paths against the actual environment.
+                qb_input = _build_qb_input(session, user_input)
+                qb_response = self._qb.complete(
+                    system=qb_system, user=qb_input,
+                    schema=self._backend_intent_schema,
+                    max_retries=self._cfg.run.qb_max_retries,
+                )
+                raw_intent = qb_response.content_json
+                # F-43 + F-47 (2026-07-09): overwrite server-owned fields — see
+                # _normalize_server_owned_fields() docstring for the full context.
+                _normalize_server_owned_fields(raw_intent)
+                session.add_assistant_message(json.dumps(raw_intent))
+                qb_cost += qb_response.cost_usd or 0.0
+                qb_tokens_in += qb_response.tokens_in
+                qb_tokens_out += qb_response.tokens_out
+                yield _cot("qb_intent", "done", body="Intent generated",
+                            action=raw_intent.get("action", ""),
+                            target=raw_intent.get("target", ""),
+                            risk_level=raw_intent.get("risk_level", ""))
 
             # Step 2: Schema validation
             yield _progress("schema_validation")
