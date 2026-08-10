@@ -340,6 +340,12 @@ class Daemon:
 
     _METHODS = {
         "turn.run":        "_handle_turn_run",
+        # v6.17 M7.6a-1b: OC edition submit_intent path — receives a
+        # pre-formed intent object from opencode/Gemini via the iceui
+        # MCP server's submit_intent tool, skips Step 1 qb_intent, and
+        # drives the rest of the pipeline (COW, HITL, PB retry, verifier,
+        # dispatch, summarise). See F-111 in GROUND_TRUTH.md § 7.
+        "intent.run":      "_handle_intent_run",
         "session.new":     "_handle_session_new",
         "session.reset":   "_handle_session_reset",
         "hitl.respond":    "_handle_hitl_respond",
@@ -371,6 +377,83 @@ class Daemon:
             session.transport.send(resp.to_bytes())
             return
 
+        def _event_iter():
+            return self._controller.run_turn_streaming(
+                user_input, session.session_state,
+            )
+
+        self._start_pipeline_worker(session, msg_id, _event_iter, name="turn-worker")
+
+    # v6.17 M7.6a-1b: intent.run handler — OC edition submit_intent path.
+    # Mirrors _handle_turn_run but drives Controller.run_turn_from_intent
+    # with a pre-formed intent object (skips Step 1 qb_intent). Reuses
+    # the _start_pipeline_worker streaming machinery so event handling,
+    # notification wiring, and error paths stay identical to turn.run.
+    def _handle_intent_run(self, session: DaemonSession, msg: dict) -> None:
+        msg_id = msg.get("id", "0")
+        params = msg.get("params", {})
+        intent = params.get("intent")
+        session_id = params.get("session_id")
+
+        # Params validation — Controller re-validates the intent against
+        # intent.json + risk-classifies + verifies; this is defense in
+        # depth at the transport boundary.
+        if not isinstance(intent, dict) or not intent:
+            resp = make_error(msg_id, INVALID_PARAMS,
+                              "missing 'intent' object (non-empty dict required)")
+            session.transport.send(resp.to_bytes())
+            return
+        if not isinstance(session_id, str) or not session_id:
+            resp = make_error(msg_id, INVALID_PARAMS,
+                              "missing 'session_id' string")
+            session.transport.send(resp.to_bytes())
+            return
+
+        # v0 session policy: use the connection-scoped session
+        # (1:1 with each MCP tool call — opencode reconnects per call).
+        # session_id from params is accepted + validated but not yet
+        # used for cross-connection session lookup — that's reserved
+        # for a future sub-commit if opencode needs multi-turn session
+        # continuity (session context, cwd tracking across turns).
+
+        # Guard: Controller must have implemented run_turn_from_intent
+        # (lands in M7.6a-1c). Until then, return a clear error rather
+        # than crashing the worker thread.
+        if not hasattr(self._controller, "run_turn_from_intent"):
+            resp = make_error(msg_id, INTERNAL_ERROR,
+                              "Controller.run_turn_from_intent not implemented "
+                              "(M7.6a-1c not yet shipped)")
+            session.transport.send(resp.to_bytes())
+            return
+
+        if not session._turn_lock.acquire(blocking=False):
+            resp = make_error(msg_id, INTERNAL_ERROR, "turn already in progress")
+            session.transport.send(resp.to_bytes())
+            return
+
+        def _event_iter():
+            return self._controller.run_turn_from_intent(
+                intent, session.session_state,
+            )
+
+        self._start_pipeline_worker(session, msg_id, _event_iter, name="intent-worker")
+
+    def _start_pipeline_worker(
+        self,
+        session: DaemonSession,
+        msg_id: Any,
+        event_iter_factory: Callable[[], Any],
+        *,
+        name: str,
+    ) -> None:
+        """v6.17 M7.6a-1b: shared streaming worker used by turn.run and
+        intent.run. Runs the controller pipeline on a worker thread and
+        streams events back as JSON-RPC notifications; the final
+        ResultEvent becomes the JSON-RPC response.
+
+        Caller must have acquired session._turn_lock before calling this
+        (both handlers do). Worker releases it in the finally block.
+        """
         def _worker() -> None:
             try:
                 presenter = ForwardingPresenter(session.transport)
@@ -381,9 +464,7 @@ class Daemon:
 
                 self._controller._presenter_factory = _factory
 
-                for event in self._controller.run_turn_streaming(
-                    user_input, session.session_state,
-                ):
+                for event in event_iter_factory():
                     try:
                         if isinstance(event, ProgressEvent):
                             notif = JsonRpcNotification("turn.progress", {
@@ -497,7 +578,7 @@ class Daemon:
                 self._controller._presenter_factory = None
                 session._turn_lock.release()
 
-        t = threading.Thread(target=_worker, daemon=True, name="turn-worker")
+        t = threading.Thread(target=_worker, daemon=True, name=name)
         t.start()
 
     def _handle_session_new(self, session: DaemonSession, msg: dict) -> None:
