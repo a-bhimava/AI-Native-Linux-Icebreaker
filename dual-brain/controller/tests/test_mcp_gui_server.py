@@ -52,9 +52,10 @@ def test_unknown_notification_silently_dropped():
 
 
 def test_tools_list_returns_expected_tool_count_with_correct_shape():
-    """v6.14 shipped 12 tools; Fix V.4 (v6.15) adds 12 vision-grounded
-    tools → 24 total. The _EXPECTED_TOOL_COUNT constant is the single
-    source of truth so this test can't drift silently."""
+    """v6.14 shipped 12 tools; Fix V.4 (v6.15) added 12 vision-grounded
+    tools; v6.17 M7.6a-1a adds submit_intent → 25 total. The
+    _EXPECTED_TOOL_COUNT constant is the single source of truth so this
+    test can't drift silently."""
     req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     resp = mcps._handle_line(req)
     assert resp is not None
@@ -65,20 +66,25 @@ def test_tools_list_returns_expected_tool_count_with_correct_shape():
         assert "name" in t
         assert "description" in t
         assert "inputSchema" in t
-        assert t["name"].startswith("gui.") or t["name"].startswith("rpa."), \
+        # v6.17 M7.6a-1a: submit_intent has no gui./rpa. prefix — it's
+        # the new third tool kind (Controller-daemon forwarder).
+        assert (t["name"].startswith("gui.")
+                or t["name"].startswith("rpa.")
+                or t["name"] == "submit_intent"), \
             f"unexpected tool namespace: {t['name']!r}"
     names = {t["name"] for t in tools}
-    # Sanity: known-critical tools are present (v6.14 baseline + v6.15 Fix V).
+    # Sanity: known-critical tools are present (v6.14 baseline + v6.15 Fix V + v6.17 M7.6a-1a).
     for expected in ("gui.get_window_list", "gui.screenshot",
                      "rpa.execute_workflow", "rpa.list_workflows",
                      "gui.parse_screen", "gui.click_at_coords",
                      "gui.grounded_click", "gui.grounded_drag",
-                     "gui.press_key", "gui.key_sequence"):
+                     "gui.press_key", "gui.key_sequence",
+                     "submit_intent"):
         assert expected in names, f"missing tool {expected}"
 
 
 def test_every_tool_has_a_description():
-    """All 24 tools listed by mcp_gui_server MUST have a real
+    """All 25 tools listed by mcp_gui_server MUST have a real
     description string — no `"GUI helper"` / `"RPA helper"` fallbacks
     from _build_tools_list. A missing description reads like a broken
     ISO in the opencode UI."""
