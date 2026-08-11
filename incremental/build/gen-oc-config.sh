@@ -10,10 +10,26 @@
 # (F-33 precedent). Ensures the shipped config reflects the ACTUAL tool
 # set of the mcpd binary that lands in the ISO — no drift possible.
 #
+# v6.17 M7.6a-1e: OC_MODE env var gates which tools opencode/Gemini can
+# actually call. Two modes:
+#   OC_MODE=legacy_direct     — default; keeps v6.13_OC..v6.16 behavior
+#                                (24+N tools each set to allow|ask based
+#                                on tier).  Rollback knob.
+#   OC_MODE=submit_intent_only — v6.17 M7.6a-1 shipping mode; ONLY
+#                                iceui_submit_intent is 'allow'. Every
+#                                other MCP tool (mcpd + iceui gui/rpa) is
+#                                'deny'. Forces Gemini to route through
+#                                Controller.run_turn_from_intent, which
+#                                gives OC users the v6.16 M7.0.1 + M7.0.2
+#                                safety features (COW dry-run at HITL, PB
+#                                grammar mandate, bounded retry with
+#                                QB-consult rescue).
+#
 # Usage:
 #   MCPD_BIN=/path/to/mcpd \
 #   TEMPLATE=/path/to/qb_oc.json.template \
 #   OUTPUT=/target/chroot/etc/icebreaker/qb_oc.json \
+#   [OC_MODE=submit_intent_only|legacy_direct] \
 #   bash incremental/build/gen-oc-config.sh
 #
 # Exit codes:
@@ -43,9 +59,22 @@ if [ ! -s "${TMP_TOOLS}" ]; then
 fi
 
 # ── 2. python driver — reads tools JSON + template, writes qb_oc.json ──
+# v6.17 M7.6a-1e: OC_MODE (env var) selects tool-visibility policy.
+# Absent → legacy_direct (v6.16 shipping behavior).
+# submit_intent_only → lock every tool except iceui_submit_intent to
+# 'deny'. Enables the M7.6a-1 flow (opencode → submit_intent →
+# Controller → PB → mcpd) as the only path through.
+OC_MODE="${OC_MODE:-legacy_direct}"
+if [ "${OC_MODE}" != "legacy_direct" ] && [ "${OC_MODE}" != "submit_intent_only" ]; then
+    echo "gen-oc-config: WARN unknown OC_MODE='${OC_MODE}', defaulting to legacy_direct" >&2
+    OC_MODE="legacy_direct"
+fi
+echo "gen-oc-config: OC_MODE=${OC_MODE}" >&2
+
 TOOLS_FILE="${TMP_TOOLS}" \
 TEMPLATE_FILE="${TEMPLATE}" \
 OUTPUT_FILE="${OUTPUT}" \
+OC_MODE="${OC_MODE}" \
 python3 <<'PY'
 import json, os, sys
 
@@ -178,6 +207,40 @@ print(
 # Variance note: Gemini sometimes gives up silently when a natural
 # tool choice is denied. Future tuning may re-open bash as `ask`
 # if the strict policy proves too restrictive in real use.
+# v6.17 M7.6a-1e: OC_MODE=submit_intent_only lockdown.
+# When set, every existing MCP permission entry gets 'deny' + we add
+# ONE 'allow' for iceui_submit_intent. This forces Gemini to route
+# every real system op through Controller.run_turn_from_intent —
+# where v6.16 M7.0.1 COW dry-run at HITL + M7.0.2 PB grammar mandate
+# + bounded retry with QB-consult rescue actually fire.
+#
+# The 'deny' entries also protect against a Gemini system-prompt
+# override attempt: even if the model tries a raw fs.write, opencode's
+# permission gate rejects at the transport layer before mcpd sees it.
+#
+# submit_intent itself lives at 'iceui_submit_intent' per Fix M
+# (mcp_gui_server.py, v6.17 M7.6a-1a). If the iceui server isn't
+# importable at build time (see _GUI_SCHEMAS fallback above), this
+# still emits the allow entry so runtime dispatch works — the iceui
+# server itself carries the submit_intent tool definition.
+oc_mode = os.environ.get('OC_MODE', 'legacy_direct')
+if oc_mode == 'submit_intent_only':
+    _pre_count = len(mcp_perms)
+    for _k in list(mcp_perms.keys()):
+        mcp_perms[_k] = 'deny'
+    mcp_perms['iceui_submit_intent'] = 'allow'
+    print(
+        f'gen-oc-config: OC_MODE=submit_intent_only — locked '
+        f'{_pre_count} tools to deny, iceui_submit_intent to allow',
+        file=sys.stderr,
+    )
+else:
+    print(
+        f'gen-oc-config: OC_MODE=legacy_direct — {len(mcp_perms)} tools '
+        f'reachable per per-tool tier policy',
+        file=sys.stderr,
+    )
+
 permissions = {"mcp": mcp_perms, "edit": "deny", "bash": "deny"}
 
 # Read template + strip comment fields (opencode's parser is strict JSON).
