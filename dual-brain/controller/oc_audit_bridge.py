@@ -43,9 +43,10 @@ import logging
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Deque, Mapping, Optional
 
 if TYPE_CHECKING:  # avoid runtime import of watchdog when only reading types
     from watchdog.observers.api import BaseObserver
@@ -58,6 +59,116 @@ _log = logging.getLogger("controller.oc_audit_bridge")
 #: distinguishes bridge-authored INV-8 rows from natively-authored
 #: Python-controller rows at forensics time. R18: never blank.
 OC_SESSION_SENTINEL = "opencode-oc"
+
+
+# ── v6.17 M7.6a-1f: native-dispatch correlation ring ────────────────
+#
+# When the Python controller (via Controller.run_turn_from_intent, the
+# M7.6a-1c OC submit_intent flow) dispatches an mcpd call, it writes
+# an INV-8 audit row natively via Controller._audit.write_fields at
+# Step 5 + Step 9. mcpd ALSO writes its own audit log line to
+# /var/log/mcpd/audit.log which the bridge tails + enriches. Without
+# deduplication, EACH real tool call gets TWO INV-8 rows: one native
+# (real session_id + turn_index) + one bridge (sentinel session_id).
+#
+# Fix (M7.6a-1f, per user decision 2026-08-09): correlate via
+# (method, target, timestamp-window) instead of an mcpd protocol
+# change. Both Controller and Bridge run in the same daemon process,
+# so a module-level singleton ring works — no IPC, no serialization.
+#
+# Design:
+# - Controller calls mark_native_dispatch(method, target) right BEFORE
+#   its self._mcpd.call(...) — records that this specific
+#   (method, target) is a native dispatch.
+# - Bridge's process_line calls is_native_dispatch(method, target) on
+#   every mcpd audit line; if match within window, skip writing the
+#   bridge-enriched row (native row already wrote it).
+# - Consume-on-match semantics: is_native_dispatch removes the entry
+#   so a follow-up mcpd audit line with the same key doesn't get
+#   inadvertently skipped (each native dispatch → exactly ONE mcpd
+#   audit line → exactly ONE skip).
+# - 500-entry deque cap + 10-min TTL: bounds memory + prevents stale
+#   entries from bleeding across daemon uptime.
+# - Thread-safe via _RING_LOCK; both Controller's turn threads and the
+#   bridge's watchdog thread may access concurrently.
+
+@dataclass
+class _NativeDispatchEntry:
+    """One recorded native-dispatch event. Ring content."""
+    method: str
+    target: str
+    ts_monotonic: float
+
+
+_NATIVE_RING: Deque[_NativeDispatchEntry] = deque(maxlen=500)
+_RING_LOCK = threading.Lock()
+_RING_TTL_SECONDS = 600.0  # 10 minutes; matches the plan's design
+
+
+def mark_native_dispatch(method: str, target: str) -> None:
+    """Record that the Python controller is about to dispatch an mcpd
+    call with (method, target). The bridge will skip the corresponding
+    mcpd audit log line to prevent double-audit.
+
+    Called from Controller (main.py) OR McpdClient.call — either works;
+    both are inside the same daemon process. Safe to call from any
+    thread. Safe to call even when bridge isn't running (ring just
+    accumulates + expires harmlessly; costs ~5KB steady-state).
+
+    See M7.6a-1f in F-111 (incremental/GROUND_TRUTH.md § 7) for full
+    design rationale.
+    """
+    now = time.monotonic()
+    with _RING_LOCK:
+        # Sweep expired entries so the ring never holds stale garbage.
+        # deque doesn't support O(1) age-based eviction, so we do a
+        # left-scan (bounded by TTL; typical ring size is ≤ 500).
+        while _NATIVE_RING and (now - _NATIVE_RING[0].ts_monotonic) > _RING_TTL_SECONDS:
+            _NATIVE_RING.popleft()
+        _NATIVE_RING.append(
+            _NativeDispatchEntry(method=method, target=target, ts_monotonic=now)
+        )
+
+
+def is_native_dispatch(
+    method: str, target: str, window_secs: float = 30.0,
+) -> bool:
+    """True iff a native dispatch with matching (method, target) was
+    marked within `window_secs`. Consumes the matching entry on
+    return so follow-up mcpd audit lines with the same key are NOT
+    also skipped.
+
+    Called from oc_audit_bridge.process_line for each mcpd audit line
+    it processes. Returns True → bridge skips writing the enriched
+    INV-8 row for that line. Returns False → bridge writes normally.
+
+    30-second window default matches the mcpd_timeout_seconds ceiling
+    from controller.toml (mcpd calls timing out beyond 30s are handled
+    as errors before the audit line lands, so a wider window would only
+    absorb spurious cross-turn matches).
+    """
+    now = time.monotonic()
+    with _RING_LOCK:
+        for i, entry in enumerate(_NATIVE_RING):
+            if entry.method == method and entry.target == target:
+                if (now - entry.ts_monotonic) <= window_secs:
+                    # Consume the match — see docstring for why.
+                    del _NATIVE_RING[i]
+                    return True
+        return False
+
+
+def _reset_native_ring_for_tests() -> None:
+    """Test-only: clear the ring so tests don't leak state to each other.
+    NEVER call from production code."""
+    with _RING_LOCK:
+        _NATIVE_RING.clear()
+
+
+def _native_ring_size_for_tests() -> int:
+    """Test-only: current ring size for state-observation assertions."""
+    with _RING_LOCK:
+        return len(_NATIVE_RING)
 
 #: mcpd tool name → Tier lookup. Derived from mcpd's tool descriptors
 #: (`src/mcpd/src/tools/mod.rs` + `src/mcpd/schemas/*.json`) as of
@@ -227,6 +338,12 @@ class OCAuditBridge:
         self._buffer: bytes = b""
         self._lock = threading.Lock()
         self._stats = BridgeStats()
+        # v6.17 M7.6a-1f: clean the native-dispatch ring on every bridge
+        # init so residual state from a prior test / prior daemon-in-
+        # daemon lifecycle doesn't skip legitimate mcpd audit lines.
+        # Safe: production only constructs OCAuditBridge once at daemon
+        # boot; the reset is a no-op in that case.
+        _reset_native_ring_for_tests()
 
     def start(self) -> None:
         """Begin watching. Idempotent — calling twice is a no-op."""
@@ -382,6 +499,34 @@ class OCAuditBridge:
                 exc, raw[:120],
             )
             self._stats.lines_dropped_malformed += 1
+            return
+
+        # v6.17 M7.6a-1f: skip lines the Python controller already
+        # audited natively (submit_intent flow via
+        # Controller.run_turn_from_intent → McpdClient.call →
+        # mark_native_dispatch). Prevents double-audit for OC-mode
+        # submit_intent turns. Consume-on-match semantics (see
+        # is_native_dispatch docstring) ensure follow-up mcpd audit
+        # lines with the same (method, target) aren't inadvertently
+        # skipped.
+        _method = str(mcpd_entry.get("method") or "")
+        _params = mcpd_entry.get("params_redacted") or {}
+        if isinstance(_params, Mapping):
+            _target = ""
+            for _key in _TARGET_KEYS:
+                if _key in _params:
+                    _target = str(_params[_key])[:512]
+                    break
+        else:
+            _target = ""
+        if _method and is_native_dispatch(_method, _target):
+            _log.debug(
+                "oc_audit_bridge: skipping native-dispatched line %s target=%s",
+                _method, _target,
+            )
+            # Count against ingested so operators see the throughput,
+            # but not against write_errors — this is a correct skip.
+            self._stats.lines_ingested += 1
             return
 
         try:

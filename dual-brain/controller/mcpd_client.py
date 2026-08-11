@@ -388,6 +388,28 @@ class McpdClient:
         if effective_timeout <= 0:
             raise ValueError("timeout must be positive")
 
+        # v6.17 M7.6a-1f: record this dispatch in the native-dispatch
+        # ring so oc_audit_bridge skips the corresponding mcpd audit
+        # log line (avoids double-audit rows for OC-mode submit_intent
+        # turns). Marking is unconditional — in current-edition (no
+        # bridge) the ring accumulates + expires harmlessly (~5KB
+        # steady-state). Import is deferred so mcpd_client stays
+        # importable in tests that don't touch oc_audit_bridge.
+        try:
+            from .oc_audit_bridge import (
+                mark_native_dispatch as _mark_native_dispatch,
+                _TARGET_KEYS as _MARK_TARGET_KEYS,
+            )
+            _p = params or {}
+            _target = ""
+            for _tk in _MARK_TARGET_KEYS:
+                if _tk in _p:
+                    _target = str(_p[_tk])[:512]
+                    break
+            _mark_native_dispatch(method, _target)
+        except Exception:  # noqa: BLE001 — never let audit-hook fail the call
+            pass
+
         with self._lock:
             if self._closed:
                 raise McpdProcessError("McpdClient is closed")
