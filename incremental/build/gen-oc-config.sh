@@ -243,6 +243,28 @@ else:
 
 permissions = {"mcp": mcp_perms, "edit": "deny", "bash": "deny"}
 
+# v6.17 M7.6a-1g: when submit_intent_only mode is active, wire the
+# opencode instructions field to point at the shipped system-prompt
+# file. This teaches Gemini to translate user requests into the
+# intent object shape submit_intent expects. Without this prompt,
+# Gemini will attempt other tools and hit the 'deny' walls with no
+# useful recovery signal.
+#
+# Instructions path is a runtime path (where the file lives on the
+# booted ISO, NOT where the file lives in the source tree). The build
+# system installs the source file to this exact path via
+# cx-distro/build.sh / v-manifests.
+INSTRUCTIONS_RUNTIME_PATH = "/etc/icebreaker/opencode_prompt_submit_intent.txt"
+if oc_mode == 'submit_intent_only':
+    instructions = [INSTRUCTIONS_RUNTIME_PATH]
+    print(
+        f'gen-oc-config: OC_MODE=submit_intent_only — wiring instructions '
+        f'-> {INSTRUCTIONS_RUNTIME_PATH}',
+        file=sys.stderr,
+    )
+else:
+    instructions = None  # unchanged behavior for legacy_direct
+
 # Read template + strip comment fields (opencode's parser is strict JSON).
 with open(template_file) as f:
     template = json.load(f)
@@ -256,6 +278,12 @@ def strip_comments(obj):
 
 template = strip_comments(template)
 template['permission'] = permissions
+# v6.17 M7.6a-1g: opencode `instructions` array — file paths whose
+# contents opencode injects into the model system prompt. Only set
+# when OC_MODE=submit_intent_only so legacy_direct configs stay
+# byte-for-byte identical to v6.16.
+if instructions is not None:
+    template['instructions'] = instructions
 
 with open(output_file + '.tmp', 'w') as f:
     json.dump(template, f, indent=2)

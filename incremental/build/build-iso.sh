@@ -335,10 +335,25 @@ if [ "$EDITION" = "oc" ]; then
     # is a no-op if the user is already in the group.
     chroot "$CHROOT" usermod -aG input icebreaker 2>/dev/null || true
 
-    info "[oc] generating qb_oc.json from mcpd tools/list..."
+    # v6.17 M7.6a-1g: install the opencode submit_intent system prompt
+    # to the runtime path gen-oc-config.sh references via instructions[].
+    # Ships regardless of OC_MODE (small text file; harmless if unused).
+    info "[oc] installing opencode submit_intent system prompt (M7.6a-1g)..."
+    install -Dm644 \
+        "${REPO_ROOT}/cx-distro/distro/opencode_prompt_submit_intent.txt" \
+        "${CHROOT}/etc/icebreaker/opencode_prompt_submit_intent.txt"
+
+    # v6.17 M7.6a-1e: OC_MODE defaults to submit_intent_only for v6.17+
+    # OC-edition builds — the M7.6a-1 flow (opencode → submit_intent →
+    # Controller pipeline → PB + mcpd) is the shipping mode; legacy_direct
+    # (v6.13_OC..v6.16 behavior) stays available as an env-var rollback
+    # (`OC_MODE=legacy_direct bash build-iso.sh --edition=oc` at build).
+    _OC_MODE="${OC_MODE:-submit_intent_only}"
+    info "[oc] generating qb_oc.json from mcpd tools/list (OC_MODE=${_OC_MODE})..."
     MCPD_BIN="$_OC_MCPD_HOST" \
         TEMPLATE="${REPO_ROOT}/cx-distro/distro/qb_oc.json.template" \
         OUTPUT="${CHROOT}/etc/icebreaker/qb_oc.json" \
+        OC_MODE="$_OC_MODE" \
         bash "${INC_ROOT}/build/gen-oc-config.sh" \
         || die "gen-oc-config.sh failed — see stderr above"
     chmod 644 "${CHROOT}/etc/icebreaker/qb_oc.json"

@@ -241,3 +241,64 @@ def test_oc_mode_submit_intent_only_emits_allow_even_when_iceui_schemas_missing(
     if result.returncode == 0:
         perms = _read_perms(output_path)["mcp"]
         assert perms["iceui_submit_intent"] == "allow"
+
+
+# ── 8. M7.6a-1g: instructions field wiring ────────────────────────────
+
+def test_oc_mode_submit_intent_only_emits_instructions_field(fake_env):
+    """M7.6a-1g regression lock: submit_intent_only mode MUST add an
+    `instructions` array to the generated qb_oc.json pointing at the
+    runtime path where the system prompt file will ship
+    (/etc/icebreaker/opencode_prompt_submit_intent.txt). Without this,
+    Gemini has no prompt teaching it to translate user text into an
+    intent object — turns fail at the permission gate."""
+    _, mcpd_bin, template_path, output_path = fake_env
+    result = _run_script(
+        mcpd_bin, template_path, output_path, oc_mode="submit_intent_only",
+    )
+    assert result.returncode == 0, f"stderr:\n{result.stderr}"
+
+    config = json.loads(Path(output_path).read_text())
+    assert "instructions" in config, (
+        "submit_intent_only must inject the opencode instructions field"
+    )
+    assert isinstance(config["instructions"], list)
+    assert config["instructions"] == [
+        "/etc/icebreaker/opencode_prompt_submit_intent.txt"
+    ]
+
+
+def test_oc_mode_legacy_direct_does_not_emit_instructions_field(fake_env):
+    """Regression lock: legacy_direct mode MUST NOT touch the instructions
+    field (backward compat with v6.13_OC..v6.16 shape). Old opencode
+    installs that don't understand instructions still work in
+    legacy_direct."""
+    _, mcpd_bin, template_path, output_path = fake_env
+    result = _run_script(
+        mcpd_bin, template_path, output_path, oc_mode="legacy_direct",
+    )
+    assert result.returncode == 0
+    config = json.loads(Path(output_path).read_text())
+    assert "instructions" not in config, (
+        "legacy_direct must not inject instructions (backward compat)"
+    )
+
+
+def test_opencode_prompt_file_exists_at_source_path():
+    """M7.6a-1g ships the prompt file at cx-distro/distro/. build-iso.sh
+    installs it to /etc/icebreaker/opencode_prompt_submit_intent.txt on
+    the runtime chroot. This test locks the source path so a rename
+    would fail loud rather than silently omitting the file from the ISO."""
+    source_path = _REPO_ROOT / "cx-distro" / "distro" / "opencode_prompt_submit_intent.txt"
+    assert source_path.exists(), (
+        f"prompt file missing at {source_path} — did the file get renamed?"
+    )
+    content = source_path.read_text(encoding="utf-8")
+    # Sanity: prompt must mention key concepts so a future edit that
+    # accidentally deletes them fails this test.
+    assert "iceui_submit_intent" in content
+    assert "intent" in content.lower()
+    assert "action" in content
+    assert "target" in content
+    assert "risk_level" in content
+    assert "reason" in content
