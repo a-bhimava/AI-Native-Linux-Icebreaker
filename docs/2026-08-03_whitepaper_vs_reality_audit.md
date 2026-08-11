@@ -7,23 +7,24 @@
 
 ---
 
-## Status update — 2026-08-06 (v6.16 pre-build)
+## Status update — 2026-08-11 (v6.17 pre-build)
 
-**5 of 26 departures closed** by the v6.16 milestone landing on `feat/v6.16-safety-invariants`. The two flagship Tier A safety claims (#1 COW imagination layer, #2 GBNF-constrained PB) are now real. This ledger's original body below is preserved verbatim as the audit-time snapshot; the closures show up as `→ F-109` or `→ F-110` in the Status column of individual rows.
+**13 of 26 departures closed** across v6.16 + v6.17 milestones. All three Tier A flagship claims are now real. This ledger's original body below is preserved verbatim as the audit-time snapshot; the closures show up as `→ F-109`, `→ F-110`, or `→ F-111` in the Status column of individual rows.
 
 | Row | Original state | Now | Closed by |
 |---|---|---|---|
 | **C-1** (Tier A #1) — COW imagination layer | DEPARTED — cow.rs doesn't exist | **SHIPPED (simulation, not literal overlayfs — user-approved design 2026-08-03)** | v6.16 M7.0.1a-h · commits `c3ac412..630aa54` · F-109 |
 | **C-4** (Tier A #2) — GBNF-constrained PB | DEPARTED — PB launched without --grammar-file | **SHIPPED (wire-up + bounded retry loop with QB-consult rescue for edge cases)** | v6.16 M7.0.2a-g · commits `977bdea..39a991d` · F-110 |
+| **A-1..A-8** (Tier A #3) — OC edition INV-1 gap | DEPARTED — opencode/Gemini invoked mcpd + iceui directly; no Intent Object, no PB, no schema/risk/HITL, no verifier, sentinel audit rows | **SHIPPED (submit_intent flow — opencode locked to ONE tool; Controller.run_turn_from_intent drives full 11-step pipeline; real Gemini QB in OC mode; audit deconfliction via IntentStore UUID ring)** | v6.17 M7.6a-1a-i · commits `79185ff..<pending>` · F-111 |
 | **B-2** — HITL Tier-3 shows dry-run diff | Tier-3 gate carries `cow_summary=None` | **SHIPPED — streaming Step 3.5 pre-pass populates diff at INITIAL gate** | v6.16 M7.0.1e · F-109 |
 | **B-3** — AgentGraph has COW branch | AgentGraph mcpd_dispatcher_node had no COW path | **SHIPPED — new `cow_preview_node` between verifier + hitl_gate** | v6.16 M7.0.1f · F-109 |
 | **B-4** — GBNF constraint | Controller-side `_build_pb` omitted grammar_path; server-side silently degraded | **SHIPPED — both sides wired + build-time smoke-gate + first-boot warn-not-crash** | v6.16 M7.0.2a-g · F-110 |
 
-**Whitepaper §5 text update** (acknowledging simulation approach over literal overlayfs) still deferred to M7.6b per the M7.0.1 design decision. **Per-tool GBNF tightening** (enumerate 25 tool names + per-tool params shape in the grammar) deferred to v6.17 — the M7.0.2 generic `{"tool": <str>, "params": <obj>}` grammar closes §6's shape guarantee; per-tool schema violations that survive it are caught by the bounded retry loop.
+**Whitepaper §5 text update** (acknowledging simulation approach over literal overlayfs) still deferred to M7.6b per the M7.0.1 design decision. **Per-tool GBNF tightening** (enumerate 25 tool names + per-tool params shape in the grammar) deferred to v6.18+ — the M7.0.2 generic `{"tool": <str>, "params": <obj>}` grammar closes §6's shape guarantee; per-tool schema violations that survive it are caught by the bounded retry loop.
 
-**Tier A #3 (OC edition INV-1 gap — A-1..A-9)** remains open. Scheduled for v6.18 (M7.6a-1: submit_intent MCP surface).
+**A-6/A-7 partial closure**: audit rows for non-submit_intent iceui direct calls (legacy_direct rollback path only) still rely on `oc_audit_bridge` sentinel enrichment; full parity is M7.0.3 v6.18 scope.
 
-**21 departures remain**. Next tracked in `docs/2026-08-03_phase7_convergence_tracker.md` progress ledger.
+**13 departures remain**. Next tracked in `docs/2026-08-03_phase7_convergence_tracker.md` progress ledger.
 
 ---
 
@@ -171,7 +172,7 @@ Skim the tiers first if you have five minutes; drop into A/B/C only for the spec
 |---|---|---|---|
 | **1** | "The AI cannot make irreversible mistakes — COW imagination layer" (§5) | Pre-v6.16: `src/mcpd/src/sandbox/cow.rs` **did not exist**. mcpd returned a `requires_cow_approval` ticket; no tmpfs/overlayfs mount ever happened. Neither edition showed a real dry-run diff at the approval gate. This was the flagship safety feature of the whitepaper — it was a stub. (C-1) | **SHIPPED → F-109** (M7.0.1a-h). Simulation-based per user design 2026-08-03 (walkdir+du for fs.delete; stat for fs.write; apt-get -s for package.*) — user-outcome-identical to literal overlayfs without moving `SYS_mount`/`SYS_umount2`/`SYS_unshare` from seccomp DENY→ALLOW. Whitepaper §5 text update deferred to M7.6b to acknowledge the implementation approach. |
 | **2** | "The model literally CANNOT generate invalid output — mathematically impossible" (§6) | Pre-v6.16: PB launched WITHOUT `--grammar-file` from the controller side; server-side `start_pb.sh --grammar-file` **silently degraded to unconstrained** if the file didn't resolve. Only the QB got grammar-bound. (C-4, B-4) | **SHIPPED → F-110** (M7.0.2a-g). Controller-side + server-side wired end-to-end + build-time smoke-gate refuses ISO if grammar file missing + first-boot warn-not-crash. Bounded PbRetryLoop with QB-consult rescue catches per-tool schema violations that survive the generic grammar. Per-tool GBNF tightening (enumerate 25 tool names) deferred to v6.17. |
-| **3** | "QB has zero direct access to system execution tools" (INV-1, §3) | **OC edition**: QB (Gemini via opencode) invokes mcpd + iceui tools directly. No Intent Object. No Controller. No PB. (A-1..A-8) | **OPEN** — scheduled for v6.18 M7.6a-1 (submit_intent MCP surface). |
+| **3** | "QB has zero direct access to system execution tools" (INV-1, §3) | Pre-v6.17: OC edition QB (Gemini via opencode) invoked mcpd + iceui tools directly. No Intent Object, no Controller, no PB, no schema/risk/HITL, no verifier, sentinel audit rows (`session_id="opencode-oc"`, `turn_index=-1`, `tokens=0`, `cost=0`). (A-1..A-8) | **SHIPPED → F-111** (v6.17 M7.6a-1a-i, pulled forward from planned v6.18). opencode locked to ONE tool (`iceui_submit_intent`); Gemini emits an Intent Object; new daemon RPC `intent.run` receives it; new `Controller.run_turn_from_intent` skips Step 1 and drives the full 11-step pipeline (schema/risk/COW/HITL/PB grammar/retry/verifier/dispatch/summarise); real Gemini QB wired via `GEMINI_API_KEY` for verifier + summariser + repair; audit deconfliction via IntentStore UUID ring prevents double-writes. |
 
 ### Tier B — Whitepaper claims that are **partial or drifted** in current edition too
 
