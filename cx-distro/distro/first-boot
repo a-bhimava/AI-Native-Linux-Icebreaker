@@ -123,6 +123,39 @@ else
         "{\"path\":\"$STEP1B_GRAMMAR\",\"present\":false,\"impact\":\"pb_unconstrained\"}"
 fi
 
+# ── Step 1c: OC submit_intent readiness (v6.17 M7.6a-1h / F-111) ─────
+# OC edition only. Verifies the two runtime prerequisites for the
+# submit_intent flow (M7.6a-1 shipping mode):
+#   1. Opencode config file present (Fix P)
+#   2. Opencode submit_intent system prompt present (M7.6a-1g)
+# Both must ship for Gemini to translate user text into intent objects
+# that the Controller can execute. Missing either = OC submit_intent
+# turns fail at Gemini's transport layer. `skipped` phase result on
+# current-edition boots.
+STEP1C_QB_OC="/etc/icebreaker/qb_oc.json"
+STEP1C_PROMPT="/etc/icebreaker/opencode_prompt_submit_intent.txt"
+if [ -f "$STEP1C_QB_OC" ]; then
+    if [ -f "$STEP1C_PROMPT" ]; then
+        _prompt_bytes=$(stat -c '%s' "$STEP1C_PROMPT" 2>/dev/null || echo 0)
+        if [ "$_prompt_bytes" -ge 500 ]; then
+            phase_result "oc_submit_intent" "ok" 0 \
+                "{\"prompt_bytes\":$_prompt_bytes,\"qb_oc_present\":true}"
+        else
+            warn "OC submit_intent prompt too small at $STEP1C_PROMPT (${_prompt_bytes} bytes) — Gemini guidance may be truncated"
+            phase_result "oc_submit_intent" "warn" 0 \
+                "{\"prompt_bytes\":$_prompt_bytes,\"qb_oc_present\":true,\"impact\":\"truncated_prompt\"}"
+        fi
+    else
+        warn "OC submit_intent prompt missing at $STEP1C_PROMPT — submit_intent turns will fail (Gemini has no intent guidance)"
+        phase_result "oc_submit_intent" "warn" 0 \
+            "{\"qb_oc_present\":true,\"prompt_present\":false,\"impact\":\"gemini_untrained\"}"
+    fi
+else
+    # Current edition — no OC config at all; skip cleanly.
+    phase_result "oc_submit_intent" "skipped" 0 \
+        "{\"reason\":\"current_edition\",\"qb_oc_present\":false}"
+fi
+
 # ── Step 2: Health polling ──────────────────────────────────────────────
 poll_health() {
     local name="$1" sock="$2"

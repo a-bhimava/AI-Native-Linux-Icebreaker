@@ -143,17 +143,18 @@ if [ "$LEVEL" -ge 3 ]; then
         [ -f "${CHROOT}/etc/udev/rules.d/10-uinput.rules" ] \
             && pass "F-101: uinput udev rule installed" \
             || fail "F-101: /etc/udev/rules.d/10-uinput.rules missing — RPA input synthesis will fail"
-        # iceui MCP server self-test — verifies handshake + 24 tools
-        # (v6.14 shipped 12; v6.15 Fix V.4 added 12 → total 24).
+        # iceui MCP server self-test — verifies handshake + tool count.
+        # v6.14 shipped 12; v6.15 Fix V.4 added 12 → 24; v6.17 M7.6a-1a
+        # added submit_intent → 25.
         # Cannot use in_chroot() here because it discards stdout+stderr,
         # so the pipe to grep would always read empty and fail (F-101.2).
         # Run chroot directly so the self-test output (which goes to
         # stderr via file=sys.stderr) reaches grep.
         if chroot "$CHROOT" bash -c "$VENV_PY -m controller.mcp_gui_server --self-test 2>&1" \
-                | grep -q "24 tools"; then
-            pass "F-103: iceui MCP server --self-test OK (24 tools)"
+                | grep -q "25 tools"; then
+            pass "F-111: iceui MCP server --self-test OK (25 tools incl. submit_intent)"
         else
-            fail "F-103: iceui MCP server self-test failed — expected '24 tools' in output (v6.15 Fix V.4 registered 12 new tools; count mismatch = drift)"
+            fail "F-111: iceui MCP server self-test failed — expected '25 tools' (24 gui/rpa + submit_intent per v6.17 M7.6a-1a). Count mismatch = drift"
         fi
 
         # ── F-103 (Fix V.6c): vision-actuation backend + config knobs ──
@@ -249,6 +250,61 @@ sys.exit(0)
 \"" \
             && pass "F-98 + F-100: qb_oc.json permission shape + native-tool deny" \
             || fail "F-98/F-100 regression: qb_oc.json permission shape or native-tool policy wrong"
+
+        # v6.17 M7.6a-1h (F-111): opencode submit_intent system prompt
+        # file must ship at the runtime path gen-oc-config.sh's
+        # instructions[] field references. Without it, opencode reads
+        # an empty instructions file and Gemini has no submit_intent
+        # guidance — turns fail at the permission gate.
+        check_file /etc/icebreaker/opencode_prompt_submit_intent.txt \
+            "F-111 M7.6a-1g: opencode submit_intent system prompt missing"
+        # Prompt content sanity — file exists but empty would be a
+        # silent failure of the runtime experience. Guard against a
+        # zero-byte install failure or accidental empty overwrite.
+        _prompt_size=$(stat -c '%s' \
+            "${CHROOT}/etc/icebreaker/opencode_prompt_submit_intent.txt" \
+            2>/dev/null || echo 0)
+        [ "$_prompt_size" -ge 500 ] \
+            && pass "F-111 M7.6a-1g: submit_intent prompt file present (${_prompt_size} bytes)" \
+            || fail "F-111 M7.6a-1g: submit_intent prompt file too small (${_prompt_size} bytes) — expected >500 bytes"
+
+        # v6.17 M7.6a-1h (F-111): if qb_oc.json has the `instructions`
+        # field (M7.6a-1g wired it in submit_intent_only mode — the
+        # default for v6.17+ OC builds), verify:
+        #   1. instructions points at the shipped prompt file
+        #   2. permission.mcp locks EVERY tool to 'deny' except
+        #      iceui_submit_intent which is 'allow'
+        # Legacy_direct builds (rollback path) don't have instructions
+        # → we skip the lockdown check for them (existing F-98/F-100
+        # checks above cover the legacy permission shape).
+        in_chroot "python3 -c \"
+import json, sys
+d = json.load(open('/etc/icebreaker/qb_oc.json'))
+instr = d.get('instructions')
+if instr is None:
+    # legacy_direct mode — no assertion (already validated above)
+    print('  [INFO] qb_oc.json has no instructions field (legacy_direct mode)', file=sys.stderr)
+    sys.exit(0)
+# submit_intent_only mode — verify lockdown
+assert isinstance(instr, list), f'F-111 M7.6a-1g: instructions must be list, got {type(instr).__name__}'
+assert '/etc/icebreaker/opencode_prompt_submit_intent.txt' in instr, (
+    f'F-111 M7.6a-1g: instructions missing shipped prompt path: {instr}'
+)
+p = d.get('permission', {})
+mcp = p.get('mcp', {})
+assert mcp.get('iceui_submit_intent') == 'allow', (
+    f'F-111 M7.6a-1e: submit_intent_only requires iceui_submit_intent=allow, got {mcp.get(\\\"iceui_submit_intent\\\")!r}'
+)
+for k, v in mcp.items():
+    if k == 'iceui_submit_intent':
+        continue
+    assert v == 'deny', (
+        f'F-111 M7.6a-1e: submit_intent_only requires every non-submit_intent tool to be deny, {k}={v!r}'
+    )
+sys.exit(0)
+\"" \
+            && pass "F-111 M7.6a-1e/g: qb_oc.json OC_MODE lockdown consistent (instructions + permission)" \
+            || fail "F-111 M7.6a-1e/g regression: qb_oc.json OC_MODE lockdown broken"
     fi
     check_exec /usr/libexec/icebreaker/ib-wait-sock "ib-wait-sock helper missing (F-9)"
     if in_chroot "command -v desktop-file-validate"; then
