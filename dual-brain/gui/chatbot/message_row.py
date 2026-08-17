@@ -50,6 +50,7 @@ class MessageRow(Gtk.Box):
 
         bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         bubble.add_css_class("ib-elevated")
+        bubble.add_css_class("ib-glass-card")
         bubble.add_css_class("ib-primary")
         bubble.add_css_class("ib-primary-foreground")
 

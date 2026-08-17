@@ -12,6 +12,7 @@ from gi.repository import Adw, Gtk
 
 from . import themes
 from .pages.behavior_page import BehaviorPage
+from .pages.appearance_page import AppearancePage
 from .pages.errors_page import ErrorsPage
 from .pages.keys_page import KeysPage
 from .pages.limits_page import LimitsPage
@@ -40,6 +41,7 @@ class ControlWindow(Adw.PreferencesWindow):
         # Pages — order matters for the sidebar (Nielsen: most-used first).
         # v6.65: Status/Keys/Models/Behavior/Limits/Errors/Tools/Theme.
         self.add(StatusPage())
+        self.add(AppearancePage())
         self.add(KeysPage())
         self.add(ModelsPage())
         self.add(BehaviorPage())

@@ -125,6 +125,8 @@ class LibAdwaitaHitlPresenter(HitlPresenter):
             window.set_default_size(560, 520)
             window.set_modal(True)
             window.add_css_class("ib-window")
+            window.add_css_class("ib-security-surface")
+            window.add_css_class("ib-hitl-surface")
 
             toolbar = Adw.ToolbarView()
             header = Adw.HeaderBar()

@@ -36,6 +36,7 @@ class InputBar(Gtk.Box):
 
         self._card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self._card.add_css_class("ib-elevated-input")
+        self._card.add_css_class("ib-glass-input")
         self._card.set_size_request(560, -1)
 
         self._scroll = Gtk.ScrolledWindow()

@@ -54,6 +54,7 @@ _PAGES: list[tuple[str, str, bool]] = [
     ("gui.control.pages.tools_page",      "ToolsPage",      False),
     ("gui.control.pages.keys_page",       "ApiKeysPage",    False),
     ("gui.control.pages.theme_page",      "ThemePage",      False),
+    ("gui.control.pages.appearance_page", "AppearancePage", False),
 ]
 
 

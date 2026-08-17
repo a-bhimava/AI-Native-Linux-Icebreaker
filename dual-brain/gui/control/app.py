@@ -59,7 +59,12 @@ class ControlApp(Adw.Application):
         if self._active_provider is not None:
             Gtk.StyleContext.remove_provider_for_display(display, self._active_provider)
 
-        css_text = _generate_css(theme.tokens, {"sans": "Inter, sans-serif", "mono": "JetBrains Mono, monospace"}, "12px")
+        css_text = _generate_css(
+            theme.tokens,
+            {"sans": "Inter, sans-serif", "mono": "JetBrains Mono, monospace"},
+            "12px",
+            frosted=name == "Frosted Graphite",
+        )
         provider = Gtk.CssProvider()
         provider.load_from_string(css_text)
         Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)

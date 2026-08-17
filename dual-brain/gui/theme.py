@@ -12,8 +12,10 @@ from __future__ import annotations
 
 from typing import Final
 
+from .appearance import load_appearance
 
-COLOR_TOKENS_DARK: Final[dict[str, str]] = {
+
+COLOR_TOKENS_CLASSIC_DARK: Final[dict[str, str]] = {
     "background":           "#111112",
     "foreground":           "#c0c0c0",
     "card":                 "#111111",
@@ -32,6 +34,22 @@ COLOR_TOKENS_DARK: Final[dict[str, str]] = {
     "input":                "#222222",
     "ring":                 "#e78952",
 }
+
+# Frosted Graphite is deliberately restrained: the elevated/transparent-looking
+# treatment belongs to conversational content, never a human approval surface.
+COLOR_TOKENS_FROSTED_DARK: Final[dict[str, str]] = {
+    "background": "#15171c", "foreground": "#edf0f6",
+    "card": "#22262e", "card_foreground": "#edf0f6",
+    "primary": "#9dacd2", "primary_foreground": "#12141a",
+    "secondary": "#78849c", "secondary_foreground": "#101217",
+    "muted": "#1c2028", "muted_foreground": "#b7bfce",
+    "accent": "#303744", "accent_foreground": "#edf0f6",
+    "destructive": "#d87878", "destructive_foreground": "#17191e",
+    "border": "#48515f", "input": "#20252e", "ring": "#b8c7ff",
+}
+
+# Backward-compatible public name.  Fresh installs now select Frosted.
+COLOR_TOKENS_DARK: Final[dict[str, str]] = COLOR_TOKENS_FROSTED_DARK
 
 COLOR_TOKENS_LIGHT: Final[dict[str, str]] = {
     "background":           "#ffffff",
@@ -61,7 +79,7 @@ FONTS: Final[dict[str, str]] = {
 RADIUS: Final[str] = "12px"
 
 
-def _generate_css(tokens: dict[str, str], fonts: dict[str, str], radius: str) -> str:
+def _generate_css(tokens: dict[str, str], fonts: dict[str, str], radius: str, *, frosted: bool = False) -> str:
     """Build a GTK4 CSS stylesheet from design tokens."""
     lines = [
         "/* Auto-generated from docs/design-tokens.css — do not edit by hand. */",
@@ -70,6 +88,8 @@ def _generate_css(tokens: dict[str, str], fonts: dict[str, str], radius: str) ->
 
     lines.append("window, .ib-window {")
     lines.append(f"  background-color: {tokens['background']};")
+    if frosted:
+        lines.append("  background-image: radial-gradient(circle at 18% 0%, rgba(151, 166, 205, 0.20), transparent 38%), linear-gradient(145deg, #1b1f28, #121419);")
     lines.append(f"  color: {tokens['foreground']};")
     lines.append(f"  font-family: {fonts['sans']};")
     lines.append("}")
@@ -139,6 +159,17 @@ def _generate_css(tokens: dict[str, str], fonts: dict[str, str], radius: str) ->
     lines.append("  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);")
     lines.append("}")
     lines.append("")
+
+    if frosted:
+        lines.append(".ib-glass-card, .ib-glass-input {")
+        lines.append("  background-color: rgba(37, 42, 52, 0.88);")
+        lines.append("  border: 1px solid rgba(218, 226, 245, 0.22);")
+        lines.append("  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.30), inset 0 1px rgba(255, 255, 255, 0.10);")
+        lines.append(f"  border-radius: {radius};")
+        lines.append("}")
+        lines.append("")
+        lines.append(".ib-glass-input { background-color: rgba(30, 35, 44, 0.92); }")
+        lines.append("")
 
     lines.append(".ib-elevated-input {")
     lines.append(f"  background-color: {tokens['muted']};")
@@ -211,6 +242,12 @@ def _generate_css(tokens: dict[str, str], fonts: dict[str, str], radius: str) ->
     lines.append(f"  color: {tokens['foreground']};")
     lines.append("}")
     lines.append("")
+    lines.append(".ib-security-surface, .ib-hitl-surface, .ib-audit-surface {")
+    lines.append("  background-color: #17191f;")
+    lines.append("  background-image: none;")
+    lines.append("  opacity: 1;")
+    lines.append("}")
+    lines.append("")
 
     return "\n".join(lines) + "\n"
 
@@ -218,14 +255,24 @@ def _generate_css(tokens: dict[str, str], fonts: dict[str, str], radius: str) ->
 class IcebreakerTheme:
     """Loads and applies the Icebreaker design token CSS to a GTK4 display."""
 
-    def __init__(self, *, dark: bool = True) -> None:
+    def __init__(self, *, dark: bool = True, profile: str | None = None) -> None:
         self._dark = dark
-        self._tokens = COLOR_TOKENS_DARK if dark else COLOR_TOKENS_LIGHT
-        self._css_text = _generate_css(self._tokens, FONTS, RADIUS)
+        self._profile = profile or load_appearance().profile
+        if self._profile not in {"classic", "frosted"}:
+            self._profile = "frosted"
+        self._tokens = (
+            (COLOR_TOKENS_FROSTED_DARK if self._profile == "frosted" else COLOR_TOKENS_CLASSIC_DARK)
+            if dark else COLOR_TOKENS_LIGHT
+        )
+        self._css_text = _generate_css(self._tokens, FONTS, RADIUS, frosted=dark and self._profile == "frosted")
 
     @property
     def is_dark(self) -> bool:
         return self._dark
+
+    @property
+    def profile(self) -> str:
+        return self._profile
 
     @property
     def tokens(self) -> dict[str, str]:

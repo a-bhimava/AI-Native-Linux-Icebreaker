@@ -7,7 +7,9 @@ import re
 import pytest
 
 from gui.theme import (
+    COLOR_TOKENS_CLASSIC_DARK,
     COLOR_TOKENS_DARK,
+    COLOR_TOKENS_FROSTED_DARK,
     COLOR_TOKENS_LIGHT,
     FONTS,
     RADIUS,
@@ -57,11 +59,12 @@ class TestColorTokens:
         r = int(COLOR_TOKENS_LIGHT["background"][1:3], 16)
         assert r > 192, "light background should have high luminance"
 
-    def test_primary_amber_dark(self) -> None:
-        assert COLOR_TOKENS_DARK["primary"] == "#e78952"
+    def test_primary_is_quiet_blue_in_frosted_dark(self) -> None:
+        assert COLOR_TOKENS_DARK["primary"] == "#9dacd2"
 
-    def test_secondary_teal_dark(self) -> None:
-        assert COLOR_TOKENS_DARK["secondary"] == "#5e8787"
+    def test_classic_palette_remains_available(self) -> None:
+        assert COLOR_TOKENS_CLASSIC_DARK["primary"] == "#e78952"
+        assert COLOR_TOKENS_FROSTED_DARK["secondary"] == "#78849c"
 
 
 class TestFontsAndRadius:
@@ -137,11 +140,11 @@ class TestGenerateCSS:
 
 class TestIcebreakerTheme:
     def test_dark_mode_default(self) -> None:
-        theme = IcebreakerTheme()
+        theme = IcebreakerTheme(profile="frosted")
         assert theme.is_dark is True
 
     def test_light_mode(self) -> None:
-        theme = IcebreakerTheme(dark=False)
+        theme = IcebreakerTheme(dark=False, profile="frosted")
         assert theme.is_dark is False
 
     def test_css_text_is_string(self) -> None:
@@ -155,3 +158,14 @@ class TestIcebreakerTheme:
         t2 = theme.tokens
         assert t1 == t2
         assert t1 is not t2
+
+    def test_profile_can_use_classic(self) -> None:
+        theme = IcebreakerTheme(profile="classic")
+        assert theme.profile == "classic"
+        assert theme.tokens["primary"] == "#e78952"
+
+    def test_frosted_css_has_glass_and_opaque_security_surface(self) -> None:
+        css = IcebreakerTheme(profile="frosted").css_text
+        assert ".ib-glass-card" in css
+        assert ".ib-security-surface" in css
+        assert "background-image: none" in css
