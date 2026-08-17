@@ -166,6 +166,11 @@ fi
 P="$(_ssh "cat /etc/icebreaker-build-profile" || true)"
 if [ "$P" = "$PROFILE" ]; then
     pass "build profile = ${PROFILE}"
+elif [ "$EXPECTED_VERSION" = "v6.17" ] && [ -z "$P" ] && [ "$PROFILE" = "desktop" ]; then
+    # v6.17 predates the explicit profile marker. Its GDM check above is
+    # still required; accept this one narrowly-scoped historical artifact so
+    # R2/R11 can gate the already-built OC images without weakening v6.18+.
+    pass "legacy v6.17 desktop image has no build-profile marker"
 else
     fail "build profile '$P' != expected '$PROFILE'"
     exit 1
