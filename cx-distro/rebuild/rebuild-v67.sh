@@ -40,6 +40,15 @@ case "$V67_EDITION" in
     current|oc|both) ;;
     *) echo "FATAL: V67_EDITION must be current|oc|both, got: $V67_EDITION" >&2; exit 1 ;;
 esac
+V67_PROFILE="${V67_PROFILE:-desktop}"
+case "$V67_PROFILE" in
+    desktop|xfce-frosted) ;;
+    *) echo "FATAL: V67_PROFILE must be desktop or xfce-frosted, got: $V67_PROFILE" >&2; exit 1 ;;
+esac
+# cx-distro's standalone builder calls the XFCE profile "vm". The
+# incremental release profile keeps its explicit product-facing name.
+CX_PROFILE="desktop"
+[ "$V67_PROFILE" = "xfce-frosted" ] && CX_PROFILE="vm"
 DOCKER_TAG="icebreaker-build:${LABEL}"
 
 # fail-fast trap
@@ -50,6 +59,7 @@ echo "════════════════════════�
 echo "═══ Icebreaker ${LABEL} canonical build @ $(date -u) ═══"
 echo "═══ arm64 included: ${V67_INCLUDE_ARM64}                         ═══"
 echo "═══ edition:        ${V67_EDITION}                                    ═══"
+echo "═══ profile:        ${V67_PROFILE}                                    ═══"
 echo "══════════════════════════════════════════════════════════════════"
 
 cd "$REPO"
@@ -82,7 +92,7 @@ echo "▶ Step 2: mcpd + llama-server + venv + chroot + standalone ISO $(date -u
 # LATER by v6.manifest:60 which runs on the host and reads directly from
 # /home/aditya/models/. Stage 4 embeds under --no-models=0 only for the
 # standalone Docker ISO (which we don't ship — only make iso-* output ships).
-sudo docker run --rm --privileged -v "$REPO":/build "$DOCKER_TAG" --force --skip-to=0 --no-models
+sudo docker run --rm --privileged -v "$REPO":/build "$DOCKER_TAG" --force --skip-to=0 --no-models --profile="$CX_PROFILE"
 echo "✓ Step 2: Docker-side pipeline complete"
 
 # ── Step 3: verify all binaries produced ─────────────────────────────────
@@ -135,8 +145,8 @@ _build_arch() {
     [ "$edition" = "oc" ] && iso_suffix="_OC"
     local iso_path="incremental/.build/out/${LABEL}${iso_suffix}-${arch}.iso"
     echo ""
-    echo "▶ Step ${step}: make iso-${arch} EDITION=${edition} $(date -u)"
-    sudo make "iso-${arch}" LABEL="$LABEL" VN="$VN" EDITION="$edition"
+    echo "▶ Step ${step}: make iso-${arch} EDITION=${edition} PROFILE=${V67_PROFILE} $(date -u)"
+    sudo make "iso-${arch}" LABEL="$LABEL" VN="$VN" EDITION="$edition" PROFILE="$V67_PROFILE"
     [ -f "$iso_path" ] || { echo "FATAL: expected $iso_path missing"; exit 1; }
     echo "✓ Step ${step}: ${iso_path} produced ($(du -h "$iso_path" | awk '{print $1}'))"
 }
@@ -186,12 +196,24 @@ ls -lh "incremental/.build/out/${LABEL}"-*.iso "incremental/.build/out/${LABEL}_
 echo ""
 echo "Next steps:"
 echo ""
+_print_qemu_gate() {
+    local arch="$1"
+    local edition="$2"
+    local iso_suffix=""
+    [ "$edition" = "oc" ] && iso_suffix="_OC"
+    echo "   sudo env PROFILE=${V67_PROFILE} EDITION=${edition} ARCH=${arch} bash incremental/tests/qemu-gate.sh incremental/.build/out/${LABEL}${iso_suffix}-${arch}.iso ${VN} ${LABEL}"
+}
+
 echo "1. QEMU gate (amd64, ~5 min KVM):"
-echo "   sudo bash incremental/tests/qemu-gate.sh --arch amd64"
+for _ed in "${_editions_to_build[@]}"; do
+    [ "$V67_INCLUDE_AMD64" = "1" ] && _print_qemu_gate amd64 "$_ed"
+done
 if [ "$V67_INCLUDE_ARM64" = "1" ]; then
     echo ""
     echo "2. QEMU gate (arm64, ~40 min TCG):"
-    echo "   sudo bash incremental/tests/qemu-gate.sh --arch arm64"
+    for _ed in "${_editions_to_build[@]}"; do
+        _print_qemu_gate arm64 "$_ed"
+    done
 fi
 echo ""
 echo "3. Download to Mac:"

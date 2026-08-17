@@ -2,7 +2,7 @@
 # build-iso.sh — per-version ISO builder for the Icebreaker incremental rebuild.
 #
 # Usage (on the Linux build VM, as root):
-#   sudo bash incremental/build/build-iso.sh <N> [--no-compress]
+#   sudo bash incremental/build/build-iso.sh <N> [--profile desktop|xfce-frosted] [--no-compress]
 #
 # Steps:
 #   1. Untar cached base (build-base.sh must have run once)
@@ -18,7 +18,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${INC_ROOT}/.." && pwd)"
 BUILD_DIR="${INC_ROOT}/.build"
-PKG_FILE="${SCRIPT_DIR}/packages-desktop.txt"
 UBUNTU_BASE="noble"
 
 info() { echo -e "\033[0;32m[$(date +%H:%M:%S)]\033[0m $*"; }
@@ -32,6 +31,7 @@ COMPRESS_ARGS=(-comp zstd -Xcompression-level 3)
 LABEL=""
 # V6.6: --arch defaults to amd64 for backwards compat with V0-V6.51.
 ARCH="${ARCH:-amd64}"
+PROFILE="${PROFILE:-desktop}"
 # v6.13_OC Fix L' Commit 1: --edition selects which content lands in
 # the chroot. current (default) = Textual TUI + Gemini. oc = opencode
 # TUI + qb_oc.json + no Textual. Also drives the _OC filename suffix.
@@ -41,6 +41,7 @@ while [ $# -gt 0 ]; do
         --no-compress) COMPRESS_ARGS=(-noI -noD -noF -noX); shift ;;  # D-1 escape hatch
         --label)       LABEL="$2"; shift 2 ;;  # override version marker + ISO filename (e.g. "v6.1")
         --arch)        ARCH="$2"; shift 2 ;;   # V6.6: target CPU arch (amd64 or arm64)
+        --profile)     PROFILE="$2"; shift 2 ;;
         --edition)     EDITION="$2"; shift 2 ;; # v6.13_OC: current|oc
         *) die "unknown arg: $1" ;;
     esac
@@ -49,6 +50,10 @@ case "$EDITION" in
     current|oc) ;;
     *) die "--edition must be current|oc, got: $EDITION" ;;
 esac
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/profile-xfce-frosted.sh"
+profile_validate || exit 2
+PKG_FILE="$(profile_package_file)"
 # LABEL defaults to plain vN when not overridden (backwards-compatible).
 [ -z "$LABEL" ] && LABEL="v${VN}"
 # Widened 2026-07-20 (v6.10b build): accept revision suffixes so patch
@@ -65,6 +70,7 @@ CONF="${REPO_ROOT}/config/archs/${ARCH}.conf"
 source "$CONF"
 
 [ "$(id -u)" = "0" ] || die "must run as root (sudo)"
+profile_verify_sources "$REPO_ROOT" || exit 1
 # V6.6: mkfs.fat, mcopy still needed for GRUB EFI (both arches).
 # isolinux tooling only required for BIOS (hybrid mode = amd64 default).
 _REQUIRED_TOOLS=(mksquashfs xorriso zstd grub-mkstandalone mkfs.fat mcopy)
@@ -141,16 +147,16 @@ BASE_HASH="$(printf '%s\n%s' "$PKG_LIST" "$UBUNTU_BASE" | sha256sum | cut -c1-12
 # V6.6: per-arch base cache. Fall back to legacy unsuffixed name if it
 # exists AND arch is amd64 — preserves ability to rebuild V0-V6.51 from
 # an old base tarball without re-running the 90-min debootstrap.
-BASE_TAR_ARCH="${BUILD_DIR}/base-desktop-${BASE_HASH}-${ARCH}.tar.zst"
+BASE_TAR_ARCH="${BUILD_DIR}/$(profile_base_stem)-${BASE_HASH}-${ARCH}.tar.zst"
 BASE_TAR_LEGACY="${BUILD_DIR}/base-desktop-${BASE_HASH}.tar.zst"
 if [ -f "$BASE_TAR_ARCH" ]; then
     BASE_TAR="$BASE_TAR_ARCH"
-elif [ -f "$BASE_TAR_LEGACY" ] && [ "$ARCH" = "amd64" ]; then
+elif [ "$PROFILE" = "desktop" ] && [ -f "$BASE_TAR_LEGACY" ] && [ "$ARCH" = "amd64" ]; then
     BASE_TAR="$BASE_TAR_LEGACY"
     info "Using legacy unsuffixed base cache: ${BASE_TAR}"
 else
-    die "no cached base for arch=${ARCH} + package list (hash ${BASE_HASH}).
-Run: sudo ARCH=${ARCH} bash incremental/build/build-base.sh"
+    die "no cached base for profile=${PROFILE}, arch=${ARCH} + package list (hash ${BASE_HASH}).
+Run: sudo ARCH=${ARCH} PROFILE=${PROFILE} bash incremental/build/build-base.sh --profile ${PROFILE}"
 fi
 
 # ── Fresh chroot from base ──────────────────────────────────────────────
@@ -420,11 +426,13 @@ OC_TOML_PY
     info "── OC edition overlay: all 4 content commits done (2/5..5/5) ──"
 fi
 
+profile_apply_overlay "$CHROOT" "$REPO_ROOT" "$ARCH" || die "Frosted XFCE profile overlay failed"
 echo "${LABEL}" > "${CHROOT}/etc/icebreaker-version"
+echo "${PROFILE}" > "${CHROOT}/etc/icebreaker-build-profile"
 
 # ── Smoke gate — build aborts on failure ────────────────────────────────
-info "Running smoke gate (level ${VN}, edition=${EDITION})..."
-EDITION="$EDITION" bash "${SCRIPT_DIR}/smoke-gate.sh" "$CHROOT" "$VN" || \
+info "Running smoke gate (level ${VN}, edition=${EDITION}, profile=${PROFILE})..."
+EDITION="$EDITION" PROFILE="$PROFILE" bash "${SCRIPT_DIR}/smoke-gate.sh" "$CHROOT" "$VN" || \
     die "SMOKE GATE FAILED — not producing an ISO from a broken tree (R6). Fix and rebuild."
 
 # ── Kernel + initrd ─────────────────────────────────────────────────────

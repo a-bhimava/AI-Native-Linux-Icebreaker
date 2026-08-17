@@ -18,6 +18,10 @@ LEVEL="${2:?usage: qemu-gate.sh <iso> <level> [expected-version]}"
 # "v${LEVEL}"; passing "v6.1" (etc.) lets us build labeled sub-versions
 # without triggering F-18's wrong-guest abort.
 EXPECTED_VERSION="${3:-v${LEVEL}}"
+PROFILE="${PROFILE:-desktop}"
+EDITION="${EDITION:-current}"
+case "$PROFILE" in desktop|xfce-frosted) ;; *) echo "FATAL: invalid PROFILE=$PROFILE" >&2; exit 2 ;; esac
+case "$EDITION" in current|oc) ;; *) echo "FATAL: invalid EDITION=$EDITION" >&2; exit 2 ;; esac
 
 # V6.6: target arch — amd64 (default) or arm64. Comes from env or fifth
 # positional arg. Sources config/archs/${ARCH}.conf for QEMU_BIN etc.
@@ -139,8 +143,17 @@ if [ "$GT_OK" = "1" ]; then
 else
     fail "graphical.target not active after ${GRACE}s (state: $(_ssh 'systemctl is-active graphical.target'; _ssh 'systemctl list-jobs --no-legend' | head -3))"
 fi
-_ssh "systemctl is-active gdm" | grep -q active \
-    && pass "gdm active" || fail "gdm not active"
+if [ "$PROFILE" = "desktop" ]; then
+    _ssh "systemctl is-active gdm" | grep -q active \
+        && pass "gdm active" || fail "gdm not active"
+else
+    _ssh "systemctl is-active lightdm" | grep -q active \
+        && pass "lightdm active" || fail "lightdm not active"
+    _ssh "test -f /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" \
+        && pass "XFCE panel profile installed" || fail "XFCE panel profile missing"
+    _ssh "test -x /usr/libexec/icebreaker/appearance-apply && test -f /etc/xdg/icebreaker/picom-frosted.conf" \
+        && pass "Frosted session helper + opt-in Picom config installed" || fail "Frosted session assets missing"
+fi
 V="$(_ssh "cat /etc/icebreaker-version")"
 # F-18: a marker mismatch means we are talking to the WRONG guest (stale
 # QEMU / port collision) — every further check would be meaningless. Abort.
@@ -148,6 +161,13 @@ if [ "$V" = "${EXPECTED_VERSION}" ]; then
     pass "version marker = ${EXPECTED_VERSION}"
 else
     fail "version marker '$V' != expected '${EXPECTED_VERSION}' — WRONG GUEST (stale QEMU?). Aborting gate."
+    exit 1
+fi
+P="$(_ssh "cat /etc/icebreaker-build-profile" || true)"
+if [ "$P" = "$PROFILE" ]; then
+    pass "build profile = ${PROFILE}"
+else
+    fail "build profile '$P' != expected '$PROFILE'"
     exit 1
 fi
 _ssh "systemctl --failed --no-legend" | grep -q . \
@@ -221,26 +241,35 @@ fi
 
 # ═══ Level 3 ═══
 if [ "$LEVEL" -ge 3 ]; then
-    echo "[L3] Terminal TUI (headless checks — visual gate is UTM, R1)"
-    _ssh "/opt/icebreaker/venv/bin/python3 -m terminal --help 2>&1" | grep -qi "usage" \
-        && pass "python3 -m terminal --help" || fail "terminal module crashes on --help"
-    _ssh "test -f /usr/share/applications/icebreaker-terminal.desktop" \
-        && pass "terminal .desktop installed" || fail "icebreaker-terminal.desktop missing"
-    _ssh "test -f /etc/xdg/autostart/icebreaker-terminal-autostart.desktop" \
-        && pass "autostart .desktop installed" || fail "autostart .desktop missing"
-    _ssh "test -x /usr/libexec/icebreaker/ib-wait-sock" \
-        && pass "ib-wait-sock helper installed" || fail "ib-wait-sock missing (F-9)"
+    echo "[L3] AI Terminal (edition=${EDITION}; visual gate is UTM, R1)"
+    if [ "$EDITION" = "oc" ]; then
+        _ssh "command -v opencode >/dev/null && opencode --version" | grep -qx "1.18.4" \
+            && pass "opencode 1.18.4 installed" || fail "opencode missing/wrong version"
+        _ssh "test -f /usr/share/applications/icebreaker-ai-terminal.desktop" \
+            && pass "OC AI Terminal .desktop installed" || fail "OC AI Terminal .desktop missing"
+        _ssh "! test -f /usr/share/applications/icebreaker-terminal.desktop" \
+            && pass "Textual terminal launcher absent in OC edition" || fail "Textual terminal launcher present in OC edition"
+        _ssh "/opt/icebreaker/venv/bin/python3 -c 'import terminal'" >/dev/null 2>&1 \
+            && fail "Textual terminal package present in OC edition" || pass "Textual terminal package absent in OC edition"
+    else
+        _ssh "/opt/icebreaker/venv/bin/python3 -m terminal --help 2>&1" | grep -qi "usage" \
+            && pass "python3 -m terminal --help" || fail "terminal module crashes on --help"
+        _ssh "test -f /usr/share/applications/icebreaker-terminal.desktop" \
+            && pass "terminal .desktop installed" || fail "icebreaker-terminal.desktop missing"
+        _ssh "test -x /usr/libexec/icebreaker/ib-wait-sock" \
+            && pass "ib-wait-sock helper installed" || fail "ib-wait-sock missing (F-9)"
     # F-7 behavioral check: with the daemon STOPPED, the TUI must print the
     # explicit warning to stderr. Capture stderr ONLY (2>&1 >/dev/null): the
     # Textual UI floods stdout with escape codes and drowned the warning in
     # the first attempt. Timeout scales with accelerator (F-16 rule) — python
     # + textual imports take ~30-50 s under TCG before the warning appears.
-    F7_TIMEOUT=45
-    [ "${QEMU_ACCEL[0]}" = "-cpu" ] && F7_TIMEOUT=150
-    F7_OUT="$(_ssh "sudo systemctl stop icebreaker-controller; timeout ${F7_TIMEOUT} /opt/icebreaker/venv/bin/python3 -m terminal --sock /run/icebreaker/controller.sock --connect-timeout 3 2>&1 >/dev/null | head -3; sudo systemctl start icebreaker-controller" || true)"
-    echo "$F7_OUT" | grep -q "Daemon unreachable" \
-        && pass "F-7: explicit daemon-unreachable warning printed" \
-        || fail "F-7: no visible warning when daemon is down (got: ${F7_OUT:0:100})"
+        F7_TIMEOUT=45
+        [ "${QEMU_ACCEL[0]}" = "-cpu" ] && F7_TIMEOUT=150
+        F7_OUT="$(_ssh "sudo systemctl stop icebreaker-controller; timeout ${F7_TIMEOUT} /opt/icebreaker/venv/bin/python3 -m terminal --sock /run/icebreaker/controller.sock --connect-timeout 3 2>&1 >/dev/null | head -3; sudo systemctl start icebreaker-controller" || true)"
+        echo "$F7_OUT" | grep -q "Daemon unreachable" \
+            && pass "F-7: explicit daemon-unreachable warning printed" \
+            || fail "F-7: no visible warning when daemon is down (got: ${F7_OUT:0:100})"
+    fi
 fi
 
 # ═══ Level 4 ═══

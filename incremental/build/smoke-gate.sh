@@ -21,6 +21,11 @@ case "$EDITION" in
     current|oc) ;;
     *) echo "FATAL: EDITION must be current|oc, got: $EDITION" >&2; exit 2 ;;
 esac
+PROFILE="${PROFILE:-desktop}"
+case "$PROFILE" in
+    desktop|xfce-frosted) ;;
+    *) echo "FATAL: PROFILE must be desktop or xfce-frosted, got: $PROFILE" >&2; exit 2 ;;
+esac
 
 FAILURES=0
 pass() { echo -e "  \033[0;32m[PASS]\033[0m $*"; }
@@ -31,21 +36,39 @@ in_chroot()  { chroot "$CHROOT" bash -c "$1" >/dev/null 2>&1; }
 
 VENV_PY="/opt/icebreaker/venv/bin/python3"
 
-echo "── Smoke gate: level ${LEVEL}, edition=${EDITION} ──"
+echo "── Smoke gate: level ${LEVEL}, edition=${EDITION}, profile=${PROFILE} ──"
 
-# ═══ Level 0: bootable GNOME base ═══
+# ═══ Level 0: bootable profile base ═══
 echo "[L0] Base system"
 ls "${CHROOT}/boot/vmlinuz-"* >/dev/null 2>&1 && pass "kernel present" || fail "no vmlinuz in /boot"
 ls "${CHROOT}/boot/initrd.img-"* >/dev/null 2>&1 && pass "initrd present" || fail "no initrd in /boot"
-check_file /etc/gdm3/custom.conf "GDM autologin not configured"
-grep -q "AutomaticLogin=icebreaker" "${CHROOT}/etc/gdm3/custom.conf" 2>/dev/null \
-    && pass "autologin=icebreaker" || fail "AutomaticLogin missing from gdm3/custom.conf"
+if [ "$PROFILE" = "desktop" ]; then
+    check_file /etc/gdm3/custom.conf "GDM autologin not configured"
+    grep -q "AutomaticLogin=icebreaker" "${CHROOT}/etc/gdm3/custom.conf" 2>/dev/null \
+        && pass "GDM autologin=icebreaker" || fail "AutomaticLogin missing from gdm3/custom.conf"
+else
+    check_file /etc/lightdm/lightdm.conf.d/50-icebreaker-autologin.conf "LightDM autologin not configured"
+    grep -q "^user-session=xfce$" "${CHROOT}/etc/lightdm/lightdm.conf.d/50-icebreaker-autologin.conf" 2>/dev/null \
+        && pass "LightDM XFCE autologin configured" || fail "XFCE session missing from LightDM config"
+    for file in xfce4-desktop.xml xfce4-panel.xml xsettings.xml xfwm4.xml xfce4-keyboard-shortcuts.xml; do
+        check_file "/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/${file}" "Frosted XFCE config missing"
+    done
+    check_exec /usr/libexec/icebreaker/appearance-apply "Frosted session helper missing"
+    check_file /etc/xdg/icebreaker/picom-frosted.conf "opt-in Picom config missing"
+    check_file /usr/share/themes/MacTahoe-Dark/index.theme "MacTahoe theme not extracted"
+    check_file /usr/share/backgrounds/icebreaker-frosted-graphite-wallpaper.jpeg "Frosted wallpaper missing"
+fi
 [ -L "${CHROOT}/etc/systemd/system/display-manager.service" ] \
-    && pass "display-manager enabled" || fail "gdm not enabled (no display-manager.service symlink)"
+    && pass "display-manager enabled" || fail "display manager not enabled (no display-manager.service symlink)"
 in_chroot "id icebreaker" && pass "icebreaker user exists" || fail "icebreaker user missing"
 in_chroot "id icebreaker | grep -q icebreaker-users" \
     && pass "user in icebreaker-users group (PKG-4)" || fail "icebreaker not in icebreaker-users group"
 check_file /etc/icebreaker-version "version marker not written"
+if [ "$(cat "${CHROOT}/etc/icebreaker-build-profile" 2>/dev/null || true)" = "$PROFILE" ]; then
+    pass "build profile marker = ${PROFILE}"
+else
+    fail "build profile marker missing or incorrect"
+fi
 
 # ═══ Level 1: SSH + diagnostics ═══
 if [ "$LEVEL" -ge 1 ]; then

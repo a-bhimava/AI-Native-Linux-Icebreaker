@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # build-base.sh — ONE-TIME base image builder for the Icebreaker incremental rebuild.
 #
-# Produces: incremental/.build/base-desktop-<hash>-<arch>.tar.zst
+# Produces: incremental/.build/base-<profile>-<hash>-<arch>.tar.zst
 #   <hash> = sha256(packages-desktop.txt stripped + UBUNTU_BASE), first 12 chars.
 #   <arch> = amd64 (default) or arm64. Cache is per-arch (V6.6+).
 #
@@ -10,8 +10,8 @@
 # version manifests overlay that in build-iso.sh.
 #
 # Run on the Linux build VM as root:
-#   sudo bash incremental/build/build-base.sh                # default: amd64
-#   sudo bash incremental/build/build-base.sh --arch arm64   # cross-arch
+#   sudo bash incremental/build/build-base.sh                # desktop/amd64
+#   sudo bash incremental/build/build-base.sh --profile xfce-frosted --arch arm64
 #   sudo ARCH=arm64 bash incremental/build/build-base.sh     # env-var form
 #
 # Cross-arch (host != target): uses qemu-user-static + binfmt to run the
@@ -28,19 +28,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${INC_ROOT}/.." && pwd)"
 BUILD_DIR="${INC_ROOT}/.build"
-PKG_FILE="${SCRIPT_DIR}/packages-desktop.txt"
 UBUNTU_BASE="noble"
 
 # V6.6: --arch flag defaults to amd64 for backwards compat with V0-V6.51.
 ARCH="${ARCH:-amd64}"
+PROFILE="${PROFILE:-desktop}"
 FORCE=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --force) FORCE=1; shift ;;
         --arch)  ARCH="$2"; shift 2 ;;
+        --profile) PROFILE="$2"; shift 2 ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done
+
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/profile-xfce-frosted.sh"
+profile_validate || exit 2
+PKG_FILE="$(profile_package_file)"
 
 info() { echo -e "\033[0;32m[$(date +%H:%M:%S)]\033[0m $*"; }
 die()  { echo -e "\033[0;31mFATAL:\033[0m $*" >&2; exit 1; }
@@ -55,6 +61,7 @@ source "$CONF"
 command -v debootstrap >/dev/null || die "debootstrap not installed"
 command -v zstd >/dev/null || die "zstd not installed (apt-get install zstd)"
 [ -f "$PKG_FILE" ] || die "package list not found: $PKG_FILE"
+profile_verify_sources "$REPO_ROOT" || exit 1
 
 # V6.6: cross-arch requires qemu-user-static + binfmt.
 HOST_ARCH="$(dpkg --print-architecture 2>/dev/null || echo unknown)"
@@ -75,9 +82,9 @@ fi
 PKG_LIST="$(grep -vE '^\s*(#|$)' "$PKG_FILE")"
 BASE_HASH="$(printf '%s\n%s' "$PKG_LIST" "$UBUNTU_BASE" | sha256sum | cut -c1-12)"
 # V6.6: per-arch base cache — one tarball per (packages, arch) combination.
-BASE_TAR="${BUILD_DIR}/base-desktop-${BASE_HASH}-${ARCH}.tar.zst"
+BASE_TAR="${BUILD_DIR}/$(profile_base_stem)-${BASE_HASH}-${ARCH}.tar.zst"
 
-info "Base hash: ${BASE_HASH}"
+info "Base profile: ${PROFILE}; hash: ${BASE_HASH}"
 if [ -f "$BASE_TAR" ] && [ "$FORCE" = "0" ]; then
     info "Base already cached: ${BASE_TAR} ($(du -h "$BASE_TAR" | awk '{print $1}'))"
     info "Nothing to do. Use --force to rebuild."
@@ -159,30 +166,9 @@ e1000e
 VIRTIO
 chroot "$CHROOT" bash -c "update-initramfs -u -k all 2>&1 | tail -3"
 
-# ── User + GDM autologin (stable across versions — D-3) ─────────────────
-info "Creating icebreaker user + GDM autologin..."
-chroot "$CHROOT" bash -c "
-    set -e
-    systemctl enable gdm
-    systemctl enable NetworkManager
-    systemctl enable ssh
-    groupadd -rf icebreaker-users
-    useradd -m -s /bin/bash -G sudo,icebreaker-users icebreaker
-    echo 'icebreaker:icebreaker' | chpasswd
-    echo 'icebreaker ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/icebreaker
-    chmod 440 /etc/sudoers.d/icebreaker
-    mkdir -p /etc/gdm3
-    cat > /etc/gdm3/custom.conf <<'GDMCFG'
-[daemon]
-AutomaticLoginEnable=true
-AutomaticLogin=icebreaker
-WaylandEnable=false
-[security]
-[xdmcp]
-[chooser]
-[debug]
-GDMCFG
-"
+# ── User + profile display manager autologin (stable across versions) ───
+info "Creating icebreaker user + ${PROFILE} display-manager autologin..."
+profile_configure_display_manager "$CHROOT"
 
 echo "icebreaker" > "${CHROOT}/etc/hostname"
 chroot "$CHROOT" bash -c "apt-get clean && rm -rf /var/lib/apt/lists/*"
@@ -199,4 +185,4 @@ sha256sum "$BASE_TAR" > "${BASE_TAR}.sha256"
 rm -rf "$CHROOT"
 
 info "Base image ready: ${BASE_TAR} ($(du -h "$BASE_TAR" | awk '{print $1}'))"
-info "Next: sudo ARCH=${ARCH} bash incremental/build/build-iso.sh 0"
+info "Next: sudo ARCH=${ARCH} PROFILE=${PROFILE} bash incremental/build/build-iso.sh 0"

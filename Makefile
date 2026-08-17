@@ -17,13 +17,14 @@
 LABEL  ?= v6.6
 VN     ?= 6
 ARCHES ?= amd64 arm64
+PROFILE ?= desktop
 
 .PHONY: all-arches base-% iso-% qemu-% clean-out help
 
 help:
 	@echo "Icebreaker multi-arch build targets:"
-	@echo "  make all-arches LABEL=v6.6 VN=6    # build all arches"
-	@echo "  make iso-<arch> LABEL=v6.6 VN=6    # build one arch (amd64|arm64)"
+	@echo "  make all-arches LABEL=v6.6 VN=6 PROFILE=desktop    # build all arches"
+	@echo "  make iso-<arch> LABEL=v6.6 VN=6 PROFILE=xfce-frosted # build one arch"
 	@echo "  make base-<arch>                   # rebuild base cache for arch"
 	@echo "  make qemu-<arch> LABEL=v6.6 VN=6   # QEMU-gate a built ISO"
 	@echo "  make clean-out                     # remove built ISOs (keeps caches)"
@@ -36,7 +37,7 @@ all-arches: $(addprefix iso-,$(ARCHES))
 # qemu-user-static; cached afterward.
 base-amd64 base-arm64: base-%:
 	@echo "── build-base.sh --arch $* ──"
-	sudo env ARCH=$* bash incremental/build/build-base.sh
+	sudo env ARCH=$* PROFILE=$(PROFILE) bash incremental/build/build-base.sh --profile $(PROFILE)
 
 # ISO targets depend on base cache existing (the script will build the
 # cache if missing, so `make iso-arm64` alone is sufficient — the
@@ -46,14 +47,14 @@ base-amd64 base-arm64: base-%:
 # Textual TUI. Default `current` preserves the v6.12 shape.
 EDITION ?= current
 iso-amd64 iso-arm64: iso-%: base-%
-	@echo "── build-iso.sh $(VN) --arch $* --label $(LABEL) --edition $(EDITION) ──"
-	sudo env ARCH=$* EDITION=$(EDITION) bash incremental/build/build-iso.sh $(VN) --arch $* --label $(LABEL) --edition $(EDITION)
+	@echo "── build-iso.sh $(VN) --profile $(PROFILE) --arch $* --label $(LABEL) --edition $(EDITION) ──"
+	sudo env ARCH=$* PROFILE=$(PROFILE) EDITION=$(EDITION) bash incremental/build/build-iso.sh $(VN) --profile $(PROFILE) --arch $* --label $(LABEL) --edition $(EDITION)
 
 # QEMU gate. Uses the arch-suffixed ISO name from build-iso.sh.
 qemu-amd64 qemu-arm64: qemu-%:
 	@echo "── qemu-gate.sh --arch $* ──"
-	env ARCH=$* bash incremental/tests/qemu-gate.sh \
-	  incremental/.build/out/$(LABEL)-$*.iso $(VN) $(LABEL)
+	env ARCH=$* PROFILE=$(PROFILE) EDITION=$(EDITION) bash incremental/tests/qemu-gate.sh \
+	  incremental/.build/out/$(LABEL)$(if $(filter oc,$(EDITION)),_OC)-$*.iso $(VN) $(LABEL)
 
 # Remove built ISOs but keep the base tar caches (avoid re-running the
 # 90-minute debootstrap).
