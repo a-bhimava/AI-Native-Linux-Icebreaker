@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Apply fixed user-session desktop components. This is not an AI tool.
+set -eu
+
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/icebreaker/appearance.toml"
+enabled() {
+    local key="$1" default="$2"
+    [ -f "$CONFIG" ] || { [ "$default" = true ]; return; }
+    grep -qx "${key} = true" "$CONFIG"
+}
+start_once() { pgrep -xu "$(id -u)" -x "$(basename "$1")" >/dev/null 2>&1 || "$@" >/dev/null 2>&1 & }
+
+if enabled dock_enabled true && command -v plank >/dev/null 2>&1; then
+    start_once plank
+fi
+if enabled overview_enabled false && command -v xfdashboard >/dev/null 2>&1; then
+    start_once xfdashboard
+fi
+if enabled notifications_enabled false && command -v dunst >/dev/null 2>&1; then
+    # Exactly one notification daemon owns this session.
+    pkill -xu "$(id -u)" -x xfce4-notifyd >/dev/null 2>&1 || true
+    start_once dunst
+elif command -v xfce4-notifyd >/dev/null 2>&1; then
+    start_once xfce4-notifyd
+fi
+
+# Picom is opt-in and X11-only. Never run it alongside XFWM's compositor.
+if enabled compositor_enabled false && [ "${XDG_SESSION_TYPE:-x11}" = "x11" ] \
+        && command -v picom >/dev/null 2>&1 \
+        && command -v glxinfo >/dev/null 2>&1 \
+        && glxinfo -B 2>/dev/null | grep -q 'OpenGL renderer'; then
+    xfconf-query -c xfwm4 -p /general/use_compositing -s false >/dev/null 2>&1 || true
+    start_once picom --config /etc/xdg/icebreaker/picom-frosted.conf
+else
+    # Fail closed to XFWM's reliable compositor when effects are disabled or
+    # unavailable (XRDP, software rendering, Wayland, failed GLX check).
+    pkill -xu "$(id -u)" -x picom >/dev/null 2>&1 || true
+    xfconf-query -c xfwm4 -p /general/use_compositing -s true >/dev/null 2>&1 || true
+fi

@@ -176,8 +176,11 @@ if [ "$SKIP_DESKTOP" -eq 0 ]; then
             # XFCE desktop (same packages as ISO vm profile).
             sudo apt-get install -y --no-install-recommends \
                 xfce4 xfce4-terminal lightdm lightdm-gtk-greeter \
-                thunar mousepad zenity dbus-x11 \
+                thunar mousepad zenity dbus-x11 rofi xfce4-whiskermenu-plugin \
+                dunst xfdashboard picom mesa-utils \
                 2>&1 | tail -5
+
+            sudo dpkg -i "${REPO_DIR_ON_VM}/cx-distro/vendor/plank-reloaded_0.11.172_amd64.deb" || sudo apt-get -f install -y
 
             # GTK4 + LibAdwaita for Icebreaker GUI apps.
             sudo apt-get install -y --no-install-recommends \
@@ -452,6 +455,7 @@ ${SSH_CMD} --command="
 # 9f: Desktop files + wallpaper
 ${SSH_CMD} --command="
     CX=${REPO_DIR_ON_VM}/cx-distro
+    (cd "\${CX}/vendor" && sha256sum -c appearance-sources.sha256 --quiet)
 
     for desktop_file in \${CX}/distro/*.desktop; do
         [ -f \"\$desktop_file\" ] || continue
@@ -461,16 +465,30 @@ ${SSH_CMD} --command="
 
     sudo install -Dm644 \"\${CX}/distro/icebreaker-wallpaper.png\" \
         /usr/share/backgrounds/icebreaker-wallpaper.png
+    sudo install -Dm644 \"\${CX}/distro/icebreaker-frosted-graphite-wallpaper.jpeg\" \
+        /usr/share/backgrounds/icebreaker-frosted-graphite-wallpaper.jpeg
     sudo install -Dm644 \"\${CX}/distro/99_icebreaker.gschema.override\" \
         /usr/share/glib-2.0/schemas/99_icebreaker.gschema.override
 
     # XFCE xfconf defaults
-    for xfconf_file in xfce4-desktop.xml xfce4-panel.xml xsettings.xml; do
+    for xfconf_file in xfce4-desktop.xml xfce4-panel.xml xsettings.xml xfwm4.xml xfce4-keyboard-shortcuts.xml; do
         if [ -f \"\${CX}/distro/\${xfconf_file}\" ]; then
             sudo install -Dm644 \"\${CX}/distro/\${xfconf_file}\" \
                 \"/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/\${xfconf_file}\"
         fi
     done
+
+    sudo install -Dm755 \"\${CX}/distro/icebreaker-appearance-apply\" /usr/libexec/icebreaker/appearance-apply
+    sudo install -Dm644 \"\${CX}/distro/icebreaker-appearance.desktop\" /etc/xdg/autostart/icebreaker-appearance.desktop
+    sudo install -Dm644 \"\${CX}/distro/picom-frosted.conf\" /etc/xdg/icebreaker/picom-frosted.conf
+    sudo install -Dm644 \"\${CX}/distro/dunstrc\" /etc/xdg/dunst/dunstrc
+    sudo install -Dm644 \"\${CX}/distro/plank-settings\" /etc/xdg/plank/dock1/settings
+    for dock_item in \${CX}/distro/plank-dockitems/*.dockitem; do
+        sudo install -Dm644 \"\$dock_item\" \"/etc/xdg/plank/dock1/launchers/\$(basename \"\$dock_item\")\"
+    done
+    sudo install -Dm644 \"\${CX}/vendor/MacTahoe-LICENSE\" /usr/share/doc/icebreaker/third-party/MacTahoe-LICENSE
+    sudo mkdir -p /usr/share/themes
+    sudo tar -xJf \"\${CX}/vendor/MacTahoe-Dark.tar.xz\" -C /usr/share/themes
 
     # Chatbot autostart
     if [ -f \"\${CX}/distro/icebreaker-chatbot-autostart.desktop\" ]; then

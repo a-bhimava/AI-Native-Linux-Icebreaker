@@ -1,0 +1,16 @@
+[global]
+monitor = 0
+follow = mouse
+width = 360
+height = 160
+offset = 18x44
+corner_radius = 14
+frame_width = 1
+frame_color = "#67718a"
+separator_color = frame
+transparency = 12
+
+[urgency_normal]
+background = "#20252e"
+foreground = "#edf0f6"
+timeout = 8

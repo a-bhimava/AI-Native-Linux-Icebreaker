@@ -113,6 +113,10 @@ if [ "$SKIP_TO" -le 0 ]; then
         die "src/mcpd/ not found"
     [ -f "${REPO_ROOT}/dual-brain/pyproject.toml" ] || \
         die "dual-brain/pyproject.toml not found"
+    if [ "$PROFILE" = "vm" ]; then
+        [ -f "${SCRIPT_DIR}/vendor/appearance-sources.sha256" ] || die "appearance artifact lock file missing"
+        (cd "${SCRIPT_DIR}/vendor" && sha256sum -c appearance-sources.sha256 --quiet) || die "appearance artifact checksum failure"
+    fi
 
     # INV-7: Verify all model checksums.
     if [ "$NO_MODELS" -eq 0 ]; then
@@ -381,6 +385,13 @@ fi
 if [ "$SKIP_TO" -le 4 ]; then
     stage_banner 4 "Assemble chroot tree"
 
+    # The VM visual profile consumes pinned, third-party appearance artifacts.
+    # Re-check here so a Stage-4-only rerun cannot bypass the Stage-0 lock.
+    if [ "$PROFILE" = "vm" ]; then
+        (cd "${SCRIPT_DIR}/vendor" && sha256sum -c appearance-sources.sha256 --quiet) || \
+            die "appearance artifact checksum failure"
+    fi
+
     # Clean previous chroot assembly.
     rm -rf "${CHROOT}"
     mkdir -p "${CHROOT}"
@@ -517,12 +528,26 @@ if [ "$SKIP_TO" -le 4 ]; then
         "${CHROOT}/usr/share/glib-2.0/schemas/99_icebreaker.gschema.override"
 
     # ── XFCE defaults (vm profile) ────────────────────────────────────
-    for xfconf_file in xfce4-desktop.xml xfce4-panel.xml xsettings.xml; do
+    for xfconf_file in xfce4-desktop.xml xfce4-panel.xml xsettings.xml xfwm4.xml xfce4-keyboard-shortcuts.xml; do
         if [ -f "${SCRIPT_DIR}/distro/${xfconf_file}" ]; then
             install -Dm644 "${SCRIPT_DIR}/distro/${xfconf_file}" \
                 "${CHROOT}/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/${xfconf_file}"
         fi
     done
+
+    if [ "$PROFILE" = "vm" ]; then
+        install -Dm755 "${SCRIPT_DIR}/distro/icebreaker-appearance-apply" "${CHROOT}/usr/libexec/icebreaker/appearance-apply"
+        install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-appearance.desktop" "${CHROOT}/etc/xdg/autostart/icebreaker-appearance.desktop"
+        install -Dm644 "${SCRIPT_DIR}/distro/picom-frosted.conf" "${CHROOT}/etc/xdg/icebreaker/picom-frosted.conf"
+        install -Dm644 "${SCRIPT_DIR}/distro/dunstrc" "${CHROOT}/etc/xdg/dunst/dunstrc"
+        install -Dm644 "${SCRIPT_DIR}/distro/plank-settings" "${CHROOT}/etc/xdg/plank/dock1/settings"
+        for dock_item in "${SCRIPT_DIR}"/distro/plank-dockitems/*.dockitem; do
+            install -Dm644 "$dock_item" "${CHROOT}/etc/xdg/plank/dock1/launchers/$(basename "$dock_item")"
+        done
+        install -Dm644 "${SCRIPT_DIR}/distro/icebreaker-frosted-graphite-wallpaper.jpeg" "${CHROOT}/usr/share/backgrounds/icebreaker-frosted-graphite-wallpaper.jpeg"
+        install -Dm644 "${SCRIPT_DIR}/vendor/MacTahoe-Dark.tar.xz" "${CHROOT}/tmp/MacTahoe-Dark.tar.xz"
+        install -Dm644 "${SCRIPT_DIR}/vendor/MacTahoe-LICENSE" "${CHROOT}/usr/share/doc/icebreaker/third-party/MacTahoe-LICENSE"
+    fi
 
     # Autostart of Icebreaker Terminal + Chatbot removed 2026-07-12 —
     # the user experience was: user boots the ISO for the first time,
@@ -649,6 +674,10 @@ SOURCES
             libglib2.0-bin \
             dconf-cli \
             dconf-gsettings-backend
+
+        if [ "${PROFILE}" = "vm" ]; then
+            apt-get install -y rofi xfce4-whiskermenu-plugin dunst xfdashboard picom
+        fi
 
         # Fonts — needed for GTK4/GNOME rendering
         apt-get install -y \
@@ -787,6 +816,21 @@ LDMCFG
         "
     fi
 
+    if [ "$PROFILE" = "vm" ]; then
+        # Plank Reloaded is pinned in vendor/; do not add its mutable PPA.
+        install -Dm644 "${SCRIPT_DIR}/vendor/plank-reloaded_0.11.172_amd64.deb" "${ISO_CHROOT}/tmp/plank-reloaded_amd64.deb"
+        install -Dm644 "${SCRIPT_DIR}/vendor/plank-reloaded_0.11.172_arm64.deb" "${ISO_CHROOT}/tmp/plank-reloaded_arm64.deb"
+        chroot "${ISO_CHROOT}" bash -c '
+            case "$(dpkg --print-architecture)" in
+                amd64) dpkg -i /tmp/plank-reloaded_amd64.deb ;;
+                arm64) dpkg -i /tmp/plank-reloaded_arm64.deb ;;
+                *) echo "unsupported Plank architecture" >&2; exit 1 ;;
+            esac
+            apt-get -f install -y
+            rm -f /tmp/plank-reloaded_amd64.deb /tmp/plank-reloaded_arm64.deb
+        '
+    fi
+
     chroot "${ISO_CHROOT}" bash -c "apt-get clean && rm -rf /var/lib/apt/lists/*"
     echo "icebreaker" > "${ISO_CHROOT}/etc/hostname"
 
@@ -794,6 +838,16 @@ LDMCFG
     info "Overlaying Icebreaker artifacts..."
     [ -d "${CHROOT}" ] || die "includes.chroot not found — run Stage 4 first"
     cp -a "${CHROOT}"/* "${ISO_CHROOT}/"
+
+    if [ "$PROFILE" = "vm" ]; then
+        # Only consume the reviewed release archive; no upstream installer or
+        # global GTK4/libadwaita override runs in the ISO build.
+        chroot "${ISO_CHROOT}" bash -c '
+            mkdir -p /usr/share/themes
+            tar -xJf /tmp/MacTahoe-Dark.tar.xz -C /usr/share/themes
+            rm -f /tmp/MacTahoe-Dark.tar.xz
+        '
+    fi
 
     # Wire # trigger into the primary user's .bashrc.
     # Must happen AFTER cp-a and AFTER useradd (which creates ~/.bashrc from skel).

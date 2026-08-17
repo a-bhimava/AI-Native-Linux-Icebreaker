@@ -1,0 +1,10 @@
+[PlankDockPreferences]
+CurrentWorkspaceOnly=false
+DockItems=icebreaker-chatbot.dockitem;icebreaker-control.dockitem;icebreaker-settings.dockitem;icebreaker-audit.dockitem;xfce4-terminal.dockitem;Thunar.dockitem;firefox.dockitem
+IconSize=48
+Position=bottom
+Offset=0
+Theme=Gtk+
+HideMode=auto
+ZoomEnabled=true
+ZoomPercent=120

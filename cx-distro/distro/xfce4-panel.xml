@@ -7,6 +7,9 @@
       <property name="position" type="string" value="p=8;x=0;y=0"/>
       <property name="length" type="uint" value="100"/>
       <property name="size" type="uint" value="48"/>
+      <property name="autohide-behavior" type="uint" value="1"/>
+      <property name="background-style" type="uint" value="1"/>
+      <property name="background-alpha" type="uint" value="88"/>
       <property name="plugin-ids" type="array">
         <value type="int" value="1"/>
         <value type="int" value="2"/>
@@ -22,7 +25,7 @@
     </property>
   </property>
   <property name="plugins" type="empty">
-    <property name="plugin-1" type="string" value="applicationsmenu"/>
+    <property name="plugin-1" type="string" value="whiskermenu"/>
     <property name="plugin-2" type="string" value="separator">
       <property name="expand" type="bool" value="true"/>
     </property>

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Icebreaker appearance
+Comment=Apply safe user-session desktop appearance preferences
+Exec=/usr/libexec/icebreaker/appearance-apply
+OnlyShowIn=XFCE;
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
