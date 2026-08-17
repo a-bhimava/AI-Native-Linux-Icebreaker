@@ -129,9 +129,6 @@ def _mcpd_extra_env(cfg: ControllerConfig) -> dict[str, str]:
 def _build_qb(cfg: ControllerConfig) -> Any:
     from dataclasses import replace as _replace
 
-    from .backends import anthropic_backend, gemini_backend, llama_local_backend, openai_backend  # noqa: F401
-    from .fallback_backend import FallbackChain
-
     # v6.17 M7.6a-1d: OC-edition Gemini wire-up.
     # When cfg.qb.name == "opencode_oc" the registry would return a NoOp
     # (backends/opencode_oc.py) that raises RuntimeError on every
@@ -157,6 +154,24 @@ def _build_qb(cfg: ControllerConfig) -> Any:
         if native_qb is not None:
             return native_qb
         # Fell through — return the registry NoOp (unchanged pre-M7.6a-1d).
+
+        # Do NOT import the provider modules in the normal no-key OC path.
+        # In particular, importing gemini_backend imports LiteLLM and can
+        # trigger slow provider metadata work before Daemon.start() creates
+        # its local socket.  The lightweight opencode_oc registration is
+        # loaded by controller.backends itself, which was imported above for
+        # the registry factory.  Explicit fallback backends remain supported:
+        # their configured modules are loaded below before FallbackChain is
+        # built.
+        if not cfg.qb_fallbacks:
+            return make_backend(cfg)
+
+    # Preserve the existing registry behaviour for every non-OC backend and
+    # for the explicit OC-fallback configuration.  This comes after the
+    # no-key OC fast path so an intentionally unconfigured OC guest binds its
+    # daemon socket without importing LiteLLM (F-112 / R2 readiness).
+    from .backends import anthropic_backend, gemini_backend, llama_local_backend, openai_backend  # noqa: F401
+    from .fallback_backend import FallbackChain
 
     primary = make_backend(cfg)
     if not cfg.qb_fallbacks:

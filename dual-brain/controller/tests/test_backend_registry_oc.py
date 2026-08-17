@@ -84,14 +84,15 @@ import sys
 from types import SimpleNamespace
 
 os.environ.pop('GEMINI_API_KEY', None)
-from controller.__main__ import _try_build_oc_native_qb
+from controller.__main__ import _build_qb
 
 cfg = SimpleNamespace(
     qb=SimpleNamespace(name='opencode_oc'),
     qb_fallbacks=(),
     opencode_oc=SimpleNamespace(native_qb=None),
 )
-assert _try_build_oc_native_qb(cfg) is None
+backend = _build_qb(cfg)
+assert backend.backend_name == 'opencode_oc'
 assert 'litellm' not in sys.modules
 """
     env = os.environ.copy()
