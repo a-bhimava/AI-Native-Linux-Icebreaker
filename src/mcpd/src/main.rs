@@ -16,6 +16,13 @@ async fn main() -> Result<()> {
     info!("schema registry: {} methods", schema::registered_methods().count());
     info!("CRITICAL: No network listeners will be opened (INV-3)");
 
+    // R13 / M7.1: every dispatchable built-in tool needs an explicit,
+    // well-formed trust declaration.  Do this before loading manifests,
+    // applying the sandbox, or accepting any stdio request so a malformed
+    // release fails closed at startup.
+    schema::validate_trust_declarations()?;
+    info!("R13: x-icebreaker-trust declarations validated");
+
     // v6.65 Phase 7 M7.2 foundation: acknowledge the presence of an
     // external-MCP-server allowlist without spawning anything from it.
     // The spawner lands in M7.2; today mcpd only exposes its built-in

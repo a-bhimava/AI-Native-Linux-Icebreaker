@@ -116,6 +116,69 @@ pub fn registered_methods() -> impl Iterator<Item = &'static str> {
     SCHEMA_SOURCES.iter().map(|(name, _)| *name)
 }
 
+/// Validate the mandatory Icebreaker trust declaration on every built-in
+/// tool schema.  This is a startup gate (R13), rather than a best-effort
+/// catalogue annotation: a tool without an explicit tier/HITL/COW contract
+/// must never become dispatchable merely because its JSON Schema compiles.
+///
+/// The source schemas are embedded in the binary, but keeping this as a
+/// fallible check makes the release invariant visible, testable, and applies
+/// before the server accepts stdio requests.
+pub fn validate_trust_declarations() -> Result<()> {
+    for (name, source) in SCHEMA_SOURCES {
+        let parsed: Value = serde_json::from_str(source)
+            .map_err(|e| anyhow!("schema {name:?} is not valid JSON: {e}"))?;
+        validate_trust_declaration(name, &parsed)?;
+    }
+    Ok(())
+}
+
+/// Validate one schema's `x-icebreaker-trust` declaration.
+///
+/// Kept public for the R13 regression test; callers should use
+/// [`validate_trust_declarations`] at daemon startup.
+pub fn validate_trust_declaration(name: &str, schema: &Value) -> Result<()> {
+    const REQUIRED: [&str; 4] = [
+        "tier",
+        "reversible",
+        "requires_hitl",
+        "requires_cow",
+    ];
+
+    let trust = schema
+        .get("x-icebreaker-trust")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow!(
+            "R13: schema {name:?} is missing an object x-icebreaker-trust declaration"
+        ))?;
+
+    if trust.len() != REQUIRED.len() || trust.keys().any(|key| !REQUIRED.contains(&key.as_str())) {
+        return Err(anyhow!(
+            "R13: schema {name:?} x-icebreaker-trust must contain exactly: {}",
+            REQUIRED.join(", "),
+        ));
+    }
+
+    let tier = trust.get("tier").and_then(Value::as_u64).ok_or_else(|| anyhow!(
+        "R13: schema {name:?} x-icebreaker-trust.tier must be an integer from 0 through 3"
+    ))?;
+    if tier > 3 {
+        return Err(anyhow!(
+            "R13: schema {name:?} x-icebreaker-trust.tier must be from 0 through 3 (got {tier})"
+        ));
+    }
+
+    for field in ["reversible", "requires_hitl", "requires_cow"] {
+        if !trust.get(field).is_some_and(Value::is_boolean) {
+            return Err(anyhow!(
+                "R13: schema {name:?} x-icebreaker-trust.{field} must be boolean"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -209,6 +272,33 @@ mod tests {
         assert!(methods.contains(&"service.restart"));
         assert!(methods.contains(&"service.logs"));
         assert!(methods.contains(&"cow.commit"));
+    }
+
+    #[test]
+    fn r13_all_embedded_schemas_declare_valid_trust() {
+        validate_trust_declarations().expect("every built-in tool needs x-icebreaker-trust");
+    }
+
+    #[test]
+    fn r13_rejects_schema_missing_trust_declaration() {
+        let err = validate_trust_declaration("test.missing", &json!({"type": "object"}))
+            .expect_err("R13 must reject a schema with no trust declaration");
+        assert!(err.to_string().contains("R13"));
+        assert!(err.to_string().contains("test.missing"));
+    }
+
+    #[test]
+    fn r13_rejects_malformed_trust_declaration() {
+        let err = validate_trust_declaration("test.malformed", &json!({
+            "x-icebreaker-trust": {
+                "tier": 4,
+                "reversible": true,
+                "requires_hitl": false,
+                "requires_cow": false,
+            }
+        }))
+        .expect_err("R13 must reject an out-of-range tier");
+        assert!(err.to_string().contains("0 through 3"));
     }
 
     #[test]
