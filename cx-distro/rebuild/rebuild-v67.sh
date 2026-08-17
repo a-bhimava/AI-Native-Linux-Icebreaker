@@ -25,6 +25,13 @@ set -Eeuo pipefail
 REPO="${REPO:-$HOME/Icebreaker}"
 LABEL="${LABEL:-v6.7}"
 VN="${VN:-6}"
+# build-iso.sh only accepts semantic version labels with an optional one-letter
+# repair suffix. Fail here, before the deliberately uncached Docker build, so
+# the wrapper cannot spend hours producing binaries for an unbuildable label.
+if [[ ! "$LABEL" =~ ^v[0-9]+(\.[0-9]+){0,2}[a-z]?$ ]]; then
+    echo "FATAL: LABEL must match ^v[0-9]+(\\.[0-9]+){0,2}[a-z]?$, got: $LABEL" >&2
+    exit 1
+fi
 V67_INCLUDE_ARM64="${V67_INCLUDE_ARM64:-1}"
 # F-101.1 (2026-07-28): companion flag to skip amd64 when the operator
 # wants a fast arm64-only cut (user tests on Apple Silicon UTM). Default
