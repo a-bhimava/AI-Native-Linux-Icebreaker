@@ -16,6 +16,9 @@ finally reach a real Gemini for verifier + summariser + qb_repair.
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import subprocess
+import sys
 from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -64,6 +67,44 @@ def test_try_build_oc_native_qb_returns_none_when_api_key_missing(
     captured = capsys.readouterr()
     assert "GEMINI_API_KEY" in captured.err
     assert "not set" in captured.err.lower() or "not configured" in captured.err.lower()
+
+
+def test_missing_oc_key_does_not_import_litellm_before_daemon_socket(
+    clean_env,
+):
+    """F-112: the deliberate OC NoOp path must not prewarm LiteLLM.
+
+    The assertion runs in a new interpreter so a prior test cannot mask an
+    accidental import through ``sys.modules``.  This keeps no-key ISO boot
+    within the daemon socket readiness budget on QEMU TCG.
+    """
+    script = """
+import os
+import sys
+from types import SimpleNamespace
+
+os.environ.pop('GEMINI_API_KEY', None)
+from controller.__main__ import _try_build_oc_native_qb
+
+cfg = SimpleNamespace(
+    qb=SimpleNamespace(name='opencode_oc'),
+    qb_fallbacks=(),
+    opencode_oc=SimpleNamespace(native_qb=None),
+)
+assert _try_build_oc_native_qb(cfg) is None
+assert 'litellm' not in sys.modules
+"""
+    env = os.environ.copy()
+    env.pop("GEMINI_API_KEY", None)
+    env["PYTHONPATH"] = str(Path(__file__).parents[2])
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_try_build_oc_native_qb_returns_none_when_api_key_empty_string(

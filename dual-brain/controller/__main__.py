@@ -195,9 +195,6 @@ def _try_build_oc_native_qb(cfg: ControllerConfig) -> Any:
     the current-edition [qb.gemini] section carries.
     """
     import os
-    from .backends import gemini_backend  # noqa: F401 — trigger registry
-    from .backends.gemini_backend import GeminiBackend
-    from .backends.sanitize import SecretRef
 
     api_key_env = "GEMINI_API_KEY"
     if not os.environ.get(api_key_env, "").strip():
@@ -211,6 +208,14 @@ def _try_build_oc_native_qb(cfg: ControllerConfig) -> Any:
             file=sys.stderr,
         )
         return None
+
+    # Importing LiteLLM is costly on emulated hardware and can trigger its
+    # provider-metadata setup.  No-key OC boots must use the intentional
+    # NoOp fallback without paying that cost before the daemon binds its
+    # local socket (F-112 / R2).
+    from .backends import gemini_backend  # noqa: F401 — trigger registry
+    from .backends.gemini_backend import GeminiBackend
+    from .backends.sanitize import SecretRef
 
     # Optional override sub-section (PF-10 backward compat: absent = defaults).
     oc_cfg = getattr(cfg, "opencode_oc", None)
