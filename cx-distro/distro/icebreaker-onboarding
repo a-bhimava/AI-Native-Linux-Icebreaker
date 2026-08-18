@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Launch the per-account onboarding once, after the Ubuntu installer-created
+# user first reaches GNOME.  The wizard itself owns the user sentinel.
+set -euo pipefail
+
+sentinel="${XDG_DATA_HOME:-$HOME/.local/share}/icebreaker/.first-boot-done"
+[ -e "$sentinel" ] && exit 0
+exec /opt/icebreaker/venv/bin/python3 -m gui --wizard --sock /run/icebreaker/controller.sock

@@ -129,6 +129,7 @@ timeout_seconds = 30
 # mcpd_timeout_seconds = 10.0
 # qb_max_retries       = 3
 # mcpd_schemas_dir     = ""   # empty = auto-detected from mcpd_binary path
+# principal_scoped_mcpd = false # daemon-only per-user mcpd identity + home root
 # pb_transport         = "http"   # "http" (loopback) or "unix" (AF_UNIX socket for distro)
 # pb_grammar_path      = "/var/lib/icebreaker/grammars/mcp_tool_call.gbnf"
 #   M7.0.2a (v6.16): GBNF grammar file for PB's llama-server. When set, every
@@ -138,6 +139,16 @@ timeout_seconds = 30
 #   the existing post-hoc verifier still catches ~95% of schema violations).
 #   Recommended shipping path shown above. Smoke-gate refuses ISO builds
 #   without the file at this path.
+
+
+# Strict offline command lane.  This is deliberately NOT a shell: it only
+# recognizes `# ls [path]`, `# cat path`, `# uptime`, `# df -h`, `# free -h`,
+# `# ps`, `# ip addr`, and "# what's in this folder".  Matching requests
+# bypass QB translation but still go through PB, schema validation, mcpd,
+# Landlock, seccomp, and audit.  All other # input remains QB-first.
+#
+# [offline_command_lane]
+# enabled = false
 
 
 # REPL session — all optional; defaults shown.

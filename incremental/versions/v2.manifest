@@ -487,6 +487,12 @@ version_overlay() {
         "${chroot}/etc/icebreaker/controller.toml"
     install -Dm644 "${repo}/cx-distro/distro/locations.env" \
         "${chroot}/etc/icebreaker/locations.env"
+    # Secrets are kept in a separate root-only file.  The controller is the
+    # sole service allowed to source it; PB/QB and user sessions must never
+    # inherit a cloud credential (BP-8 / INV-1).
+    install -Dm600 "${repo}/cx-distro/distro/credentials.env" \
+        "${chroot}/etc/icebreaker/credentials.env"
+    chroot "$chroot" chown root:root /etc/icebreaker/credentials.env
     # v6.65 Phase 7 M7.2 foundation: ships empty; mcpd probes it on startup
     # (see src/mcpd/src/main.rs::log_mcp_allowlist) but does not spawn
     # anything from it. Phase 7 M7.2 wires the spawner.
@@ -508,17 +514,8 @@ version_overlay() {
     ln -sf /etc/systemd/system/icebreaker-controller.service \
         "${chroot}/etc/systemd/system/multi-user.target.wants/icebreaker-controller.service"
 
-    # ── 6. Passwordless ssh for the ib-update inner loop ──
-    local pubkey="${repo}/incremental/build/authorized_keys.pub"
-    if [ -f "$pubkey" ]; then
-        install -Dm600 "$pubkey" "${chroot}/home/icebreaker/.ssh/authorized_keys"
-        chroot "$chroot" bash -c "
-            chown -R icebreaker:icebreaker /home/icebreaker/.ssh
-            chmod 700 /home/icebreaker/.ssh
-        " < /dev/null
-    else
-        echo "WARN[v2]: no authorized_keys.pub staged — ib-update will need a password" >&2
-    fi
+    # No reusable SSH account/key ships in a release ISO. The installer
+    # creates the first real Ubuntu administrator.
 
     # Refresh ib-debug with the daemon.status ping fix.
     install -Dm755 "${repo}/dual-brain/scripts/ib_debug.py" \

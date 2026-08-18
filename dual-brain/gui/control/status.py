@@ -19,7 +19,7 @@ from typing import Any
 _status_log = logging.getLogger(__name__)
 
 
-_LOCATIONS_ENV = Path("/etc/icebreaker/locations.env")
+_CREDENTIAL_STATUS = Path("/var/lib/icebreaker/credential-status.env")
 
 
 @dataclass
@@ -41,35 +41,25 @@ class Health:
     daemon_reachable: bool = False
 
 
-def _read_env_file() -> dict:
-    """Read /etc/icebreaker/locations.env into a dict. Returns empty on any error."""
-    result: dict[str, str] = {}
-    if not _LOCATIONS_ENV.exists():
+def _read_credential_status() -> set[str]:
+    """Read provider-only credential status; never inspect a secret value."""
+    result: set[str] = set()
+    if not _CREDENTIAL_STATUS.exists():
         return result
     try:
-        for line in _LOCATIONS_ENV.read_text().splitlines():
+        for line in _CREDENTIAL_STATUS.read_text().splitlines():
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, _, value = line.partition("=")
-            result[key.strip()] = value.strip().strip('"')
+            if value.strip() == "configured":
+                result.add(key.strip())
     except Exception as exc:
-        # F-53 Scope A.P3: /etc/icebreaker/locations.env exists but is
-        # unreadable. Log so a bad system install (wrong perms,
-        # truncated file) is diagnosable — API keys page will show
-        # every key as "not configured" without this log line.
         _status_log.warning(
-            "status.locations_env unreadable at %s: %s: %s",
-            _LOCATIONS_ENV, type(exc).__name__, exc,
+            "status.credential_status unreadable at %s: %s: %s",
+            _CREDENTIAL_STATUS, type(exc).__name__, exc,
         )
     return result
-
-
-def _mask(value: str) -> str:
-    """Return a preview like ``sk-…5v6``. Never returns the full secret."""
-    if len(value) <= 6:
-        return "•" * len(value)
-    return f"{value[:3]}…{value[-3:]}"
 
 
 def _service_active(unit: str) -> tuple[bool, str]:
@@ -138,18 +128,17 @@ def collect() -> Health:
         h.sockets.append({"path": path, "label": label, "status": status})
     h.daemon_reachable = any(s["label"] == "Controller RPC" and s["status"] in ("responded", "reachable") for s in h.sockets)
 
-    env = _read_env_file()
+    configured_vars = _read_credential_status()
     for env_var, label in [
         ("GEMINI_API_KEY",     "Google Gemini"),
         ("ANTHROPIC_API_KEY",  "Anthropic Claude"),
         ("OPENAI_API_KEY",     "OpenAI"),
     ]:
-        value = env.get(env_var, "").strip()
-        configured = bool(value) and not value.lower().startswith("paste-your-key")
+        configured = env_var in configured_vars
         h.keys.append(KeyState(
             env_var=env_var, label=label,
             configured=configured,
-            masked_value=_mask(value) if configured else "",
+            masked_value="",
         ))
 
     return h

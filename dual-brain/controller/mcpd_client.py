@@ -240,6 +240,9 @@ class McpdClient:
         rust_log: Optional[str] = None,
         extra_env: Optional[dict[str, str]] = None,
         capture_stderr: bool = False,
+        run_as_uid: int | None = None,
+        run_as_gid: int | None = None,
+        run_as_groups: tuple[int, ...] = (),
     ) -> "McpdClient":
         """Spawn mcpd as a child process and return a connected client.
 
@@ -253,6 +256,8 @@ class McpdClient:
             extra_env: arbitrary additional env vars for the subprocess.
             capture_stderr: if True, stderr is piped (instead of DEVNULL).
                 Reserved for tests that need mcpd's diagnostic logs.
+            run_as_uid/run_as_gid/run_as_groups: Linux service-mode identity
+                obtained from an authenticated Unix peer; never user input.
 
         Raises:
             McpdProcessError: if the binary doesn't exist, isn't executable,
@@ -267,6 +272,18 @@ class McpdClient:
         env = _scrubbed_env(audit_log=audit_log, rust_log=rust_log, extra=extra_env)
 
         stderr_target = subprocess.PIPE if capture_stderr else subprocess.DEVNULL
+        if any(not isinstance(value, int) or value < 0
+               for value in (run_as_uid, run_as_gid) if value is not None):
+            raise McpdProcessError("mcpd run-as uid/gid must be non-negative integers")
+        if any(not isinstance(value, int) or value < 0 for value in run_as_groups):
+            raise McpdProcessError("mcpd supplementary groups must be non-negative integers")
+        popen_identity: dict[str, Any] = {}
+        if run_as_uid is not None:
+            popen_identity["user"] = run_as_uid
+        if run_as_gid is not None:
+            popen_identity["group"] = run_as_gid
+        if run_as_groups:
+            popen_identity["extra_groups"] = list(run_as_groups)
 
         try:
             proc = subprocess.Popen(
@@ -276,6 +293,7 @@ class McpdClient:
                 stderr=stderr_target,
                 bufsize=0,  # unbuffered — proven pattern from Phase 1 ci.sh G9
                 env=env,
+                **popen_identity,
             )
         except OSError as e:
             raise McpdProcessError(f"failed to spawn mcpd: {e}") from e

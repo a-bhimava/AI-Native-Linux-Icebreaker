@@ -44,8 +44,8 @@ ls "${CHROOT}/boot/vmlinuz-"* >/dev/null 2>&1 && pass "kernel present" || fail "
 ls "${CHROOT}/boot/initrd.img-"* >/dev/null 2>&1 && pass "initrd present" || fail "no initrd in /boot"
 if [ "$PROFILE" = "desktop" ]; then
     check_file /etc/gdm3/custom.conf "GDM autologin not configured"
-    grep -q "AutomaticLogin=icebreaker" "${CHROOT}/etc/gdm3/custom.conf" 2>/dev/null \
-        && pass "GDM autologin=icebreaker" || fail "AutomaticLogin missing from gdm3/custom.conf"
+    grep -q "AutomaticLogin=ubuntu" "${CHROOT}/etc/gdm3/custom.conf" 2>/dev/null \
+        && pass "GDM live-session autologin=ubuntu (locked account)" || fail "locked live-session autologin missing from gdm3/custom.conf"
 else
     check_file /etc/lightdm/lightdm.conf.d/50-icebreaker-autologin.conf "LightDM autologin not configured"
     grep -q "^user-session=xfce$" "${CHROOT}/etc/lightdm/lightdm.conf.d/50-icebreaker-autologin.conf" 2>/dev/null \
@@ -120,8 +120,9 @@ if [ "$LEVEL" -ge 2 ]; then
     check_exec /usr/libexec/icebreaker/wait-for-sockets "ExecStartPre helper missing"
     grep -q "ICEBREAKER_SOCKET_TIMEOUT=0" "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null \
         && pass "socket wait disabled (no pbd yet)" || { [ "$LEVEL" -ge 6 ] && pass "socket wait enabled (pbd present)" || fail "ICEBREAKER_SOCKET_TIMEOUT=0 missing — controller start stalls 60 s"; }
-    [ -f "${CHROOT}/home/icebreaker/.ssh/authorized_keys" ] \
-        && pass "authorized_keys baked (inner loop)" || echo "  [WARN] no authorized_keys — ib-update needs a password"
+    check_file /etc/icebreaker/credentials.env "root-only credentials template missing"
+    in_chroot "test \$(stat -c '%a:%U:%G' /etc/icebreaker/credentials.env) = 600:root:root" \
+        && pass "credentials.env root-only" || fail "credentials.env must be 0600 root:root"
 fi
 
 # ═══ Level 3: AI Terminal (edition-branched) ═══
@@ -347,8 +348,8 @@ if [ "$LEVEL" -ge 4 ]; then
         && pass "ib_run.py compiles" || fail "ib_run.py has a syntax error"
     grep -q "ib_trigger.bash" "${CHROOT}/etc/skel/.bashrc" 2>/dev/null \
         && pass "skel .bashrc sources trigger" || fail "trigger not in /etc/skel/.bashrc"
-    grep -q "ib_trigger.bash" "${CHROOT}/home/icebreaker/.bashrc" 2>/dev/null \
-        && pass "icebreaker .bashrc sources trigger (F-6)" || fail "F-6: trigger not in /home/icebreaker/.bashrc — skel was copied at useradd time"
+    ! [ -e "${CHROOT}/home/icebreaker" ] \
+        && pass "no baked icebreaker login/home" || fail "release image still contains /home/icebreaker"
 fi
 
 # ═══ Level 5: QB backend (edition-branched) ═══
@@ -368,6 +369,9 @@ if [ "$LEVEL" -ge 5 ]; then
     fi
     check_file /etc/icebreaker/locations.env "locations.env missing (API key env file)"
     check_exec /usr/local/bin/ib-setup-key "ib-setup-key not installed"
+    check_exec /usr/libexec/icebreaker/icebreaker-onboarding "first-login onboarding helper missing"
+    check_file /etc/xdg/autostart/icebreaker-onboarding.desktop "first-login onboarding autostart missing"
+    check_file /usr/share/applications/icebreaker-install.desktop "Ubuntu installer launcher missing"
     PERMS="$(stat -c '%a' "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null || echo '')"
     # F-22: 0640 root:icebreaker-users — world unreadable (BP-8) AND pbd/qbd
     # can source the env file via group membership.
@@ -432,12 +436,12 @@ if [ "$LEVEL" -ge 6 ]; then
     # V6.3 positive assertions on the controller unit — pin the F-30/F-31
     # sandbox config so future edits can't silently regress.
     UNIT="${CHROOT}/etc/systemd/system/icebreaker-controller.service"
-    grep -q "^Environment=HOME=/home/icebreaker$" "$UNIT" 2>/dev/null \
-        && pass "controller unit: Environment=HOME=/home/icebreaker (F-28)" \
-        || fail "controller unit missing 'Environment=HOME=/home/icebreaker' (F-28)"
-    grep -q "^BindPaths=/home/icebreaker$" "$UNIT" 2>/dev/null \
-        && pass "controller unit: BindPaths=/home/icebreaker writable (F-31)" \
-        || fail "controller unit missing 'BindPaths=/home/icebreaker' (F-31: fs.write inside home fails EROFS with BindReadOnlyPaths)"
+    grep -q "^BindPaths=/home$" "$UNIT" 2>/dev/null \
+        && pass "controller unit: dynamically scoped writable /home bind" \
+        || fail "controller unit missing 'BindPaths=/home' for authenticated per-user mcpd"
+    grep -q "^RestrictSUIDSGID=no$" "$UNIT" 2>/dev/null \
+        && pass "controller unit: permits authenticated mcpd uid/gid transition" \
+        || fail "controller unit blocks the required per-user mcpd uid/gid transition"
     grep -q "^ProtectHome=tmpfs$" "$UNIT" 2>/dev/null \
         && pass "controller unit: ProtectHome=tmpfs (F-30)" \
         || fail "controller unit missing 'ProtectHome=tmpfs' (F-30: ProtectHome=yes hides /home entirely)"

@@ -104,7 +104,7 @@ class StatusPage(Adw.PreferencesPage):
             row = self._make_status_row(
                 k.label,
                 "active" if k.configured else "missing",
-                f"{k.env_var}  ·  {k.masked_value or 'not set'}",
+                f"{k.env_var}  ·  {'configured' if k.configured else 'not set'}",
             )
             self._keys_group.add(row)
             self._key_rows.append(row)

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Remove the disposable live-session auto-login once the copied system is
+# running from a real disk.  Do nothing in the live environment.
+set -euo pipefail
+
+if [ -e /run/live/medium ] || [ -e /run/casper-md5check.json ]; then
+    exit 0
+fi
+
+rm -f /etc/gdm3/custom.conf /etc/lightdm/lightdm.conf.d/50-icebreaker-autologin.conf
+rm -f /etc/sudoers.d/ubuntu-live
+
+# The installer creates ordinary Ubuntu accounts after the base image was
+# built. Grant each real /home user access to the Controller socket before
+# GDM starts, so the first interactive login can immediately use Icebreaker.
+while IFS=: read -r username _ uid _ _ home _; do
+    case "$uid:$home" in
+        [1-9][0-9][0-9][0-9]:/home/*|[1-9][0-9][0-9][0-9][0-9]*:/home/*)
+            usermod -aG icebreaker-users "$username"
+            ;;
+    esac
+done < /etc/passwd

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Install Icebreaker
+Comment=Install Icebreaker and create your Ubuntu account
+Exec=ubiquity gtk_ui
+Icon=system-software-install
+Categories=System;Settings;
+Keywords=install;ubuntu;icebreaker;
+Terminal=false

@@ -1,9 +1,9 @@
-"""API Keys page — set Gemini / Anthropic / OpenAI keys via pkexec.
+"""API Keys page — set device-owner Gemini / Anthropic / OpenAI keys.
 
-The keys live in ``/etc/icebreaker/locations.env`` (0640 root:icebreaker-users).
-That file is only writable by root, so saves go through ``pkexec`` which
-prompts the user for their password via polkit and then invokes the same
-``ib-setup-key`` helper the CLI uses.
+The clear-text keys live in ``/etc/icebreaker/credentials.env`` (0600
+root:root).  That file is only writable by root, so saves go through
+``pkexec`` which prompts for the device owner's password and then invokes
+the same ``ib-setup-key`` helper the CLI uses.
 
 Fallback for local dev (no ``ib-setup-key`` binary present): write to
 ``~/.config/icebreaker/keys.env`` so the developer can iterate on the UI
@@ -27,7 +27,6 @@ from gi.repository import Adw, GLib, Gtk
 from ..status import KeyState, collect
 
 
-_LOCATIONS_ENV = Path("/etc/icebreaker/locations.env")
 _USER_FALLBACK = Path.home() / ".config" / "icebreaker" / "keys.env"
 
 
@@ -85,7 +84,7 @@ class KeyRow(Adw.ExpanderRow):
 
     def _update_summary(self, key_state: KeyState) -> None:
         if key_state.configured:
-            self._status_label.set_label(f"✓  {key_state.masked_value}")
+            self._status_label.set_label("✓  configured")
         else:
             self._status_label.set_label("not set")
 
@@ -160,10 +159,10 @@ class KeysPage(Adw.PreferencesPage):
         info = Adw.PreferencesGroup(
             title="Where keys are stored",
             description=(
-                "Keys are written to /etc/icebreaker/locations.env (owner "
-                "root:icebreaker-users, mode 0640). Saving prompts for your "
-                "password via polkit. Existing keys are shown masked; the "
-                "clear-text value is never displayed once saved."
+                "The device owner’s keys are stored in a root-only file. "
+                "Saving prompts for an administrator password via polkit. "
+                "Other Ubuntu users can use Icebreaker but cannot view, "
+                "export, or reuse the owner’s key."
             ),
         )
         self.add(info)

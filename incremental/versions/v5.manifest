@@ -2,11 +2,8 @@
 # Adds:
 #   - ib-setup-key at /usr/local/bin (interactive key install, key never
 #     echoed/logged, restarts controller)
-#   - GEMINI_API_KEY template comment in /etc/icebreaker/locations.env
-#   - locations.env hardened to 0640 root:icebreaker-users (F-22: 0600
-#     root:root broke V6's pbd — runs as _icebreaker_pb, in icebreaker-users
-#     group, needs read access. 0640 keeps world unreadable while allowing
-#     controller + pbd services to source the env file)
+#   - root-only credentials.env template, separate from non-secret locations
+#     configuration.  Only the Controller sources credentials (BP-8 / INV-1).
 # The gemini QB backend config is already in /etc/icebreaker/controller.toml
 # (shipped by v2 from cx-distro/distro/controller.toml, backend="gemini").
 # NO key ships in the ISO — the with-key half of the gate is a manual UTM
@@ -24,18 +21,15 @@ version_overlay() {
     bash -n "${chroot}/usr/local/bin/ib-setup-key" || \
         { echo "FATAL[v5]: ib-setup-key has a bash syntax error" >&2; return 1; }
 
-    echo "[v5] Hardening locations.env + key template..."
+    echo "[v5] Hardening locations.env + credentials template..."
     local envf="${chroot}/etc/icebreaker/locations.env"
     [ -f "$envf" ] || { echo "FATAL[v5]: locations.env missing (v2 should have created it)" >&2; return 1; }
-    if ! grep -q "GEMINI_API_KEY" "$envf"; then
-        {
-            echo ""
-            echo "# Quarantined Brain (Gemini) API key — install with: sudo ib-setup-key"
-            echo "# GEMINI_API_KEY=paste-your-key-here"
-        } >> "$envf"
-    fi
-    chmod 640 "$envf"
-    chroot "$chroot" chown root:icebreaker-users /etc/icebreaker/locations.env
+    local credf="${chroot}/etc/icebreaker/credentials.env"
+    [ -f "$credf" ] || { echo "FATAL[v5]: credentials.env missing (v2 should have created it)" >&2; return 1; }
+    chmod 644 "$envf"
+    chroot "$chroot" chown root:root /etc/icebreaker/locations.env
+    chmod 600 "$credf"
+    chroot "$chroot" chown root:root /etc/icebreaker/credentials.env
 
     echo "[v5] overlay complete"
 }

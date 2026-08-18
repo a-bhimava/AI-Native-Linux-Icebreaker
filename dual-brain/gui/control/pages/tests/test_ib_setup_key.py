@@ -1,7 +1,8 @@
 """Phase 6 Scope D — ib-setup-key polkit helper smoke tests.
 
 The helper lives at ``cx-distro/distro/ib-setup-key`` — a shell script
-that pkexec runs to write API keys into ``/etc/icebreaker/locations.env``.
+that pkexec runs to write API keys into root-only
+``/etc/icebreaker/credentials.env``.
 Scope D added a ``--dry-run`` flag that validates every side-effect
 boundary without writing files or restarting the daemon.
 
@@ -66,6 +67,8 @@ def test_dry_run_accepts_every_supported_env_var(env_var: str) -> None:
     )
     assert env_var in result.stdout
     assert "would append" in result.stdout
+    assert "chmod 600 /etc/icebreaker/credentials.env" in result.stdout
+    assert "credential-status.env" in result.stdout
 
 
 def test_dry_run_defaults_to_gemini() -> None:
@@ -112,7 +115,7 @@ def test_dry_run_does_not_touch_env_file(tmp_path, monkeypatch) -> None:
     purpose of the dry-run gate for headless CI."""
     result = _run(["--dry-run", "--env-var", "GEMINI_API_KEY"])
     assert result.returncode == 0
-    # We can't easily verify /etc/icebreaker/locations.env directly on
+    # We can't easily verify /etc/icebreaker/credentials.env directly on
     # the CI machine (may or may not exist, may not be readable). What
     # we CAN verify is the timing: the whole run finishes in well under
     # 1 s, so it didn't call systemctl restart (which takes ≥ 5 s

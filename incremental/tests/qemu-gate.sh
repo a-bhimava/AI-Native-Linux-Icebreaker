@@ -288,8 +288,8 @@ if [ "$LEVEL" -ge 4 ]; then
     echo "$PLAIN" | grep -q "plain-42" \
         && pass "plain commands execute through pty (F-19)" \
         || fail "F-19: interactive Enter broken — command not executed (got: ${PLAIN:0:100})"
-    _ssh "grep -qF 'source /usr/share/icebreaker/shell/ib_trigger.bash' /home/icebreaker/.bashrc" \
-        && pass "trigger sourced in user .bashrc (F-6)" || fail "F-6: trigger not wired into /home/icebreaker/.bashrc"
+    _ssh "grep -qF 'source /usr/share/icebreaker/shell/ib_trigger.bash' /etc/skel/.bashrc" \
+        && pass "trigger sourced in installer skel .bashrc" || fail "trigger not wired into /etc/skel/.bashrc"
     # Behavioral: run the SHIPPED runner (same file the trigger calls, F-17).
     # Timeout scales with accelerator (F-16 rule).
     L4_TIMEOUT=30
@@ -328,10 +328,10 @@ if [ "$LEVEL" -ge 5 ]; then
     echo "[L5] QB key flow (no live key in CI — with-key half is the UTM gate)"
     _ssh "test -x /usr/local/bin/ib-setup-key" \
         && pass "ib-setup-key installed" || fail "ib-setup-key missing"
-    _ssh "sudo stat -c '%a %U %G' /etc/icebreaker/locations.env" | grep -q "640 root icebreaker-users" \
-        && pass "locations.env 0640 root:icebreaker-users (BP-8 + F-22)" \
-        || fail "F-22/BP-8: locations.env perms/owner wrong (need 640 root:icebreaker-users so pbd can read)"
-    _ssh "sudo grep -qE '^GEMINI_API_KEY=' /etc/icebreaker/locations.env" \
+    _ssh "sudo stat -c '%a %U %G' /etc/icebreaker/credentials.env" | grep -q "600 root root" \
+        && pass "credentials.env 0600 root:root (BP-8)" \
+        || fail "BP-8: credentials.env perms/owner wrong (need 600 root:root)"
+    _ssh "sudo grep -qE '^GEMINI_API_KEY=' /etc/icebreaker/credentials.env" \
         && fail "BP-8 VIOLATION: live key present in booted image" \
         || pass "no live key in image (BP-8)"
 fi

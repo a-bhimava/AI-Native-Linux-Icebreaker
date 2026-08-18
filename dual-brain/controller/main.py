@@ -527,6 +527,25 @@ class Controller:
     def backend_name(self) -> str:
         return self._cfg.qb.name
 
+    def with_mcpd_client(self, mcpd_client: McpdClient) -> "Controller":
+        """Create an isolated per-principal execution view of this controller.
+
+        The shared QB/PB services retain no raw user turn data.  The new
+        instance gets a fresh IntentStore and its own agent graph cache, while
+        the append-only audit sink remains shared.  This is used only after
+        the daemon has bound a session to SO_PEERCRED.
+        """
+        return Controller(
+            self._cfg,
+            qb_backend=self._qb,
+            pb_backend=self._pb,
+            mcpd_client=mcpd_client,
+            audit_log=self._audit,
+            store=IntentStore(),
+            prompt_loader=self._prompts,
+            trust_store=self._trust_store,
+        )
+
     # v6.8 Task #147: lazy AgentGraph accessor. Defers the SqliteSaver +
     # graph.compile() cost to the first turn that actually needs it.
     # Held in a private attr; init to None in the class body so the
@@ -629,7 +648,15 @@ class Controller:
             )
         return result
 
-    def run_turn_from_intent(self, intent: dict, session: Any) -> Generator:
+    def run_turn_from_intent(
+        self,
+        intent: dict,
+        session: Any,
+        *,
+        source: str = "submit_intent",
+        force_pb: bool = False,
+        offline_direct: bool = False,
+    ) -> Generator:
         """v6.17 M7.6a-1c: Step-1-skipping entry into the streaming pipeline.
 
         Receives a pre-formed intent object (opencode/Gemini already
@@ -652,10 +679,16 @@ class Controller:
         stray calls to run_turn_streaming (no from_intent) in OC mode
         still return the "use opencode" redirect via F-92 short-circuit.
         """
-        yield from self.run_turn_streaming("", session, from_intent=intent)
+        yield from self.run_turn_streaming(
+            "", session, from_intent=intent, source=source,
+            force_pb=force_pb, offline_direct=offline_direct,
+        )
 
     def run_turn_streaming(
         self, user_input: str, session: Any, *, from_intent: dict | None = None,
+        source: str = "qb",
+        force_pb: bool = False,
+        offline_direct: bool = False,
     ) -> Generator:
         """Yield TurnEvent objects for each pipeline step.
 
@@ -688,7 +721,11 @@ class Controller:
         # unchanged for the flag-off default so shipped v6.7 behavior is
         # preserved until Task #154 flips the flag after UTM sweep.
         _agent_cfg = getattr(self._cfg, "agent_graph", None)
-        if _agent_cfg is not None and getattr(_agent_cfg, "enabled", False):
+        if (
+            _agent_cfg is not None
+            and getattr(_agent_cfg, "enabled", False)
+            and not force_pb
+        ):
             from .agent_graph_bridge import run_via_agent_graph
             yield from run_via_agent_graph(
                 self._get_agent_graph(),
@@ -776,7 +813,7 @@ class Controller:
                             action=from_intent.get("action", ""),
                             target=from_intent.get("target", ""),
                             risk_level=from_intent.get("risk_level", ""),
-                            source="submit_intent")
+                            source=source)
                 # DEEP-COPY the intent so schema normalization + downstream
                 # mutation don't leak back into the caller's dict.
                 import copy as _copy
@@ -1117,7 +1154,7 @@ class Controller:
             _rcfg = getattr(self._cfg, "run", None)
             _fast_path_enabled = getattr(_rcfg, "tier0_fast_path", True)
             _fast_path_tool_call = None
-            if _fast_path_enabled:
+            if _fast_path_enabled and not force_pb:
                 _fast_path_tool_call = _try_tier0_fast_path(
                     intent, int(cls_result.tier),
                 )
@@ -1152,8 +1189,11 @@ class Controller:
                         pb_complete_fn=self._make_pb_complete_fn(
                             session, intent_id, pb_system,
                         ),
-                        verify_fn=self._make_verify_fn(
-                            int(cls_result.tier), verifier_system,
+                        verify_fn=(
+                            self._make_offline_direct_verify_fn()
+                            if offline_direct else self._make_verify_fn(
+                                int(cls_result.tier), verifier_system,
+                            )
                         ),
                         qb_repair_fn=self._make_qb_repair_fn(),
                         logger=self._system_logger,
@@ -1850,16 +1890,23 @@ class Controller:
                 yield _cot("cow_approval", "done", body="Skipped (no COW required)",
                             skipped=True)
 
-            # Step 11: QB summarisation (with optional streaming)
+            # Step 11: QB summarisation (with optional streaming).  The
+            # strict offline lane must remain usable when cloud credentials
+            # are missing or exhausted, so it renders the already-sanitized
+            # result locally instead of making a post-execution QB call.
             yield _progress("qb_summarize")
-            yield _cot("qb_summarize", "active",
-                        body="QB summarizing tool output for user")
             raw_output = json.dumps(tool_result.result)
             truncated = "\n".join(
                 raw_output.splitlines()[:self._cfg.session.max_tool_output_lines]
             )
-
-            if self._cfg.session.stream_output:
+            if offline_direct:
+                yield _cot("qb_summarize", "done",
+                            body="Offline deterministic result renderer",
+                            skipped=True, skip_reason="offline_direct")
+                summary = self._render_offline_direct_result(tool_result.result)
+            elif self._cfg.session.stream_output:
+                yield _cot("qb_summarize", "active",
+                            body="QB summarizing tool output for user")
                 summarise_system = (
                     "Summarise the tool output in 1-3 plain sentences for the "
                     "user. Be concise and factual — confirm what happened, "
@@ -1901,6 +1948,8 @@ class Controller:
                                    "controller.qb_summarize.stream", exc)
                     summary = f"[summary generation failed: {type(exc).__name__}] " + truncated[:200]
             else:
+                yield _cot("qb_summarize", "active",
+                            body="QB summarizing tool output for user")
                 summary = self._qb_summarise(truncated, intent)
 
             session.add_tool_result_summary(summary)
@@ -2655,6 +2704,23 @@ class Controller:
             _log_exception(self._system_logger, "controller.qb_summarize", exc)
             return f"[summary generation failed: {type(exc).__name__}] " + raw_output[:200]
 
+    @staticmethod
+    def _render_offline_direct_result(result: Any) -> str:
+        """Render a local-command result without asking QB for prose.
+
+        Tool output is untrusted display data (BP-3), including when the
+        request itself was locally parsed.  JSON encoding avoids terminal
+        control bytes from structured values; the established HITL display
+        sanitizer removes ANSI/C0/C1 sequences as defense in depth.
+        """
+        from .hitl import _sanitize_display
+
+        try:
+            rendered = json.dumps(result, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError):
+            rendered = repr(result)
+        return _sanitize_display(rendered, max_len=1000)
+
     def _qb_explain(self, intent: dict, cls_result: Any) -> str:
         explain_system = (
             "Explain in 2-3 plain sentences what this system action will do and "
@@ -2776,6 +2842,28 @@ class Controller:
                 tokens_out=pb_response.tokens_out or 0,
             )
         return _pb_complete_fn
+
+    @staticmethod
+    def _make_offline_direct_verify_fn():
+        """Offline structural verifier for the fixed read-only grammar.
+
+        The PB adapter has already validated the tool name and parameters
+        against mcpd's JSON Schema.  Calling QB again here would make a
+        successful local command depend on cloud credits, so the direct lane
+        treats that validation as its confidence signal.  PB failures still
+        enter the normal bounded QB-repair rescue path when QB is available.
+        """
+        from .verifier import VerifierResult
+
+        def _verify(_intent: dict, _tool_call: dict) -> VerifierResult:
+            return VerifierResult(
+                verified=True,
+                reason="offline direct command: schema validated",
+                votes_cast=0,
+                verified_count=0,
+            )
+
+        return _verify
 
     def _make_verify_fn(self, tier: int, verifier_system: str):
         """PbRetryLoop adapter for verifier vote. Honours tier_floor skip

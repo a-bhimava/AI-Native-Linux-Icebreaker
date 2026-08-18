@@ -6,7 +6,9 @@ Wants=icebreaker-pbd.service icebreaker-qbd.service
 
 [Service]
 Type=exec
-EnvironmentFile=/etc/icebreaker/locations.env
+# Credentials are root-only and intentionally sourced by this service alone.
+# PB/QB inference and every execution child run without cloud API keys.
+EnvironmentFile=/etc/icebreaker/locations.env -/etc/icebreaker/credentials.env
 ExecStartPre=/usr/libexec/icebreaker/wait-for-sockets
 ExecStart=/opt/icebreaker/venv/bin/python3 -m controller --daemon --config /etc/icebreaker/controller.toml
 ExecStop=/bin/kill -TERM $MAINPID
@@ -25,29 +27,23 @@ LogsDirectory=icebreaker mcpd
 # Hardening (BP-9).
 NoNewPrivileges=yes
 ProtectSystem=strict
-# F-30: ProtectHome=yes masks /home/<user> at mode 0000 in the controller's
-# private mount namespace — mcpd (child process) then sees ENOENT on any
-# path under /home. Use tmpfs (empty /home) + BindReadOnlyPaths so the
-# admin-approved read root(s) are the only /home paths visible.
+# The daemon itself has no filesystem operation path.  Each accepted peer
+# starts an mcpd child under that peer's uid; mcpd's HOME + Landlock policy
+# are set to precisely that account's home.  Bind /home once so a valid
+# dynamically-created account is visible without a static /home/icebreaker
+# exception (BP-9 / multi-user isolation).
 ProtectHome=tmpfs
-# HOME env for the controller — inherited by mcpd via the scrubbed env.
-# Sets Landlock kernel allow list AND mcpd's fs.rs default_roots to
-# include /home/icebreaker. NOT set globally in locations.env because pbd
-# runs as _icebreaker_pb (different user, different home).
-Environment=HOME=/home/icebreaker
-# F-31: writable bind of the user's home. fs.write inside $HOME is a
-# documented Tier-1 supported operation (risk_level=low in the catalogue);
-# read-only here made every write fail EROFS at Tool Execution. Security
-# for writes is enforced upstream by (a) validated intents, (b) COW gate
-# for SENSITIVE_HOME_SUBDIRS + writes outside home, (c) HITL for higher
-# tiers, (d) MAX_WRITE_BYTES cap in mcpd.
-BindPaths=/home/icebreaker
+BindPaths=/home
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 RestrictRealtime=yes
-RestrictSUIDSGID=yes
+# The controller must create mcpd under the SO_PEERCRED uid/gid.  This
+# transition is performed by Python's argv-only Popen identity API (not a
+# shell) before mcpd starts.  Keep this explicit rather than silently
+# inheriting RestrictSUIDSGID=yes and failing every user session.
+RestrictSUIDSGID=no
 ReadOnlyPaths=/opt/icebreaker/venv
 ReadOnlyPaths=/usr/share/icebreaker
 ReadWritePaths=/run/icebreaker

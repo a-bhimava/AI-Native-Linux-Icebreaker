@@ -7,10 +7,11 @@
 #   ib-setup-key --env-var OPENAI_API_KEY <<<key  # non-interactive (stdin)
 #   ib-setup-key --dry-run --env-var GEMINI_API_KEY  # print what would happen; no writes
 #
-# Writes VAR=VALUE into /etc/icebreaker/locations.env (0640
-# root:icebreaker-users, BP-8: value never echoed, never logged) and
-# restarts the controller. When invoked from the GUI via pkexec, stdin is
-# a single line — no prompt is drawn.
+# Writes VAR=VALUE into /etc/icebreaker/credentials.env (0600 root:root,
+# BP-8: value never echoed, never logged) and restarts the Controller.  A
+# separate non-secret status file says only which provider is configured.
+# When invoked from the GUI via pkexec, stdin is a single line — no prompt
+# is drawn.
 #
 # Phase 6 Scope D: --dry-run validates every side-effect boundary
 # (arg parsing, env-var whitelist, target path resolvability, systemctl
@@ -20,7 +21,9 @@
 
 set -euo pipefail
 
-ENV_FILE=/etc/icebreaker/locations.env
+ENV_FILE=/etc/icebreaker/credentials.env
+STATUS_FILE=/var/lib/icebreaker/credential-status.env
+OWNER_FILE=/var/lib/icebreaker/device-owner.env
 ENV_VAR="GEMINI_API_KEY"   # backwards-compat default
 DRY_RUN=0
 
@@ -66,14 +69,46 @@ if [ "$DRY_RUN" -eq 1 ]; then
     # line so an operator (or smoke test) can eyeball the sequence.
     echo "dry-run: would validate ${ENV_VAR} against whitelist [OK]"
     echo "dry-run: would append ${ENV_VAR}=<hidden> to ${ENV_FILE}"
-    echo "dry-run: would chmod 640 ${ENV_FILE}"
-    echo "dry-run: would chown root:icebreaker-users ${ENV_FILE}"
+    echo "dry-run: would chmod 600 ${ENV_FILE}"
+    echo "dry-run: would chown root:root ${ENV_FILE}"
+    echo "dry-run: would write provider-only status to ${STATUS_FILE}"
+    echo "dry-run: would establish or enforce the device owner at ${OWNER_FILE}"
     if command -v systemctl >/dev/null 2>&1; then
         echo "dry-run: would run: systemctl restart icebreaker-controller"
     else
         echo "dry-run: NOTE systemctl not available in PATH — restart would fail"
     fi
     exit 0
+fi
+
+# A device has one cloud-credential owner.  pkexec supplies PKEXEC_UID;
+# sudo preserves SUDO_USER across the root re-exec.  Do not trust a username
+# passed on argv or stdin.  Root remains an explicit break-glass recovery
+# path; ordinary administrators cannot replace an existing owner.
+CALLER_UID="${PKEXEC_UID:-}"
+if [ -z "$CALLER_UID" ] && [ -n "${SUDO_USER:-}" ]; then
+    CALLER_UID="$(id -u "$SUDO_USER" 2>/dev/null || true)"
+fi
+case "$CALLER_UID" in
+    ''|*[!0-9]*) CALLER_UID="" ;;
+esac
+
+if [ -f "$OWNER_FILE" ] && [ -n "$CALLER_UID" ]; then
+    # shellcheck source=/dev/null
+    source "$OWNER_FILE"
+    if [ "${ICEBREAKER_OWNER_UID:-}" != "$CALLER_UID" ]; then
+        echo "Only the device owner can change the cloud API key." >&2
+        exit 1
+    fi
+elif [ ! -f "$OWNER_FILE" ] && [ -n "$CALLER_UID" ]; then
+    install -d -m 0700 -o root -g root "$(dirname "$OWNER_FILE")"
+    {
+        printf 'ICEBREAKER_OWNER_UID=%s\n' "$CALLER_UID"
+        printf 'ICEBREAKER_OWNER_USER=%s\n' "$(id -nu "$CALLER_UID")"
+    } > "${OWNER_FILE}.tmp"
+    chown root:root "${OWNER_FILE}.tmp"
+    chmod 600 "${OWNER_FILE}.tmp"
+    mv "${OWNER_FILE}.tmp" "$OWNER_FILE"
 fi
 
 if [ -t 0 ]; then
@@ -93,8 +128,22 @@ touch "$ENV_FILE"
 grep -v "^${ENV_VAR}=" "$ENV_FILE" > "${ENV_FILE}.tmp" || true
 printf '%s=%s\n' "$ENV_VAR" "$KEY" >> "${ENV_FILE}.tmp"
 mv "${ENV_FILE}.tmp" "$ENV_FILE"
-chown root:icebreaker-users "$ENV_FILE"
-chmod 640 "$ENV_FILE"
+chown root:root "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+
+# User interfaces may see *only* whether a provider is configured.  Never
+# place the value or a masked derivative in a file readable by another user.
+install -d -m 0755 -o root -g root "$(dirname "$STATUS_FILE")"
+{
+    for status_var in GEMINI_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY; do
+        if grep -q "^${status_var}=" "$ENV_FILE"; then
+            printf '%s=configured\n' "$status_var"
+        fi
+    done
+} > "${STATUS_FILE}.tmp"
+chown root:root "${STATUS_FILE}.tmp"
+chmod 644 "${STATUS_FILE}.tmp"
+mv "${STATUS_FILE}.tmp" "$STATUS_FILE"
 
 echo "Key installed. Restarting controller..."
 systemctl restart icebreaker-controller

@@ -30,6 +30,7 @@ from .config import DaemonConfig
 from .forwarding_presenter import ForwardingPresenter
 from .hitl import Decision
 from .main import Controller, TurnResult
+from .mcpd_client import McpdClient
 from .protocol import (
     AUTH_REJECTED,
     INTERNAL_ERROR,
@@ -58,12 +59,24 @@ from .turn_events import (
 log = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class Principal:
+    """OS identity bound to a daemon connection via SO_PEERCRED."""
+
+    uid: int
+    username: str
+    home: str
+
+
 @dataclass
 class DaemonSession:
     """Per-connection session state."""
 
     session_state: SessionState
     transport: Transport
+    principal: Principal | None = None
+    controller: Controller | None = None
+    mcpd_client: McpdClient | None = None
     connected_at: float = field(default_factory=time.monotonic)
     active_presenter: ForwardingPresenter | None = None
     _turn_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -79,6 +92,7 @@ class Daemon:
         # v6.8 Task #145: SessionStore keyed by session_id — enables
         # by-ID lookup for LangGraph nodes (Task #146+).
         "_session_store",
+        "_principal_scoped_mcpd",
     )
 
     def __init__(
@@ -97,6 +111,16 @@ class Daemon:
         self._session_lock = threading.Lock()
         self._shutdown_event = threading.Event()
         self._accept_thread: threading.Thread | None = None
+        # ``is True`` is intentional: permissive truthiness here would turn
+        # an incomplete/mocked legacy config into production identity mode.
+        self._principal_scoped_mcpd = (
+            getattr(getattr(controller_cfg, "run", None), "principal_scoped_mcpd", False) is True
+        )
+        if self._principal_scoped_mcpd:
+            # The bootstrap client was necessary to construct the legacy
+            # Controller.  Production sessions must never reuse it: it has no
+            # authenticated home/uid binding.
+            controller._mcpd.close()
         # v6.8 Task #145: session_id-keyed registry. The connection list
         # (_sessions) stays for transport lifecycle; SessionStore mirrors
         # the SessionState instances by session_id for LangGraph nodes.
@@ -178,6 +202,52 @@ class Daemon:
         except (KeyError, PermissionError, OSError):
             return False
 
+    @staticmethod
+    def _principal_for(transport: Transport) -> Principal | None:
+        """Resolve the kernel-authenticated peer into a usable home root."""
+        peer = transport.peer_uid
+        if peer is None:
+            return None
+        try:
+            import pwd
+
+            entry = pwd.getpwuid(peer)
+            home = Path(entry.pw_dir).resolve(strict=False)
+        except (KeyError, OSError, ValueError):
+            return None
+        if not home.is_absolute() or str(home) in ("/", "/nonexistent"):
+            return None
+        return Principal(uid=peer, username=entry.pw_name, home=str(home))
+
+    def _controller_for_principal(self, principal: Principal) -> tuple[Controller, McpdClient]:
+        """Spawn mcpd under the SO_PEERCRED identity, never as the daemon.
+
+        mcpd receives just this account's home as both HOME and its dynamic
+        Landlock/userspace read root.  The Python subprocess API performs the
+        uid/gid transition without a shell or arbitrary command string.
+        """
+        try:
+            import pwd
+            entry = pwd.getpwuid(principal.uid)
+            groups = tuple(sorted(set(os.getgrouplist(entry.pw_name, entry.pw_gid))))
+        except (KeyError, OSError):
+            raise RuntimeError("authenticated peer no longer has a usable OS account")
+        env = {
+            "HOME": principal.home,
+            "USER": principal.username,
+            "LOGNAME": principal.username,
+            "MCPD_FS_READ_ROOTS": principal.home,
+        }
+        client = McpdClient.spawn(
+            self._controller._cfg.run.mcpd_binary,
+            default_timeout=self._controller._cfg.run.mcpd_timeout_seconds,
+            extra_env=env,
+            run_as_uid=principal.uid,
+            run_as_gid=entry.pw_gid,
+            run_as_groups=groups,
+        )
+        return self._controller.with_mcpd_client(client), client
+
     # ── Connection gate ─────────────────────────────────────────────────
 
     def _connection_gate(self) -> bool:
@@ -220,6 +290,12 @@ class Daemon:
                 transport.close()
                 continue
 
+            principal = self._principal_for(transport)
+            if principal is None:
+                log.warning("rejected connection: no usable peer principal")
+                transport.close()
+                continue
+
             if not self._connection_gate():
                 log.info("rejected connection: max_connections reached")
                 try:
@@ -240,9 +316,22 @@ class Daemon:
                 self._controller_cfg.qb.name,
                 self._controller_cfg.session,
             )
+            session_controller = self._controller
+            session_mcpd = None
+            if self._principal_scoped_mcpd:
+                try:
+                    session_controller, session_mcpd = self._controller_for_principal(principal)
+                except Exception as exc:
+                    log.warning("rejected connection: unable to scope mcpd for uid %s: %s", principal.uid, exc)
+                    transport.close()
+                    continue
+
             ds = DaemonSession(
                 session_state=session_state,
                 transport=transport,
+                principal=principal,
+                controller=session_controller,
+                mcpd_client=session_mcpd,
             )
             with self._session_lock:
                 self._sessions.append(ds)
@@ -326,6 +415,8 @@ class Daemon:
                         break
         finally:
             session.transport.close()
+            if session.mcpd_client is not None:
+                session.mcpd_client.close()
             with self._session_lock:
                 try:
                     self._sessions.remove(session)
@@ -369,7 +460,7 @@ class Daemon:
         from .session import ShellContext
         session.session_state.shell_context = ShellContext.from_params(
             params.get("context"),
-            max_recent=int(self._controller._cfg.session.max_recent_commands),
+            max_recent=int((session.controller or self._controller)._cfg.session.max_recent_commands),
         )
 
         if not session._turn_lock.acquire(blocking=False):
@@ -377,8 +468,28 @@ class Daemon:
             session.transport.send(resp.to_bytes())
             return
 
+        offline_cfg = getattr(self._controller_cfg, "offline_command_lane", None)
+        offline_enabled = bool(getattr(offline_cfg, "enabled", False))
+        match = None
+        if offline_enabled and session.principal is not None:
+            from .direct_command import parse_direct_command
+
+            match = parse_direct_command(
+                user_input,
+                cwd=session.session_state.shell_context.cwd,
+                home=session.principal.home,
+            )
+
         def _event_iter():
-            return self._controller.run_turn_streaming(
+            if match is not None:
+                return (session.controller or self._controller).run_turn_from_intent(
+                    match.intent,
+                    session.session_state,
+                    source="offline_direct",
+                    force_pb=True,
+                    offline_direct=True,
+                )
+            return (session.controller or self._controller).run_turn_streaming(
                 user_input, session.session_state,
             )
 
@@ -419,7 +530,8 @@ class Daemon:
         # Guard: Controller must have implemented run_turn_from_intent
         # (lands in M7.6a-1c). Until then, return a clear error rather
         # than crashing the worker thread.
-        if not hasattr(self._controller, "run_turn_from_intent"):
+        controller = session.controller or self._controller
+        if not hasattr(controller, "run_turn_from_intent"):
             resp = make_error(msg_id, INTERNAL_ERROR,
                               "Controller.run_turn_from_intent not implemented "
                               "(M7.6a-1c not yet shipped)")
@@ -432,7 +544,7 @@ class Daemon:
             return
 
         def _event_iter():
-            return self._controller.run_turn_from_intent(
+            return controller.run_turn_from_intent(
                 intent, session.session_state,
             )
 
@@ -462,7 +574,8 @@ class Daemon:
                 def _factory() -> ForwardingPresenter:
                     return presenter
 
-                self._controller._presenter_factory = _factory
+                controller = session.controller or self._controller
+                controller._presenter_factory = _factory
 
                 for event in event_iter_factory():
                     try:
@@ -575,7 +688,7 @@ class Daemon:
                     pass
             finally:
                 session.active_presenter = None
-                self._controller._presenter_factory = None
+                controller._presenter_factory = None
                 session._turn_lock.release()
 
         t = threading.Thread(target=_worker, daemon=True, name=name)

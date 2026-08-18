@@ -10,12 +10,13 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from controller.config import DaemonConfig, SessionConfig
-from controller.daemon import Daemon, DaemonSession
+from controller.daemon import Daemon, DaemonSession, Principal
 from controller.hitl import Decision
 from controller.protocol import (
     AUTH_REJECTED,
@@ -51,6 +52,7 @@ def _mock_controller_cfg():
     cfg = MagicMock()
     cfg.qb.name = "local"
     cfg.session = SessionConfig()
+    cfg.offline_command_lane.enabled = False
     return cfg
 
 
@@ -191,6 +193,37 @@ def test_authenticate_none_uid_rejected():
     assert daemon._authenticate(transport) is False
 
 
+def test_principal_scoped_mcpd_uses_kernel_principal_identity(monkeypatch):
+    """Regression: mcpd is never reused as daemon/root for a user session."""
+    cfg = SimpleNamespace(
+        run=SimpleNamespace(
+            principal_scoped_mcpd=True,
+            mcpd_binary="/usr/libexec/icebreaker/mcpd",
+            mcpd_timeout_seconds=12.0,
+        ),
+        qb=SimpleNamespace(name="local"),
+        session=SessionConfig(),
+    )
+    base = MagicMock()
+    base._cfg = cfg
+    scoped_client = MagicMock()
+    scoped_controller = MagicMock()
+    base.with_mcpd_client.return_value = scoped_controller
+    daemon = Daemon(DaemonConfig(), base, cfg, MagicMock())
+    spawn = MagicMock(return_value=scoped_client)
+    monkeypatch.setattr("controller.daemon.McpdClient.spawn", spawn)
+
+    principal = Principal(uid=os.getuid(), username="test-user", home="/tmp/test-user-home")
+    controller, client = daemon._controller_for_principal(principal)
+
+    assert controller is scoped_controller
+    assert client is scoped_client
+    assert base._mcpd.close.called
+    assert spawn.call_args.kwargs["run_as_uid"] == os.getuid()
+    assert spawn.call_args.kwargs["extra_env"]["HOME"] == "/tmp/test-user-home"
+    assert spawn.call_args.kwargs["extra_env"]["MCPD_FS_READ_ROOTS"] == "/tmp/test-user-home"
+
+
 # ── Connection gate ─────────────────────────────────────────────────────
 
 
@@ -245,7 +278,9 @@ def running_daemon():
     daemon._server_sock = daemon._create_socket()
     daemon._write_pid_file()
 
-    with patch.object(Daemon, "_authenticate", return_value=True):
+    principal = Principal(uid=os.getuid(), username="test-user", home="/tmp")
+    with patch.object(Daemon, "_authenticate", return_value=True), \
+         patch.object(Daemon, "_principal_for", return_value=principal):
         t = threading.Thread(target=daemon._accept_loop, daemon=True)
         t.start()
 
@@ -356,6 +391,36 @@ class TestDaemonDispatch:
 # ── Connection limit enforcement ────────────────────────────────────────
 
 
+def test_turn_run_uses_offline_intent_only_for_fixed_grammar(monkeypatch):
+    """The daemon, not a client, owns the direct-route decision."""
+    cfg = _tmp_daemon_cfg()
+    ctrl = _mock_controller()
+    ctrl_cfg = _mock_controller_cfg()
+    ctrl_cfg.offline_command_lane.enabled = True
+    daemon = Daemon(cfg, ctrl, ctrl_cfg, MagicMock())
+    session = DaemonSession(
+        session_state=SessionState.new("local", SessionConfig()),
+        transport=MagicMock(),
+        principal=Principal(uid=os.getuid(), username="alice", home="/home/alice"),
+    )
+
+    def _capture(_self, _session, _msg_id, factory, **_kwargs):
+        factory()
+
+    monkeypatch.setattr(Daemon, "_start_pipeline_worker", _capture)
+    daemon._handle_turn_run(session, {
+        "id": "direct", "params": {"input": "# uptime", "context": {"cwd": "/home/alice"}},
+    })
+
+    ctrl.run_turn_from_intent.assert_called_once()
+    args, kwargs = ctrl.run_turn_from_intent.call_args
+    assert args[0]["action"] == "system.uptime"
+    assert kwargs == {
+        "source": "offline_direct", "force_pb": True, "offline_direct": True,
+    }
+    assert ctrl.run_turn_streaming.call_count == 0
+
+
 @pytest.mark.skipif(os.name == "nt", reason="AF_UNIX not available on Windows")
 def test_second_connection_rejected():
     d = _short_tmp()
@@ -367,7 +432,9 @@ def test_second_connection_rejected():
     daemon = Daemon(cfg, _mock_controller(), _mock_controller_cfg(), MagicMock())
     daemon._server_sock = daemon._create_socket()
 
-    with patch.object(Daemon, "_authenticate", return_value=True):
+    principal = Principal(uid=os.getuid(), username="test-user", home="/tmp")
+    with patch.object(Daemon, "_authenticate", return_value=True), \
+         patch.object(Daemon, "_principal_for", return_value=principal):
         t = threading.Thread(target=daemon._accept_loop, daemon=True)
         t.start()
 

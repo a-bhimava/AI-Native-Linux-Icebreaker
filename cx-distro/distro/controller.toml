@@ -65,6 +65,7 @@ pb_timeout_seconds = 600
 # F-30: mcpd's fs.rs canonicalize fallback under Rosetta emulation runs
 # slower than the 10 s default; give it 120 s of headroom.
 mcpd_timeout_seconds = 120.0
+principal_scoped_mcpd = true
 # Phase 6 Scope B — was a hardcoded 600.0 s in client.py. Same F-25
 # rationale: Rosetta 2 needs headroom; native completes in seconds.
 # Change in Control Center → Models → Advanced timings, or here.
@@ -83,7 +84,13 @@ model_search_dirs = ["/var/lib/icebreaker/models", "~/.local/share/icebreaker/mo
 # allowlist. Add each ISO user's home directly. Landlock enforces the same
 # list at the kernel level (defense in depth).
 [mcpd.fs]
-read_roots = ["/home/icebreaker"]
+read_roots = []
+
+# v1.0: a deliberately tiny read-only grammar after the Icebreaker `#`
+# trigger works without a cloud QB.  It still goes through PB, mcpd and the
+# kernel sandbox; this is not arbitrary Bash execution.
+[offline_command_lane]
+enabled = true
 
 [prompts]
 prompts_dir = "/usr/share/icebreaker/prompts"

@@ -43,15 +43,15 @@ profile_configure_display_manager() {
             systemctl enable NetworkManager
             systemctl enable ssh
             groupadd -rf icebreaker-users
-            useradd -m -s /bin/bash -G sudo,icebreaker-users icebreaker
-            echo "icebreaker:icebreaker" | chpasswd
-            echo "icebreaker ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/icebreaker
-            chmod 440 /etc/sudoers.d/icebreaker
+            # Live session only: locked password, never an installed login.
+            useradd -m -s /bin/bash -G sudo,icebreaker-users -p "!" ubuntu
+            echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu-live
+            chmod 440 /etc/sudoers.d/ubuntu-live
             mkdir -p /etc/gdm3
             cat > /etc/gdm3/custom.conf <<"GDMCFG"
 [daemon]
 AutomaticLoginEnable=true
-AutomaticLogin=icebreaker
+AutomaticLogin=ubuntu
 WaylandEnable=false
 [security]
 [xdmcp]
@@ -66,14 +66,13 @@ GDMCFG
             systemctl enable ssh
             groupadd -rf autologin
             groupadd -rf icebreaker-users
-            useradd -m -s /bin/bash -G sudo,autologin,icebreaker-users icebreaker
-            echo "icebreaker:icebreaker" | chpasswd
-            echo "icebreaker ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/icebreaker
-            chmod 440 /etc/sudoers.d/icebreaker
+            useradd -m -s /bin/bash -G sudo,autologin,icebreaker-users -p "!" ubuntu
+            echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu-live
+            chmod 440 /etc/sudoers.d/ubuntu-live
             mkdir -p /etc/lightdm/lightdm.conf.d
             cat > /etc/lightdm/lightdm.conf.d/50-icebreaker-autologin.conf <<"LDMCFG"
 [Seat:*]
-autologin-user=icebreaker
+autologin-user=ubuntu
 autologin-user-timeout=0
 user-session=xfce
 greeter-session=lightdm-gtk-greeter

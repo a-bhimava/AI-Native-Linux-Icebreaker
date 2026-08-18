@@ -6,6 +6,8 @@ Writes initial controller.toml and marks first-boot complete.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import threading
 from pathlib import Path
 from typing import Optional
@@ -111,10 +113,25 @@ class WizardWindow(Adw.Window):
         backend_row.set_selected(0)
         group.add(backend_row)
 
-        env_row = Adw.EntryRow(title="API Key Env Var")
+        env_row = Adw.EntryRow(title="API Key Environment Variable")
         env_row.set_text(env_defaults["gemini"])
-        env_row.set_tooltip_text("Name of the environment variable holding your API key")
+        env_row.set_editable(False)
+        env_row.set_tooltip_text("The key itself is stored in a root-only device credential file")
         group.add(env_row)
+
+        key_entry = Gtk.PasswordEntry()
+        key_entry.set_show_peek_icon(True)
+        key_entry.set_hexpand(True)
+        key_entry.set_placeholder_text("Paste your API key (optional)")
+        key_row = Adw.ActionRow(title="Device-owner API key")
+        key_row.set_subtitle("Optional. You can also configure this later in Icebreaker Control Center.")
+        key_row.set_child(key_entry)
+        group.add(key_row)
+
+        feedback = Gtk.Label()
+        feedback.set_xalign(0)
+        feedback.set_wrap(True)
+        feedback.add_css_class("ib-muted-text")
 
         def on_backend_change(_row: Adw.ComboRow, _pspec: object) -> None:
             idx = backend_row.get_selected()
@@ -129,18 +146,52 @@ class WizardWindow(Adw.Window):
 
         env_row.connect("changed", on_env_change)
 
-        next_btn = Gtk.Button(label="Next")
+        next_btn = Gtk.Button(label="Continue")
         next_btn.add_css_class("ib-primary-button")
         next_btn.set_halign(Gtk.Align.END)
         next_btn.set_margin_top(16)
         next_btn.set_margin_end(16)
-        next_btn.connect("clicked", lambda _: self._nav.push(self._build_model_check()))
+        def on_continue(_button: Gtk.Button) -> None:
+            key = key_entry.get_text().strip()
+            if not key:
+                self._nav.push(self._build_model_check())
+                return
+            helper = shutil.which("ib-setup-key")
+            if helper is None:
+                feedback.set_label("Key setup is unavailable in this development environment. Configure it later.")
+                return
+            next_btn.set_sensitive(False)
+            feedback.set_label("Saving the device-owner key…")
+
+            def _save() -> None:
+                try:
+                    result = subprocess.run(
+                        ["pkexec", helper, "--env-var", self._api_key_env],
+                        input=key + "\n", capture_output=True, text=True, timeout=45,
+                    )
+                    GLib.idle_add(_saved, result.returncode == 0)
+                except (OSError, subprocess.TimeoutExpired):
+                    GLib.idle_add(_saved, False)
+
+            def _saved(ok: bool) -> bool:
+                key_entry.set_text("")
+                if ok:
+                    self._nav.push(self._build_model_check())
+                else:
+                    feedback.set_label("Could not save the key. Check the administrator prompt and try again, or configure it later.")
+                    next_btn.set_sensitive(True)
+                return False
+
+            threading.Thread(target=_save, daemon=True).start()
+
+        next_btn.connect("clicked", on_continue)
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         vbox.set_margin_start(24)
         vbox.set_margin_end(24)
         vbox.set_margin_top(24)
         vbox.append(group)
+        vbox.append(feedback)
         vbox.append(next_btn)
 
         toolbar = Adw.ToolbarView()

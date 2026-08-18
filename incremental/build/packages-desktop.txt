@@ -60,6 +60,10 @@ dnsutils
 ubuntu-desktop
 ubuntu-standard
 gdm3
+# Canonical's live installer. The installed system creates its own Ubuntu
+# administrator; the live account is locked and never a release login.
+ubiquity
+ubiquity-frontend-gtk
 gnome-terminal
 gnome-text-editor
 nautilus

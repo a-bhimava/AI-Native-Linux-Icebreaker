@@ -241,6 +241,16 @@ class RunConfig:
     # refuses ISO builds if the file is missing at the shipping path
     # (belt-and-braces: build-time gate + runtime visible-warn).
     pb_grammar_path: Optional[str] = None
+    # Daemon production mode: launch mcpd per authenticated Unix peer under
+    # that peer's uid and home root.  Defaults off for existing dev setups.
+    principal_scoped_mcpd: bool = False
+
+
+@dataclass(frozen=True)
+class OfflineCommandLaneConfig:
+    """Strict local PB lane.  Disabled unless an integrator opts in (BP-2)."""
+
+    enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -530,6 +540,9 @@ class ControllerConfig:
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
     gui: GuiConfig = field(default_factory=GuiConfig)
     rpa: RpaConfig = field(default_factory=RpaConfig)
+    offline_command_lane: OfflineCommandLaneConfig = field(
+        default_factory=OfflineCommandLaneConfig
+    )
     # v6.13_OC Fix Q: OC edition settings (audit bridge, etc.). None
     # unless [qb.opencode_oc] section is present in the TOML.
     opencode_oc: OpencodeOcConfig | None = None
@@ -814,7 +827,13 @@ def _build_run_config(raw: dict) -> RunConfig:
         tier0_fast_path=section.get("tier0_fast_path", True),
         # M7.0.2a (v6.16): GBNF grammar path — None disables (audit C-4 open).
         pb_grammar_path=section.get("pb_grammar_path", None),
+        principal_scoped_mcpd=section.get("principal_scoped_mcpd", False),
     )
+
+
+def _build_offline_command_lane_config(raw: dict) -> OfflineCommandLaneConfig:
+    section = raw.get("offline_command_lane", {})
+    return OfflineCommandLaneConfig(enabled=section.get("enabled", False))
 
 
 def _build_session_config(raw: dict) -> SessionConfig:
@@ -1077,6 +1096,7 @@ def _build_config(raw: dict, config_path: Path) -> ControllerConfig:
         desktop=_build_desktop_config(raw),
         gui=_build_gui_config(raw),
         rpa=_build_rpa_config(raw),
+        offline_command_lane=_build_offline_command_lane_config(raw),
         opencode_oc=_build_opencode_oc_config(raw),
         qb_fallbacks=_build_fallback_backends(raw),
     )

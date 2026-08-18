@@ -1,0 +1,12 @@
+[Unit]
+Description=Disable Icebreaker live-session auto-login after installation
+DefaultDependencies=no
+Before=display-manager.service
+ConditionPathExists=!/run/live/medium
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/icebreaker/icebreaker-disable-live-autologin
+
+[Install]
+WantedBy=graphical.target

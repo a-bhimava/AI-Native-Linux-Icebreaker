@@ -85,6 +85,19 @@
         }
       }
     },
+    "offline_command_lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Strict PB-first offline command lane. Only the controller-owned fixed grammar is eligible; all other input stays QB-first.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the fixed read-only # command grammar. Disabled preserves current behavior (BP-2).",
+          "x-reload": "restart"
+        }
+      }
+    },
     "run": {
       "type": "object",
       "additionalProperties": false,
@@ -99,6 +112,7 @@
         "mcpd_timeout_seconds": {"type": "number",  "minimum": 0.1, "maximum": 300.0, "x-reload": "restart"},
         "qb_max_retries":       {"type": "integer", "minimum": 1, "maximum": 10, "description": "Retry count on QB call failure (schema violation, provider error) before falling through to fallback_chain.", "x-reload": "hot"},
         "mcpd_schemas_dir":     {"type": "string", "description": "Directory containing mcpd tool JSON schemas. Empty = auto-detect from mcpd_binary.", "x-reload": "restart"},
+        "principal_scoped_mcpd": {"type": "boolean", "default": false, "description": "Daemon: run mcpd as each authenticated peer with only that peer's home root.", "x-reload": "restart"},
         "pb_transport":         {"type": "string", "enum": ["http", "unix"], "description": "Transport for PB llama-server. 'http' = TCP loopback; 'unix' = AF_UNIX socket.", "x-reload": "restart"},
         "turn_timeout_seconds": {
           "type": "number", "minimum": 30, "maximum": 7200,

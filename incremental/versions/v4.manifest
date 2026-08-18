@@ -3,9 +3,7 @@
 #   - /usr/share/icebreaker/shell/ib_trigger.bash  (readline # intercept)
 #   - /usr/share/icebreaker/shell/ib_run.py        (daemon call — same file the
 #     QEMU gate executes, so tested path == shipped path, F-17 discipline)
-#   - source line in /etc/skel/.bashrc (future users) AND explicitly in
-#     /home/icebreaker/.bashrc (F-6: useradd copied skel in the BASE build,
-#     long before this overlay — skel edits alone never reach the user)
+#   - source line in /etc/skel/.bashrc so installer-created users receive it
 # Gate: GROUND_TRUTH.md § 3 V4.
 
 VERSION_PACKAGES=""
@@ -26,19 +24,17 @@ version_overlay() {
         /usr/share/icebreaker/shell/ib_run.py || \
         { echo "FATAL[v4]: ib_run.py does not compile" >&2; return 1; }
 
-    # Idempotent bashrc wiring (skel for future users, explicit for icebreaker — F-6).
+    # Idempotent bashrc wiring for installer-created and future users.
     local line='source /usr/share/icebreaker/shell/ib_trigger.bash'
-    for rc in "${chroot}/etc/skel/.bashrc" "${chroot}/home/icebreaker/.bashrc"; do
-        [ -f "$rc" ] || { echo "FATAL[v4]: $rc missing" >&2; return 1; }
-        if ! grep -qF "$line" "$rc"; then
-            {
-                echo ""
-                echo "# Icebreaker # trigger — type \"# <intent>\" to run AI commands"
-                echo "$line"
-            } >> "$rc"
-        fi
-    done
-    chroot "$chroot" chown icebreaker:icebreaker /home/icebreaker/.bashrc
+    local rc="${chroot}/etc/skel/.bashrc"
+    [ -f "$rc" ] || { echo "FATAL[v4]: $rc missing" >&2; return 1; }
+    if ! grep -qF "$line" "$rc"; then
+        {
+            echo ""
+            echo "# Icebreaker # trigger — type \"# <intent>\" to run AI commands"
+            echo "$line"
+        } >> "$rc"
+    fi
 
     echo "[v4] overlay complete"
 }
