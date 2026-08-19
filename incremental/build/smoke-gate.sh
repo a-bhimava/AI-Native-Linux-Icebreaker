@@ -60,9 +60,15 @@ else
 fi
 [ -L "${CHROOT}/etc/systemd/system/display-manager.service" ] \
     && pass "display-manager enabled" || fail "display manager not enabled (no display-manager.service symlink)"
-in_chroot "id icebreaker" && pass "icebreaker user exists" || fail "icebreaker user missing"
-in_chroot "id icebreaker | grep -q icebreaker-users" \
-    && pass "user in icebreaker-users group (PKG-4)" || fail "icebreaker not in icebreaker-users group"
+# The live account is intentionally locked and never becomes an installed
+# account.  The installer creates the user's real Ubuntu login and the
+# finalizer adds that account to icebreaker-users after installation.
+in_chroot "getent group icebreaker-users" \
+    && pass "icebreaker-users group exists" || fail "icebreaker-users group missing"
+in_chroot "id ubuntu | grep -q icebreaker-users" \
+    && pass "locked live account is in icebreaker-users" || fail "ubuntu live account missing icebreaker-users"
+in_chroot "test \"\$(passwd -S ubuntu | awk '{print \$2}')\" = L" \
+    && pass "live account password is locked" || fail "ubuntu live account is not locked"
 check_file /etc/icebreaker-version "version marker not written"
 if [ "$(cat "${CHROOT}/etc/icebreaker-build-profile" 2>/dev/null || true)" = "$PROFILE" ]; then
     pass "build profile marker = ${PROFILE}"
@@ -367,22 +373,23 @@ if [ "$LEVEL" -ge 5 ]; then
             && pass "[qb.opencode_oc] section present" \
             || fail "[qb.opencode_oc] section missing from controller.toml (Fix Q)"
     fi
-    check_file /etc/icebreaker/locations.env "locations.env missing (API key env file)"
+    check_file /etc/icebreaker/locations.env "locations.env missing (non-secret environment contract)"
     check_exec /usr/local/bin/ib-setup-key "ib-setup-key not installed"
     check_exec /usr/libexec/icebreaker/icebreaker-onboarding "first-login onboarding helper missing"
     check_file /etc/xdg/autostart/icebreaker-onboarding.desktop "first-login onboarding autostart missing"
     check_file /usr/share/applications/icebreaker-install.desktop "Ubuntu installer launcher missing"
     PERMS="$(stat -c '%a' "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null || echo '')"
-    # F-22: 0640 root:icebreaker-users — world unreadable (BP-8) AND pbd/qbd
-    # can source the env file via group membership.
-    [ "$PERMS" = "640" ] \
-        && pass "locations.env is 0640 (BP-8 + F-22)" \
-        || fail "F-22/BP-8: locations.env perms '$PERMS' != 640 (needs group read for pbd)"
-    grep -q "GEMINI_API_KEY" "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null \
-        && pass "key template present in locations.env" || fail "GEMINI_API_KEY template missing from locations.env"
-    # BP-8: no REAL key may ever ship in the ISO (template line is commented).
-    grep -qE '^GEMINI_API_KEY=' "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null \
-        && fail "BP-8 VIOLATION: uncommented GEMINI_API_KEY baked into the ISO" \
+    # locations.env is intentionally public non-secret service configuration.
+    # API keys may exist only in credentials.env (0600 root:root), which L2
+    # checks independently.
+    [ "$PERMS" = "644" ] \
+        && pass "locations.env is public non-secret configuration (0644)" \
+        || fail "locations.env perms '$PERMS' != 644"
+    grep -qE '^[A-Z_]*API_KEY=' "${CHROOT}/etc/icebreaker/locations.env" 2>/dev/null \
+        && fail "BP-8 VIOLATION: API key variable in public locations.env" \
+        || pass "locations.env contains no API key variables (BP-8)"
+    grep -qE '^[A-Z_]*API_KEY=' "${CHROOT}/etc/icebreaker/credentials.env" 2>/dev/null \
+        && fail "BP-8 VIOLATION: live API key baked into credentials.env" \
         || pass "no live API key in the image (BP-8)"
 fi
 
