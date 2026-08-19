@@ -126,6 +126,21 @@ if [ "$SKIP_TO" -le 0 ] && [ "$STOP_AFTER" -ge 0 ]; then
         (cd "${SCRIPT_DIR}/vendor" && sha256sum -c appearance-sources.sha256 --quiet) || die "appearance artifact checksum failure"
     fi
 
+    # `--force` is used for the dedicated cloud build VM. Fail before any
+    # compile/clone work if the selected stages' host tools are absent; the
+    # Dockerfile remains the canonical way to provision them.
+    REQUIRED_BUILD_TOOLS=()
+    if [ "$SKIP_TO" -le 1 ] && [ "$STOP_AFTER" -ge 1 ]; then
+        REQUIRED_BUILD_TOOLS+=(cargo strings file)
+    fi
+    if [ "$SKIP_TO" -le 2 ] && [ "$STOP_AFTER" -ge 2 ]; then
+        REQUIRED_BUILD_TOOLS+=(cmake git c++ aarch64-linux-gnu-gcc aarch64-linux-gnu-g++)
+    fi
+    for tool in "${REQUIRED_BUILD_TOOLS[@]}"; do
+        command -v "$tool" >/dev/null 2>&1 || die \
+            "required build tool not found: $tool (use cx-distro/Dockerfile.build or install it before --force)"
+    done
+
     # INV-7: Verify all model checksums.
     if [ "$NO_MODELS" -eq 0 ]; then
         info "Verifying model checksums (INV-7)..."
