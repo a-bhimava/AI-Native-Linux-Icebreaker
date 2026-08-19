@@ -135,12 +135,10 @@ fi
 CORPUS_TEST="${REPO_ROOT}/dual-brain/controller/tests/test_intent_corpus.py"
 if [ "${VN}" -ge 5 ] && [ -f "${CORPUS_TEST}" ]; then
     info "Running F-35 golden intent corpus (offline)..."
-    if command -v pytest >/dev/null 2>&1; then
-        (cd "${REPO_ROOT}/dual-brain" && pytest controller/tests/test_intent_corpus.py -q --no-header) || \
-            die "CORPUS GATE FAILED — refusing to ship an ISO with F-35 intent regressions (R9). Check controller/main.py _SUPPORTED_ACTIONS or corpus/intent_corpus.json edits."
-    else
-        info "WARN: pytest not on VM PATH — corpus gate skipped (install pytest to enable)"
-    fi
+    command -v pytest >/dev/null 2>&1 || die \
+        "pytest is required for the F-35 corpus gate (install python3-pytest; do not ship with this gate skipped)"
+    (cd "${REPO_ROOT}/dual-brain" && pytest controller/tests/test_intent_corpus.py -q --no-header) || \
+        die "CORPUS GATE FAILED — refusing to ship an ISO with F-35 intent regressions (R9). Check controller/main.py _SUPPORTED_ACTIONS or corpus/intent_corpus.json edits."
 fi
 
 # ── Locate cached base ──────────────────────────────────────────────────
