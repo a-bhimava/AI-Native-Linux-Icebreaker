@@ -12,6 +12,7 @@
 #                     vm      — XFCE, LightDM, nomodeset, no toram (low RAM, emulation)
 #                     desktop — GNOME, GDM, toram, full GPU (bare-metal / native virt)
 #   --skip-to=N     Skip stages 0..N-1 (e.g. --skip-to=4 to skip binary builds)
+#   --stop-after=N  Stop after stage N (e.g. --stop-after=2 for binaries only)
 #   --force         Allow running outside Docker
 #   --no-models     Skip GGUF model embedding (fast ISO for testing boot flow)
 #
@@ -60,6 +61,7 @@ stage_banner() {
 
 # ── Argument parsing ────────────────────────────────────────────────────
 SKIP_TO=0
+STOP_AFTER=5
 FORCE=0
 NO_MODELS=0
 PROFILE="vm"
@@ -76,6 +78,12 @@ for arg in "$@"; do
             SKIP_TO="${arg#--skip-to=}"
             if ! [[ "$SKIP_TO" =~ ^[0-5]$ ]]; then
                 die "--skip-to must be 0-5, got: $SKIP_TO"
+            fi
+            ;;
+        --stop-after=*)
+            STOP_AFTER="${arg#--stop-after=}"
+            if ! [[ "$STOP_AFTER" =~ ^[0-5]$ ]]; then
+                die "--stop-after must be 0-5, got: $STOP_AFTER"
             fi
             ;;
         --force)
@@ -98,7 +106,7 @@ info "Build profile: ${PROFILE}"
 
 # ── Stage 0: Preflight ─────────────────────────────────────────────────
 
-if [ "$SKIP_TO" -le 0 ]; then
+if [ "$SKIP_TO" -le 0 ] && [ "$STOP_AFTER" -ge 0 ]; then
     stage_banner 0 "Preflight"
 
     # Check we are inside Docker (or --force).
@@ -177,7 +185,7 @@ fi
 
 # ── Stage 1: Build mcpd ────────────────────────────────────────────────
 
-if [ "$SKIP_TO" -le 1 ]; then
+if [ "$SKIP_TO" -le 1 ] && [ "$STOP_AFTER" -ge 1 ]; then
     stage_banner 1 "Build mcpd (per-arch)"
 
     cd "${REPO_ROOT}/src/mcpd"
@@ -255,7 +263,7 @@ fi
 
 # ── Stage 2: Build llama-server ─────────────────────────────────────────
 
-if [ "$SKIP_TO" -le 2 ]; then
+if [ "$SKIP_TO" -le 2 ] && [ "$STOP_AFTER" -ge 2 ]; then
     stage_banner 2 "Build llama-server (per-arch)"
 
     LLAMA_COMMIT=$(cat "${SCRIPT_DIR}/LLAMA_CPP_COMMIT" | tr -d '[:space:]')
@@ -350,7 +358,7 @@ fi
 
 # ── Stage 3: Build Python venv ──────────────────────────────────────────
 
-if [ "$SKIP_TO" -le 3 ]; then
+if [ "$SKIP_TO" -le 3 ] && [ "$STOP_AFTER" -ge 3 ]; then
     stage_banner 3 "Build Python venv"
 
     VENV_DIR="${BUILD_DIR}/venv"
@@ -382,7 +390,7 @@ fi
 
 # ── Stage 4: Assemble chroot tree ──────────────────────────────────────
 
-if [ "$SKIP_TO" -le 4 ]; then
+if [ "$SKIP_TO" -le 4 ] && [ "$STOP_AFTER" -ge 4 ]; then
     stage_banner 4 "Assemble chroot tree"
 
     # The VM visual profile consumes pinned, third-party appearance artifacts.
@@ -576,7 +584,7 @@ fi
 # paths reference packages removed from Ubuntu years ago (grub-legacy,
 # syslinux-themes-ubuntu-oneiric). Manual assembly avoids that entirely.
 
-if [ "$SKIP_TO" -le 5 ]; then
+if [ "$SKIP_TO" -le 5 ] && [ "$STOP_AFTER" -ge 5 ]; then
     stage_banner 5 "Build ISO"
 
     cd "${SCRIPT_DIR}"

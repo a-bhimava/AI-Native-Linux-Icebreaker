@@ -58,8 +58,10 @@ PKG_FILE="$(profile_package_file)"
 [ -z "$LABEL" ] && LABEL="v${VN}"
 # Widened 2026-07-20 (v6.10b build): accept revision suffixes so patch
 # ISOs on top of a shipped release don't need a spurious minor bump.
-# Grammar: v<N>[.<M>[.<P>]][<letter>] — v6, v6.10, v6.10.1, v6.10b.
-[[ "$LABEL" =~ ^v[0-9]+(\.[0-9]+){0,2}[a-z]?$ ]] || die "--label must match ^v[0-9]+(\.[0-9]+){0,2}[a-z]?$, got: $LABEL"
+# Grammar: v<N>[.<M>[.<P>]][<letter>][-rc<N>] — v6, v6.10, v6.10.1,
+# v6.10b, v1.0-rc1.  Release candidates need a distinct, valid artifact
+# name so they cannot be mistaken for the signed stable release.
+[[ "$LABEL" =~ ^v[0-9]+(\.[0-9]+){0,2}[a-z]?(-rc[0-9]+)?$ ]] || die "--label must match ^v[0-9]+(\.[0-9]+){0,2}[a-z]?(-rc[0-9]+)?, got: $LABEL"
 
 # V6.6: source arch config (ARCH, GRUB_FORMAT, EFI_BOOT_NAME, APT_MIRROR,
 # LLAMA_BUILD_DIR, BOOT_MODE, etc.). Every downstream reference to those
