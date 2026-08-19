@@ -192,48 +192,57 @@ if [ "$SKIP_TO" -le 1 ] && [ "$STOP_AFTER" -ge 1 ]; then
 
     # Scope G (2026-07-11): loop over both arches so a single build.sh run
     # produces mcpd-amd64 AND mcpd-arm64. Downstream (build-iso.sh:82-107,
-    # v2.manifest:174-197) already dispatches on mcpd-${ARCH}. The RUST_TRIPLE
-    # comes from config/archs/${arch}.conf — single source of truth (BP-1).
-    # If any arch fails cross-compile at link time on a future dep, add
-    # `apt install gcc-aarch64-linux-gnu` to Dockerfile.build + export
-    # CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc.
+    # v2.manifest:174-197) already dispatches on mcpd-${ARCH}. The target and
+    # any cross-linker come from config/archs/${arch}.conf (BP-1).
     for target_arch in amd64 arm64; do
-        # Source RUST_TRIPLE from arch config (isolated scope via subshell in
-        # a case block would be cleaner; explicit local var here for clarity).
-        case "$target_arch" in
-            amd64) RUST_TRIPLE="x86_64-unknown-linux-gnu" ;;
-            arm64) RUST_TRIPLE="aarch64-unknown-linux-gnu" ;;
-        esac
+        arch_conf="${REPO_ROOT}/config/archs/${target_arch}.conf"
+        [ -f "$arch_conf" ] || die "missing architecture config: $arch_conf"
+        # Keep linker variables scoped to this target.  This prevents an ARM
+        # cross-linker from accidentally leaking into a later native build.
+        (
+            # shellcheck source=/dev/null
+            source "$arch_conf"
+            # Use tr rather than Bash 4-only case conversion so the build
+            # script remains syntax/logic-checkable on the macOS host too.
+            linker_var="$(printf 'CARGO_TARGET_%s_LINKER' "$RUST_TRIPLE" | tr '[:lower:]-' '[:upper:]_')"
+            if [ -n "${RUST_LINKER:-}" ]; then
+                command -v "$RUST_LINKER" >/dev/null || die \
+                    "cross-linker for ${target_arch} not found: ${RUST_LINKER}"
+                export "${linker_var}=${RUST_LINKER}"
+            else
+                unset "$linker_var"
+            fi
 
-        info "Building mcpd for ${target_arch} (${RUST_TRIPLE})..."
-        cargo build --release --target="${RUST_TRIPLE}" 2>&1 | tail -5
+            info "Building mcpd for ${target_arch} (${RUST_TRIPLE})..."
+            cargo build --release --target="${RUST_TRIPLE}" 2>&1 | tail -5
 
-        MCPD_BIN="target/${RUST_TRIPLE}/release/mcpd"
-        [ -f "$MCPD_BIN" ] || die "mcpd binary not found after build (target=${target_arch})"
+            MCPD_BIN="target/${RUST_TRIPLE}/release/mcpd"
+            [ -f "$MCPD_BIN" ] || die "mcpd binary not found after build (target=${target_arch})"
 
-        # Security check: no test-only features compiled in.
-        if strings "$MCPD_BIN" | grep -q MCPD_FS_TEST_ROOTS; then
-            die "mcpd (${target_arch}) compiled with test-only feature fs-test-roots (CLAUDE.md § Test-Only Knobs)"
-        fi
+            # Security check: no test-only features compiled in.
+            if strings "$MCPD_BIN" | grep -q MCPD_FS_TEST_ROOTS; then
+                die "mcpd (${target_arch}) compiled with test-only feature fs-test-roots (CLAUDE.md § Test-Only Knobs)"
+            fi
 
-        # F-40 arch cross-check: file(1) description must name the target
-        # arch. Same guard v2.manifest:188-197 does at ISO-manifest time;
-        # we run it here to catch cross-compile silent-fallthrough (e.g.
-        # cargo silently produces amd64 despite --target=aarch64) BEFORE
-        # spending an ISO-build cycle on it.
-        if command -v file >/dev/null 2>&1; then
-            file_desc="$(file "$MCPD_BIN" 2>/dev/null || true)"
-            case "${target_arch}:${file_desc}" in
-                amd64:*"x86-64"*|amd64:*"x86_64"*) : ;;
-                arm64:*"ARM aarch64"*) : ;;
-                *) die "arch mismatch after build (target=${target_arch}, file: ${file_desc})" ;;
-            esac
-        fi
+            # F-40 arch cross-check: file(1) description must name the target
+            # arch. Same guard v2.manifest:188-197 does at ISO-manifest time;
+            # we run it here to catch cross-compile silent-fallthrough (e.g.
+            # cargo silently produces amd64 despite --target=aarch64) BEFORE
+            # spending an ISO-build cycle on it.
+            if command -v file >/dev/null 2>&1; then
+                file_desc="$(file "$MCPD_BIN" 2>/dev/null || true)"
+                case "${target_arch}:${file_desc}" in
+                    amd64:*"x86-64"*|amd64:*"x86_64"*) : ;;
+                    arm64:*"ARM aarch64"*) : ;;
+                    *) die "arch mismatch after build (target=${target_arch}, file: ${file_desc})" ;;
+                esac
+            fi
 
-        info "mcpd-${target_arch} OK ($(du -h "$MCPD_BIN" | awk '{print $1}'), no test features, arch verified)"
+            info "mcpd-${target_arch} OK ($(du -h "$MCPD_BIN" | awk '{print $1}'), no test features, arch verified)"
 
-        # Per-arch output naming — consumed by build-iso.sh + v2.manifest.
-        cp "$MCPD_BIN" "${BUILD_DIR}/mcpd-${target_arch}"
+            # Per-arch output naming — consumed by build-iso.sh + v2.manifest.
+            cp "$MCPD_BIN" "${BUILD_DIR}/mcpd-${target_arch}"
+        ) || die "mcpd build failed for ${target_arch}"
     done
 
     # Backward compat: legacy unsuffixed mcpd = mcpd-amd64. Some V0-V6.51
