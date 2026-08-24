@@ -188,7 +188,10 @@ OUT_DIR="${BUILD_DIR}/out"
 # `v6.13_OC-arm64.iso`). The suffix is empty for the current edition.
 EDITION_SUFFIX=""
 [ "$EDITION" = "oc" ] && EDITION_SUFFIX="_OC"
-if [[ "$LABEL" =~ ^v6\.[6-9][a-z]?$ ]] || [[ "$LABEL" =~ ^v6\.[1-9][0-9]+[a-z]?$ ]] || [[ "$LABEL" =~ ^v[7-9] ]] || [ "$ARCH" != "amd64" ]; then
+# Multi-arch release artifacts must always carry their architecture.  The
+# historical unsuffixed amd64 names belong only to the incremental v0-v6.5
+# series; v1.x is a release series too (F-121), not a legacy rebuild.
+if [[ "$LABEL" =~ ^v6\.[6-9][a-z]?$ ]] || [[ "$LABEL" =~ ^v6\.[1-9][0-9]+[a-z]?$ ]] || [[ "$LABEL" =~ ^v[1-9] ]] || [ "$ARCH" != "amd64" ]; then
     ISO_FILE="${OUT_DIR}/${LABEL}${EDITION_SUFFIX}-${ARCH}.iso"
 else
     ISO_FILE="${OUT_DIR}/${LABEL}${EDITION_SUFFIX}.iso"
