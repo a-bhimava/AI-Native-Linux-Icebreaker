@@ -3,6 +3,5 @@ Type=Application
 Name=Icebreaker first-run setup
 Comment=Set up Icebreaker for this Ubuntu account
 Exec=/usr/libexec/icebreaker/icebreaker-onboarding
-OnlyShowIn=GNOME;
 X-GNOME-Autostart-enabled=true
 NoDisplay=true

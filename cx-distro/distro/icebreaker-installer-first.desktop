@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Install Icebreaker
+Comment=Create your Ubuntu account and install Icebreaker
+Exec=/usr/libexec/icebreaker/icebreaker-installer-first
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

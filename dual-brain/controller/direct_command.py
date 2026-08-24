@@ -79,21 +79,22 @@ def _resolve_home_path(token: str, *, cwd: Path, home: Path) -> Path | None:
     return logical if _is_within(candidate, home_real) else None
 
 
-def parse_direct_command(
-    raw_input: str,
+def parse_offline_command(
+    command: str,
     *,
     cwd: str,
     home: str,
 ) -> DirectCommandMatch | None:
-    """Return a fixed read-only Intent for a supported ``#`` command.
+    """Return a fixed read-only Intent for one explicit offline command.
 
-    ``None`` means "not part of the offline grammar".  Callers must route
-    that case through the normal QB path; they must not interpret it as a
-    shell command or attempt fuzzy matching.
+    The caller must deliberately select the offline lane; this parser does
+    not infer that ordinary natural-language input is a command. ``None``
+    means "not part of the fixed grammar".  Callers must return an error in
+    that case, never pass the text to QB or a shell.
     """
-    if not isinstance(raw_input, str) or not raw_input.startswith("#"):
+    if not isinstance(command, str):
         return None
-    command = raw_input[1:].strip()
+    command = command.strip()
     if not command or len(command) > _MAX_COMMAND_CHARS:
         return None
 
@@ -139,3 +140,21 @@ def parse_direct_command(
         },
         display_command=normalized,
     )
+
+
+def parse_direct_command(
+    raw_input: str,
+    *,
+    cwd: str,
+    home: str,
+) -> DirectCommandMatch | None:
+    """Return a fixed read-only Intent for a supported ``#`` command.
+
+    This compatibility entry point is intentionally strict: only the shell
+    trigger owns ``#`` detection. Other clients use :func:`parse_offline_command`
+    through the explicit ``offline.run`` RPC, which makes it impossible for
+    an OpenCode slash command to accidentally fall back to a cloud provider.
+    """
+    if not isinstance(raw_input, str) or not raw_input.startswith("#"):
+        return None
+    return parse_offline_command(raw_input[1:], cwd=cwd, home=home)

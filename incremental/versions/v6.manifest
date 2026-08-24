@@ -168,6 +168,15 @@ version_overlay() {
         "${chroot}/etc/xdg/autostart/icebreaker-onboarding.desktop"
     install -Dm644 "${repo}/cx-distro/distro/icebreaker-install.desktop" \
         "${chroot}/usr/share/applications/icebreaker-install.desktop"
+    # The live account is an implementation detail, never the user's login.
+    # Autostart Ubiquity before exposing the desktop; after it creates an
+    # account the onboarding autostart below asks for API-key setup there.
+    install -Dm755 "${repo}/cx-distro/distro/icebreaker-installer-first" \
+        "${chroot}/usr/libexec/icebreaker/icebreaker-installer-first"
+    install -Dm644 "${repo}/cx-distro/distro/icebreaker-installer-first.desktop" \
+        "${chroot}/etc/xdg/autostart/icebreaker-installer-first.desktop"
+    install -Dm755 "${repo}/cx-distro/distro/ice" \
+        "${chroot}/usr/local/bin/ice"
     install -Dm755 "${repo}/cx-distro/distro/icebreaker-disable-live-autologin" \
         "${chroot}/usr/libexec/icebreaker/icebreaker-disable-live-autologin"
     install -Dm644 "${repo}/dual-brain/controller/systemd/icebreaker-disable-live-autologin.service" \

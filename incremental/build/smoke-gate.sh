@@ -69,6 +69,19 @@ in_chroot "id ubuntu | grep -q icebreaker-users" \
     && pass "locked live account is in icebreaker-users" || fail "ubuntu live account missing icebreaker-users"
 in_chroot "test \"\$(passwd -S ubuntu | awk '{print \$2}')\" = L" \
     && pass "live account password is locked" || fail "ubuntu live account is not locked"
+check_exec /usr/libexec/icebreaker/icebreaker-installer-first "installer-first helper missing"
+check_file /etc/xdg/autostart/icebreaker-installer-first.desktop "installer-first autostart missing"
+grep -q '^Exec=/usr/libexec/icebreaker/icebreaker-installer-first$' \
+    "${CHROOT}/etc/xdg/autostart/icebreaker-installer-first.desktop" \
+    && pass "installer-first autostart invokes installer helper" \
+    || fail "installer-first autostart does not invoke installer helper"
+check_file /etc/xdg/autostart/icebreaker-onboarding.desktop "post-install onboarding autostart missing"
+if grep -q '^OnlyShowIn=' "${CHROOT}/etc/xdg/autostart/icebreaker-onboarding.desktop"; then
+    fail "post-install onboarding is desktop-specific; it must run on XFCE and GNOME"
+else
+    pass "post-install onboarding is desktop-neutral"
+fi
+check_exec /usr/local/bin/ice "explicit offline command helper missing"
 check_file /etc/icebreaker-version "version marker not written"
 if [ "$(cat "${CHROOT}/etc/icebreaker-build-profile" 2>/dev/null || true)" = "$PROFILE" ]; then
     pass "build profile marker = ${PROFILE}"

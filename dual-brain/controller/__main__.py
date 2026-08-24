@@ -12,6 +12,7 @@ import argparse
 import atexit
 import json
 import logging
+import os
 import signal
 import sys
 import threading
@@ -21,6 +22,34 @@ from typing import Any, Generator
 
 
 _shutdown_log = logging.getLogger(__name__ + ".shutdown")
+
+
+_DAEMON_STARTUP_STATUS = Path("/run/icebreaker/controller-startup.json")
+
+
+def _record_daemon_startup(stage: str, exc: Exception | None = None) -> None:
+    """Write a redaction-safe startup breadcrumb for guest diagnostics.
+
+    A systemd service can be ``activating/auto-restart`` while its socket is
+    absent. The journal has the full traceback, but `ib-debug snapshot` is
+    the first tool a user reaches for. Record only the stage and exception
+    *type* here: exception messages can contain provider or filesystem data
+    and must not become a second secret-bearing log surface (BP-8).
+    """
+    payload = {
+        "stage": stage,
+        "pid": os.getpid(),
+        "error_type": type(exc).__name__ if exc is not None else None,
+    }
+    try:
+        _DAEMON_STARTUP_STATUS.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _DAEMON_STARTUP_STATUS.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+        os.chmod(tmp, 0o640)
+        os.replace(tmp, _DAEMON_STARTUP_STATUS)
+    except OSError:
+        # Diagnostics must never create a new daemon boot failure.
+        pass
 
 
 def _try_close(obj: Any, label: str) -> None:
@@ -453,6 +482,7 @@ def _run_daemon(config_path: Path | None) -> int:
     from . import debug_log
 
     try:
+        _record_daemon_startup("load_config")
         cfg = load(config_path)
         # Phase 6 Scope D/E: wire debug_log to the loaded config
         # BEFORE anything else runs — so a debug-mode-on config
@@ -463,11 +493,15 @@ def _run_daemon(config_path: Path | None) -> int:
             max_size_mb=cfg.debug.max_size_mb,
         )
         audit = AuditLog(Path(cfg.run.audit_log).expanduser())
+        _record_daemon_startup("start_optional_bridge")
         _oc_bridge = _maybe_start_oc_bridge(cfg, audit)  # v6.13_OC Fix Q
         mcpd: McpdClient | None = None
         try:
+            _record_daemon_startup("build_qb")
             qb = _build_qb_safe(cfg)
+            _record_daemon_startup("build_pb")
             pb = _build_pb_safe(cfg)
+            _record_daemon_startup("spawn_mcpd")
             mcpd = McpdClient.spawn(
                 Path(cfg.run.mcpd_binary).expanduser(),
                 default_timeout=cfg.run.mcpd_timeout_seconds,
@@ -476,6 +510,7 @@ def _run_daemon(config_path: Path | None) -> int:
             store = IntentStore()
             prompts = PromptLoader(cfg.prompts)
 
+            _record_daemon_startup("construct_controller")
             controller = Controller(
                 cfg,
                 qb_backend=qb,
@@ -486,12 +521,14 @@ def _run_daemon(config_path: Path | None) -> int:
                 prompt_loader=prompts,
             )
             daemon = Daemon(cfg.daemon, controller, cfg, audit)
+            _record_daemon_startup("bind_controller_socket")
             daemon.start()
         finally:
             if mcpd is not None:
                 mcpd.close()
             audit.close()
     except Exception as exc:
+        _record_daemon_startup("failed", exc)
         print(f"Fatal: {exc}", file=sys.stderr)
         return 1
     return 0

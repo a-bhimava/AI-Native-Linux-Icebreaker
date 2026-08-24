@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from controller.direct_command import parse_direct_command
+from controller.direct_command import parse_direct_command, parse_offline_command
 from controller.turn_events import ResultEvent
 from controller.tests.test_run_turn_from_intent import _build_ctrl
 
@@ -68,6 +68,15 @@ def test_non_prefixed_input_never_enters_offline_lane():
     assert _parse("ls") is None
 
 
+def test_explicit_offline_parser_accepts_no_prefix_but_remains_strict():
+    """`offline.run` owns its explicit mode selection; it is not a shell."""
+    match = parse_offline_command("cat notes.txt", cwd="/home/alice/work", home=HOME)
+    assert match is not None
+    assert match.intent["action"] == "fs.read"
+    assert match.intent["target"] == "/home/alice/work/notes.txt"
+    assert parse_offline_command("cat notes.txt; whoami", cwd=HOME, home=HOME) is None
+
+
 def test_offline_match_forces_pb_and_never_needs_qb_summary():
     """A local match remains useful when the cloud provider is unavailable."""
     match = _parse("# cat notes.txt")
@@ -92,3 +101,22 @@ def test_offline_match_forces_pb_and_never_needs_qb_summary():
     result = [event.result for event in events if isinstance(event, ResultEvent)][-1]
     assert result.success is True
     assert result.output == '{"status": "ok"}'
+
+
+def test_offline_pb_failure_never_uses_qb_repair_coach():
+    """Credit depletion cannot affect the explicit local command contract."""
+    match = _parse("# uptime")
+    assert match is not None
+    ctrl, qb, pb, _mcpd, _audit, session = _build_ctrl(
+        # Invalid tool name makes PB validation fail on its only allowed try.
+        pb_content={"tool": "not.a.real.tool", "params": {}},
+    )
+    ctrl._cfg.run.tier0_fast_path = False
+
+    list(ctrl.run_turn_from_intent(
+        match.intent, session, source="offline_direct", force_pb=True,
+        offline_direct=True,
+    ))
+
+    assert pb.complete.call_count == 1
+    assert qb.complete.call_count == 0

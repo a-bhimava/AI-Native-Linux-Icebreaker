@@ -251,12 +251,12 @@ class WizardWindow(Adw.Window):
     def _build_test_command(self) -> Adw.NavigationPage:
         page = Adw.NavigationPage(title="Test Command")
         group = Adw.PreferencesGroup(
-            title="Test Natural Language Command",
-            description="Send a test command to verify the system works end-to-end",
+            title="Test Local Command",
+            description="Verify the local Privileged Brain without a cloud credential",
         )
 
         cmd_row = Adw.EntryRow(title="Command")
-        cmd_row.set_text("What processes are using the most CPU?")
+        cmd_row.set_text("uptime")
         group.add(cmd_row)
 
         result_label = Gtk.Label(label="")
@@ -286,7 +286,10 @@ class WizardWindow(Adw.Window):
 
             def _bg():
                 try:
-                    resp = self._client.run_turn(cmd_row.get_text())
+                    # The setup verification must work before an optional
+                    # cloud credential has been entered. Use the explicit
+                    # fixed local lane, not a normal QB-planned turn.
+                    resp = self._client.run_offline_command(cmd_row.get_text())
                     if "error" in resp:
                         error_msg = resp["error"].get("message", "Unknown error")
                         GLib.idle_add(_show_error, error_msg)

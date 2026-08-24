@@ -149,6 +149,15 @@ if [ -f "${CX_DIR}/tests/test_first_boot.sh" ]; then
     fi
 fi
 
+if [ -f "${CX_DIR}/tests/test_installer_first.sh" ]; then
+    if bash "${CX_DIR}/tests/test_installer_first.sh" 2>&1; then
+        echo "    test_installer_first.sh passed"
+    else
+        echo "    test_installer_first.sh failed (installer-first account-flow gate)"
+        G14_FAIL=1
+    fi
+fi
+
 # v6.10 P4/P5 anti-hide guards. These test the ISO artifacts (panel XML
 # + build.sh install lines) that F-51 markers cannot cover — F-51 only
 # guards the venv. Wire them here so a future refactor that drops a

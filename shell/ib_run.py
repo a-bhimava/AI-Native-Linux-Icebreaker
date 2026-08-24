@@ -9,7 +9,7 @@ from the caller's environment and forward it in the run_turn RPC so the
 Quarantined Brain can resolve ambiguous references like "here", "this
 folder", "the file I was editing".
 
-Usage: ib_run.py "<query>" [socket_path]
+Usage: ib_run.py [--offline] "<query>" [socket_path]
 Exit:  0 = daemon returned a result; 1 = error (message on stderr).
 """
 import os
@@ -58,11 +58,16 @@ def _collect_context() -> dict:
 
 
 def main() -> int:
-    if len(sys.argv) < 2:
-        print("usage: ib_run.py '<query>' [socket]", file=sys.stderr)
+    argv = sys.argv[1:]
+    offline = False
+    if argv and argv[0] == "--offline":
+        offline = True
+        argv = argv[1:]
+    if len(argv) < 1:
+        print("usage: ib_run.py [--offline] '<query>' [socket]", file=sys.stderr)
         return 1
-    query = sys.argv[1]
-    sock_path = sys.argv[2] if len(sys.argv) > 2 else "/run/icebreaker/controller.sock"
+    query = argv[0]
+    sock_path = argv[1] if len(argv) > 1 else "/run/icebreaker/controller.sock"
     context = _collect_context()
 
     # v6.9 Bug A (2026-07-17): the plain shell client can auto-render
@@ -80,9 +85,14 @@ def main() -> int:
         client = DaemonClient(sock_path)
         client.connect()
         try:
-            resp = client.run_turn(
-                query, context=context or None, timeout=_SHELL_TURN_TIMEOUT,
-            )
+            if offline:
+                resp = client.run_offline_command(
+                    query, context=context or None, timeout=_SHELL_TURN_TIMEOUT,
+                )
+            else:
+                resp = client.run_turn(
+                    query, context=context or None, timeout=_SHELL_TURN_TIMEOUT,
+                )
         finally:
             client.close()
         if "result" in resp:

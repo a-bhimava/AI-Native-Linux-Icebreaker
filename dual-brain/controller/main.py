@@ -1184,8 +1184,20 @@ class Controller:
                 pb_system = self._prompts.get("pb")
                 verifier_system = self._prompts.get("qb_verifier")
                 try:
+                    # An explicit offline turn has no cloud escape hatch.
+                    # In particular, a failed PB attempt must not invoke the
+                    # QB repair coach (which may be a paid remote backend).
+                    # `retry_mode=off` preserves one PB attempt and returns
+                    # a clear local failure for the caller to surface.
+                    from dataclasses import replace
+                    retry_cfg = (
+                        replace(self._pb_retry_cfg, max_attempts=1,
+                                consult_qb_after_attempt=999,
+                                retry_mode="off")
+                        if offline_direct else self._pb_retry_cfg
+                    )
                     loop = PbRetryLoop(
-                        cfg=self._pb_retry_cfg,
+                        cfg=retry_cfg,
                         pb_complete_fn=self._make_pb_complete_fn(
                             session, intent_id, pb_system,
                         ),

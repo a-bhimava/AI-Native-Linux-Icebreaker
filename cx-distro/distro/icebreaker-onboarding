@@ -5,4 +5,10 @@ set -euo pipefail
 
 sentinel="${XDG_DATA_HOME:-$HOME/.local/share}/icebreaker/.first-boot-done"
 [ -e "$sentinel" ] && exit 0
+# The live account is disposable and has no password.  It must never see the
+# account/API-key wizard: Ubiquity creates the real Ubuntu account first, and
+# this autostart then runs at that account's first graphical login.
+if [ -e /run/live/medium ] || [ -e /run/casper-md5check.json ]; then
+    exit 0
+fi
 exec /opt/icebreaker/venv/bin/python3 -m gui --wizard --sock /run/icebreaker/controller.sock

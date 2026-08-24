@@ -14,6 +14,7 @@ Threading model:
 from __future__ import annotations
 
 import logging
+import json
 import os
 import select
 import signal
@@ -431,6 +432,11 @@ class Daemon:
 
     _METHODS = {
         "turn.run":        "_handle_turn_run",
+        # Explicit local-only ingress used by the `ice` helper and the
+        # OpenCode /ice integration. Unlike turn.run it never consults QB:
+        # unsupported text is rejected at this boundary rather than falling
+        # through to a cloud planner.
+        "offline.run":     "_handle_offline_run",
         # v6.17 M7.6a-1b: OC edition submit_intent path — receives a
         # pre-formed intent object from opencode/Gemini via the iceui
         # MCP server's submit_intent tool, skips Step 1 qb_intent, and
@@ -494,6 +500,69 @@ class Daemon:
             )
 
         self._start_pipeline_worker(session, msg_id, _event_iter, name="turn-worker")
+
+    def _handle_offline_run(self, session: DaemonSession, msg: dict) -> None:
+        """Run one command from the fixed, PB-first offline grammar.
+
+        This is a separate RPC rather than a magic prefix in ``turn.run`` so
+        a client can make a verifiable no-cloud promise.  The raw command is
+        consumed here to create a controller-owned Intent and is never sent
+        to PB, QB, mcpd, or the audit payload.
+        """
+        msg_id = msg.get("id", "0")
+        params = msg.get("params", {})
+        command = params.get("command")
+        offline_cfg = getattr(self._controller_cfg, "offline_command_lane", None)
+        if not bool(getattr(offline_cfg, "enabled", False)):
+            session.transport.send(make_error(
+                msg_id, INVALID_PARAMS, "offline command lane is disabled",
+            ).to_bytes())
+            return
+        if not isinstance(command, str) or not command.strip():
+            session.transport.send(make_error(
+                msg_id, INVALID_PARAMS, "missing 'command' string",
+            ).to_bytes())
+            return
+        if session.principal is None:
+            session.transport.send(make_error(
+                msg_id, AUTH_REJECTED, "offline command requires an authenticated user",
+            ).to_bytes())
+            return
+
+        from .session import ShellContext
+        session.session_state.shell_context = ShellContext.from_params(
+            params.get("context"),
+            max_recent=int((session.controller or self._controller)._cfg.session.max_recent_commands),
+        )
+        from .direct_command import parse_offline_command
+        match = parse_offline_command(
+            command,
+            cwd=session.session_state.shell_context.cwd,
+            home=session.principal.home,
+        )
+        if match is None:
+            session.transport.send(make_error(
+                msg_id,
+                INVALID_PARAMS,
+                "unsupported offline command; use one of: uptime, df -h, free -h, ps, ip addr, ls [path], cat [path]",
+            ).to_bytes())
+            return
+        if not session._turn_lock.acquire(blocking=False):
+            session.transport.send(make_error(
+                msg_id, INTERNAL_ERROR, "turn already in progress",
+            ).to_bytes())
+            return
+
+        def _event_iter():
+            return (session.controller or self._controller).run_turn_from_intent(
+                match.intent,
+                session.session_state,
+                source="offline_direct",
+                force_pb=True,
+                offline_direct=True,
+            )
+
+        self._start_pipeline_worker(session, msg_id, _event_iter, name="offline-worker")
 
     # v6.17 M7.6a-1b: intent.run handler — OC edition submit_intent path.
     # Mirrors _handle_turn_run but drives Controller.run_turn_from_intent
@@ -764,6 +833,19 @@ class Daemon:
         self._check_stale_pid()
         self._server_sock = self._create_socket()
         self._write_pid_file()
+        # Paired with __main__._record_daemon_startup. Keep it here because
+        # this is the exact point the AF_UNIX socket becomes usable.
+        status_path = Path(self._cfg.socket_path).expanduser().parent / "controller-startup.json"
+        try:
+            status_path.write_text(
+                json.dumps({"stage": "ready", "pid": os.getpid(),
+                            "socket": self._cfg.socket_path}, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            os.chmod(status_path, 0o640)
+        except OSError:
+            # This is diagnostic-only; never reject a healthy daemon for it.
+            pass
         log.info(
             "daemon started (pid=%d, socket=%s)",
             os.getpid(), self._cfg.socket_path,

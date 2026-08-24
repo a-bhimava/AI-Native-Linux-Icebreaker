@@ -136,6 +136,11 @@ class TestWizardSteps:
         test_idx = self.STEP_NAMES.index("Test Command")
         assert model_idx < test_idx
 
+    def test_setup_smoke_test_uses_explicit_offline_lane(self) -> None:
+        source = (Path(__file__).parent.parent / "wizard" / "window.py").read_text()
+        assert "run_offline_command(cmd_row.get_text())" in source
+        assert "resp = self._client.run_turn(cmd_row.get_text())" not in source
+
 
 # ---------------------------------------------------------------------------
 # Model verification defaults

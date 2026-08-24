@@ -102,6 +102,7 @@ MODEL_DIRS   = ["/var/lib/icebreaker/models",
                 os.path.expanduser("~/.local/share/icebreaker/models")]
 CHECKSUM_REL = "checksums.sha256"
 VENV_PYTHON  = "/opt/icebreaker/venv/bin/python3"
+STARTUP_STATUS = Path("/run/icebreaker/controller-startup.json")
 
 # Patterns for log line classification
 _ERR_RE  = re.compile(r'\b(ERROR|FATAL|CRITICAL|Exception|Traceback|failed|crash|refused)\b', re.I)
@@ -242,6 +243,7 @@ class DiagSnapshot:
     venv_ok: bool
     venv_error: str
     journal_lines: list[str]
+    startup_status: dict[str, object]
 
 # ── Collectors ────────────────────────────────────────────────────────────────
 
@@ -458,6 +460,18 @@ def collect_journal(n_lines: int = 30) -> list[str]:
         return []
     return [l for l in out.splitlines() if l.strip() and not l.startswith("--")]
 
+
+def collect_startup_status() -> dict[str, object]:
+    """Read the daemon's redaction-safe startup breadcrumb, if present."""
+    try:
+        raw = json.loads(STARTUP_STATUS.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    allowed = {"stage", "pid", "error_type", "socket"}
+    return {key: raw[key] for key in allowed if key in raw}
+
 def take_snapshot(log_lines: int = 20) -> DiagSnapshot:
     hostname = _run(["hostname"])[1].strip() or "unknown"
     services = [collect_service(u, l) for u, l in SERVICES]
@@ -468,6 +482,7 @@ def take_snapshot(log_lines: int = 20) -> DiagSnapshot:
     cfg_ok, cfg_err   = collect_config()
     venv_ok, venv_err = collect_venv()
     journal  = collect_journal(20)
+    startup_status = collect_startup_status()
     return DiagSnapshot(
         timestamp=datetime.now(),
         hostname=hostname,
@@ -481,6 +496,7 @@ def take_snapshot(log_lines: int = 20) -> DiagSnapshot:
         venv_ok=venv_ok,
         venv_error=venv_err,
         journal_lines=journal,
+        startup_status=startup_status,
     )
 
 # ── Renderers ─────────────────────────────────────────────────────────────────
@@ -572,6 +588,22 @@ def render_snapshot(snap: DiagSnapshot, show_logs: bool = True,
     else:
         lines.append("  " + tag_fail(f"Python venv  — {snap.venv_error}"))
     lines.append("")
+
+    # ── Controller startup breadcrumb ──────────────────────────────────
+    if snap.startup_status:
+        lines.append(divider("CONTROLLER STARTUP"))
+        stage = str(snap.startup_status.get("stage", "unknown"))
+        error_type = snap.startup_status.get("error_type")
+        pid = snap.startup_status.get("pid")
+        if stage == "ready":
+            lines.append("  " + tag_ok(f"ready  (pid={pid or '?'})"))
+        else:
+            detail = f"stage={stage}"
+            if error_type:
+                detail += f"  error={error_type}"
+            lines.append("  " + tag_warn(detail))
+            lines.append("    " + dim("Run: sudo journalctl -u icebreaker-controller -b --no-pager"))
+        lines.append("")
 
     # ── Log summary ──
     if show_logs:
@@ -723,6 +755,20 @@ def rich_snapshot(snap: DiagSnapshot) -> None:
         for p in snap.processes:
             t4.add_row(p.pid, p.cpu, p.mem, p.cmdline[:100])
         console.print(t4)
+
+    if snap.startup_status:
+        stage = str(snap.startup_status.get("stage", "unknown"))
+        error_type = snap.startup_status.get("error_type")
+        detail = f"stage={stage}"
+        if error_type:
+            detail += f"  error={error_type}"
+        style = "green" if stage == "ready" else "yellow"
+        console.print(Panel(
+            Text(detail, style=style),
+            title="Controller startup",
+            subtitle=("Run: sudo journalctl -u icebreaker-controller -b --no-pager"
+                      if stage != "ready" else None),
+        ))
 
     # Errors from logs
     all_errors = [(ls.name, e) for ls in snap.logs for e in ls.errors]

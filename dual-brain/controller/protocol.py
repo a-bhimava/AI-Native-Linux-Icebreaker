@@ -1,7 +1,7 @@
 """JSON-RPC 2.0 protocol for daemon<->client communication.
 
 Message types:
-  Requests (client->daemon): turn.run, session.new, session.reset,
+  Requests (client->daemon): turn.run, offline.run, session.new, session.reset,
       hitl.respond, daemon.status, daemon.shutdown
   Notifications (daemon->client): turn.progress, turn.token,
       turn.result, turn.error, hitl.prompt

@@ -153,6 +153,24 @@ class DaemonClient:
             "turn.run", params, timeout=effective_timeout,
         )
 
+    def run_offline_command(
+        self,
+        command: str,
+        context: dict | None = None,
+        timeout: float | None = None,
+    ) -> dict:
+        """Run an explicitly selected fixed local command without QB.
+
+        The daemon rejects unsupported input rather than rerouting it to a
+        cloud backend. This is the only client API suitable for the `/ice`
+        affordance.
+        """
+        params: dict = {"command": command}
+        if context is not None:
+            params["context"] = context
+        effective_timeout = timeout if timeout is not None else self._turn_timeout_seconds
+        return self.send_request("offline.run", params, timeout=effective_timeout)
+
     def new_session(self, backend: str | None = None) -> dict:
         params = {"backend": backend} if backend else {}
         return self.send_request("session.new", params)

@@ -421,6 +421,59 @@ def test_turn_run_uses_offline_intent_only_for_fixed_grammar(monkeypatch):
     assert ctrl.run_turn_streaming.call_count == 0
 
 
+def test_offline_run_never_falls_back_to_turn_run():
+    """Unsupported explicit offline input is rejected, never sent to QB."""
+    cfg = _tmp_daemon_cfg()
+    ctrl = _mock_controller()
+    ctrl_cfg = _mock_controller_cfg()
+    ctrl_cfg.offline_command_lane.enabled = True
+    daemon = Daemon(cfg, ctrl, ctrl_cfg, MagicMock())
+    session = DaemonSession(
+        session_state=SessionState.new("local", SessionConfig()),
+        transport=MagicMock(),
+        principal=Principal(uid=os.getuid(), username="alice", home="/home/alice"),
+    )
+
+    daemon._handle_offline_run(session, {
+        "id": "not-a-command", "params": {"command": "rm -rf /"},
+    })
+
+    ctrl.run_turn_from_intent.assert_not_called()
+    ctrl.run_turn_streaming.assert_not_called()
+    sent = session.transport.send.call_args.args[0].decode()
+    assert "unsupported offline command" in sent
+
+
+def test_offline_run_uses_pb_only_fixed_intent(monkeypatch):
+    """The OpenCode-facing endpoint gets the same safe route as `#`."""
+    cfg = _tmp_daemon_cfg()
+    ctrl = _mock_controller()
+    ctrl_cfg = _mock_controller_cfg()
+    ctrl_cfg.offline_command_lane.enabled = True
+    daemon = Daemon(cfg, ctrl, ctrl_cfg, MagicMock())
+    session = DaemonSession(
+        session_state=SessionState.new("local", SessionConfig()),
+        transport=MagicMock(),
+        principal=Principal(uid=os.getuid(), username="alice", home="/home/alice"),
+    )
+
+    def _capture(_self, _session, _msg_id, factory, **_kwargs):
+        factory()
+
+    monkeypatch.setattr(Daemon, "_start_pipeline_worker", _capture)
+    daemon._handle_offline_run(session, {
+        "id": "offline", "params": {"command": "uptime", "context": {"cwd": "/home/alice"}},
+    })
+
+    ctrl.run_turn_from_intent.assert_called_once()
+    args, kwargs = ctrl.run_turn_from_intent.call_args
+    assert args[0]["action"] == "system.uptime"
+    assert kwargs == {
+        "source": "offline_direct", "force_pb": True, "offline_direct": True,
+    }
+    ctrl.run_turn_streaming.assert_not_called()
+
+
 @pytest.mark.skipif(os.name == "nt", reason="AF_UNIX not available on Windows")
 def test_second_connection_rejected():
     d = _short_tmp()

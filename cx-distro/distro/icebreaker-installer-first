@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Start the graphical Ubuntu installer as the first live-session experience.
+#
+# The ISO's `ubuntu` user is deliberately locked and disposable.  This helper
+# keeps that implementation detail out of the user journey: the first
+# credential a person creates is their own Ubuntu account in Ubiquity.
+set -euo pipefail
+
+# Installed systems must never invoke the installer again.
+if [ ! -e /run/live/medium ] && [ ! -e /run/casper-md5check.json ]; then
+    exit 0
+fi
+
+exec ubiquity gtk_ui

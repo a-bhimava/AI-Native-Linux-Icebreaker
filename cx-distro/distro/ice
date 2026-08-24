@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# ice — explicit local-only command runner.
+#
+# This is intentionally not a shell evaluator. It sends one command to the
+# daemon's `offline.run` endpoint, where the fixed grammar becomes a
+# controller-owned Intent. Unsupported input fails locally and is never sent
+# to OpenCode, QB, or any cloud provider.
+set -euo pipefail
+
+if [ "$#" -eq 0 ]; then
+    echo "usage: ice <uptime|df -h|free -h|ps|ip addr|ls [path]|cat [path]>" >&2
+    exit 2
+fi
+
+exec /opt/icebreaker/venv/bin/python3 /usr/share/icebreaker/shell/ib_run.py \
+    --offline "$*"
