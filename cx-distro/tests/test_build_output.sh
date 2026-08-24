@@ -71,6 +71,11 @@ check_file_exists "${CX_DIR}/Dockerfile.build"
 check "Dockerfile installs grub-efi-amd64-bin" \
     grep -q 'grub-efi-amd64-bin' "${CX_DIR}/Dockerfile.build"
 
+# build.sh Stage 0 verifies each selected-stage executable before doing any
+# compilation.  Keep this image declaration aligned with that gate (F-122).
+check "Dockerfile installs file for Stage 0 architecture checks" \
+    grep -qE '(^|[[:space:]])file([[:space:]\\]|$)' "${CX_DIR}/Dockerfile.build"
+
 # CLI wrapper uses #!/bin/sh and exec.
 check "icebreaker-cli shebang is /bin/sh" \
     bash -c 'head -1 "$1" | grep -q "#!/bin/sh"' _ "${CX_DIR}/distro/icebreaker-cli"
