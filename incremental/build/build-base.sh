@@ -95,13 +95,17 @@ CHROOT="${BUILD_DIR}/base-chroot"
 mkdir -p "$BUILD_DIR"
 
 cleanup() {
-    umount "${CHROOT}/dev/pts" 2>/dev/null || true
-    umount "${CHROOT}/dev"     2>/dev/null || true
-    umount "${CHROOT}/proc"    2>/dev/null || true
-    umount "${CHROOT}/sys"     2>/dev/null || true
+    # A busy devpts mount makes a normal parent umount fail.  Detach each
+    # bind mount before any workspace deletion so rm -rf can never traverse
+    # from the chroot into the build host's /dev, /proc, or /sys.
+    local mountpoint
+    for mountpoint in "${CHROOT}/dev/pts" "${CHROOT}/dev" "${CHROOT}/proc" "${CHROOT}/sys"; do
+        mountpoint -q "$mountpoint" && umount -l "$mountpoint" || true
+    done
 }
 trap cleanup EXIT
 
+cleanup
 rm -rf "$CHROOT"
 mkdir -p "$CHROOT"
 

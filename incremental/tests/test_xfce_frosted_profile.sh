@@ -12,6 +12,11 @@ for file in profile-xfce-frosted.sh packages-xfce-frosted.txt build-base.sh buil
     test -f "${BUILD}/${file}"
 done
 
+for file in build-base.sh build-iso.sh; do
+    grep -Fq 'umount -l "$mountpoint"' "${BUILD}/${file}"
+    grep -Fq 'mountpoint -q "$mountpoint"' "${BUILD}/${file}"
+done
+
 rg -q 'desktop\|xfce-frosted' "${BUILD}/profile-xfce-frosted.sh"
 rg -q 'base-xfce-frosted' "${BUILD}/profile-xfce-frosted.sh"
 rg -q 'lightdm-gtk-greeter' "${BUILD}/packages-xfce-frosted.txt"

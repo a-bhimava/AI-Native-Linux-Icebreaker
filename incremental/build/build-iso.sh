@@ -198,14 +198,18 @@ else
 fi
 
 cleanup() {
-    umount "${CHROOT}/dev/pts" 2>/dev/null || true
-    umount "${CHROOT}/dev"     2>/dev/null || true
-    umount "${CHROOT}/proc"    2>/dev/null || true
-    umount "${CHROOT}/sys"     2>/dev/null || true
+    # A busy devpts mount makes a normal parent umount fail.  Detach each
+    # bind mount before any workspace deletion so rm -rf can never traverse
+    # from the chroot into the build host's /dev, /proc, or /sys.
+    local mountpoint
+    for mountpoint in "${CHROOT}/dev/pts" "${CHROOT}/dev" "${CHROOT}/proc" "${CHROOT}/sys"; do
+        mountpoint -q "$mountpoint" && umount -l "$mountpoint" || true
+    done
 }
 trap cleanup EXIT
 
 info "Extracting base ${BASE_HASH} (v${VN} build)..."
+cleanup
 rm -rf "$ISO_WORK"
 mkdir -p "$CHROOT" "${STAGING}/live" "${STAGING}/isolinux" "$OUT_DIR"
 zstd -dc "$BASE_TAR" | tar -C "$CHROOT" -xf -
