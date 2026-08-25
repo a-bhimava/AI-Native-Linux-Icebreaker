@@ -118,7 +118,7 @@ profile_apply_overlay() {
         apt-get update -qq
         apt-get install -y --no-install-recommends bamfdaemon libgnome-menu-3-0
         dpkg -i /tmp/plank-reloaded.deb
-        dpkg-query -W -f="${db:Status-Status}" plank-reloaded | grep -qx installed
+        dpkg-query -W -f="\${db:Status-Status}" plank-reloaded | grep -qx installed
         rm -f /tmp/plank-reloaded.deb
         mkdir -p /usr/share/themes
         tar -xJf /tmp/MacTahoe-Dark.tar.xz -C /usr/share/themes
