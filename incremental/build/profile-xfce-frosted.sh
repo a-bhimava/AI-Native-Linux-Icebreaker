@@ -112,7 +112,13 @@ profile_apply_overlay() {
 
     chroot "$chroot" bash -c '
         set -e
-        dpkg -i /tmp/plank-reloaded.deb || apt-get -f install -y
+        # The pinned Plank package declares these as runtime dependencies.
+        # Install them explicitly before dpkg so an empty apt cache cannot make
+        # `apt-get -f install` silently remove Plank to resolve the transaction.
+        apt-get update -qq
+        apt-get install -y --no-install-recommends bamfdaemon libgnome-menu-3-0
+        dpkg -i /tmp/plank-reloaded.deb
+        dpkg-query -W -f="${db:Status-Status}" plank-reloaded | grep -qx installed
         rm -f /tmp/plank-reloaded.deb
         mkdir -p /usr/share/themes
         tar -xJf /tmp/MacTahoe-Dark.tar.xz -C /usr/share/themes

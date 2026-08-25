@@ -57,6 +57,8 @@ else
     check_file /etc/xdg/icebreaker/picom-frosted.conf "opt-in Picom config missing"
     check_file /usr/share/themes/MacTahoe-Dark/index.theme "MacTahoe theme not extracted"
     check_file /usr/share/backgrounds/icebreaker-frosted-graphite-wallpaper.jpeg "Frosted wallpaper missing"
+    in_chroot "dpkg-query -W -f='\${db:Status-Status}' plank-reloaded | grep -qx installed" \
+        && pass "Plank Reloaded installed" || fail "Plank Reloaded missing or unconfigured after dependency resolution"
 fi
 [ -L "${CHROOT}/etc/systemd/system/display-manager.service" ] \
     && pass "display-manager enabled" || fail "display manager not enabled (no display-manager.service symlink)"
