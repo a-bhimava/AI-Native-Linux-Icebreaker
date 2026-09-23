@@ -2,10 +2,9 @@
 
 ## The AI-native operating system built around a security boundary no prompt can talk its way across.
 
-**The model that understands you cannot execute. The model that executes never
-sees your conversation.**
+**The model that understands you "cannot execute". The model that executes "never sees your conversation.**
 
-Most AI systems begin with: *How much can the model do?*
+Most AI systems begin with: *What can the model do?*
 
 Icebreaker begins with: *What must the model never be able to do?*
 
@@ -57,6 +56,12 @@ original conversation.
 
 Icebreaker does not ask an LLM to behave securely. It **builds a system in
 which unsafe authority is unavailable.**
+
+## Download
+| Image | Runs on | ISO | Verify |
+| --- | --- | --- | --- |
+| **ARM64** | Apple silicon in UTM, ARM hardware | [Download ISO](https://drive.google.com/file/d/1jblgY3EkAPo4g175uxC9tHPZToQbMgc0/view?usp=sharing) | [SHA-256](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-arm64.iso.sha256) |
+| **AMD64** | Intel/AMD PCs, QEMU, VirtualBox | [Download ISO](https://drive.google.com/file/d/11urUCWwKBt6YGIsA83J3eqvs9HaTw_xZ/view?usp=sharing) | [SHA-256](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-amd64.iso.sha256) |
 
 ## What that unlocks
 
@@ -119,18 +124,10 @@ not cleaned up for marketing. It is how the project stops the same bug from
 shipping twice.
 
 ## Download
-
-> ISO images are hosted on Google Drive. SHA-256 sidecar links remain
-> placeholders until those files are published with the release.
-
 | Image | Runs on | ISO | Verify |
 | --- | --- | --- | --- |
 | **ARM64** | Apple silicon in UTM, ARM hardware | [Download ISO](https://drive.google.com/file/d/1jblgY3EkAPo4g175uxC9tHPZToQbMgc0/view?usp=sharing) | [SHA-256](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-arm64.iso.sha256) |
 | **AMD64** | Intel/AMD PCs, QEMU, VirtualBox | [Download ISO](https://drive.google.com/file/d/11urUCWwKBt6YGIsA83J3eqvs9HaTw_xZ/view?usp=sharing) | [SHA-256](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-amd64.iso.sha256) |
-
-```bash
-shasum -a 256 icebreaker-v1.0_OC-arm64.iso
-```
 
 ## Under the hood
 
