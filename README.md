@@ -1,221 +1,213 @@
 # Icebreaker
 
-**A safer, more approachable way to turn everyday intent into Linux actions.**
+## The AI-native operating system built around a security boundary no prompt can talk its way across.
 
-Icebreaker is an AI-native Ubuntu project being prepared for an open-source
-release. It explores a simple idea: a person should be able to ask their
-computer for help in plain language without giving an AI an unchecked path to
-their files, shell, or network.
+**The model that understands you cannot execute. The model that executes never
+sees your conversation.**
 
-Instead of treating a model as an all-powerful agent, Icebreaker makes it one
-part of a deliberately constrained system. The result is a bootable Ubuntu
-experience, a local privileged model, an auditable controller, and a sandboxed
-tool daemon that are designed to disagree safely when something is unclear or
-risky.
+Most AI systems begin with: *How much can the model do?*
 
-> **Project status:** Icebreaker is actively developed research and engineering
-> software, not a replacement for a production-hardened desktop OS. The latest
-> multi-architecture images have passed build-time smoke gates; hardware and
-> installer release sign-off remains tracked in
-> [`incremental/GROUND_TRUTH.md`](./incremental/GROUND_TRUTH.md). Please test
-> it in a VM before trusting it with important data.
+Icebreaker begins with: *What must the model never be able to do?*
 
-## Download the ISO
+Icebreaker is a bootable Ubuntu 24.04 system that turns plain-English intent
+into real Linux and desktop actions through two isolated AI brains, a typed
+control plane, native kernel confinement, human approval, and tamper-evident
+audit.
 
-Replace the two placeholder URLs below when publishing the GitHub Release.
-Keep the SHA-256 files beside their matching ISOs so people can verify what
-they downloaded.
+Ask it to inspect a failing service, install a package, organize files, operate
+a desktop app, or explain what the machine is doing. Icebreaker can act—but no
+general-purpose model is ever one prompt away from root.
 
-| Architecture | Best for | Download |
-| --- | --- | --- |
-| ARM64 | Apple silicon Macs in UTM and ARM hardware | [Download ARM64 ISO](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-arm64.iso) · [SHA-256](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-arm64.iso.sha256) |
-| AMD64 | Intel/AMD PCs, QEMU, and VirtualBox | [Download AMD64 ISO](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-amd64.iso) · [SHA-256](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-amd64.iso.sha256) |
+**Two brains. One hardened path to the kernel. No ambient authority.**
 
-Example verification:
-
-```bash
-shasum -a 256 icebreaker-v1.0_OC-arm64.iso
-# Compare the result with icebreaker-v1.0_OC-arm64.iso.sha256.
-```
-
-## What makes Icebreaker different?
-
-The project is built around one non-negotiable principle: **language models do
-not get to become the security boundary.** The controller, schemas, sandbox,
-and human approval flow carry that responsibility instead.
+## The USP: separate understanding from privilege
 
 ```text
 You
-  │ natural-language request
-  ▼
-Quarantined Brain ──► validated Intent Object ──► Controller
-       no tools                                  │ risk, policy, audit
-                                                 ▼
-                                    opaque reference for the
-                                      Privileged Brain only
-                                                 │
-                                                 ▼
-                                  mcpd ──► constrained Linux tools
-                                           Landlock + Seccomp-BPF + COW
+ │
+ ▼
+QUARANTINED BRAIN                 Understands language and untrusted content
+No privileged tools              Cannot execute system actions
+ │
+ │  schema-validated Intent Object
+ ▼
+CONTROLLER                        Risk floor · policy · verifier · HITL · audit
+ │
+ │  opaque intent reference
+ ▼
+PRIVILEGED BRAIN                  Local 1.5B execution specialist
+No raw conversation              Grammar-constrained MCP calls
+ │
+ ▼
+mcpd                              JSON Schema validation · stdio only
+ │
+ ├─ Landlock filesystem boundary
+ ├─ Seccomp-BPF syscall allowlist
+ ├─ Copy-on-Write dry run
+ └─ Append-only, hash-chained audit
+ │
+ ▼
+Linux
 ```
 
-- **Quarantined Brain (QB):** understands a request and proposes a structured
-  intent. It has no execution capability and no MCP tool connection. It can be
-  configured to use a cloud provider or a local model.
-- **Controller:** is the trusted mediator. It validates the intent schema,
-  applies an escalate-only risk policy, asks for approval when required, and
-  writes a tamper-evident audit trail.
-- **Privileged Brain (PB):** is a local, fine-tuned GGUF model that receives
-  only an opaque intent reference—not the user’s original text—and produces
-  grammar-constrained MCP calls.
-- **mcpd:** is the Rust execution daemon. It communicates over stdio, validates
-  every tool parameter, applies Landlock and Seccomp-BPF confinement, and
-  creates copy-on-write previews before destructive work outside the user’s
-  home directory.
+A prompt injection may confuse the model reading a webpage or document. It
+still does not gain the privileged execution surface. The model allowed to
+propose privileged calls is local, narrow, constrained, and blind to the
+original conversation.
 
-This design is intentionally less magical than a general-purpose autonomous
-agent. That is the point: when Icebreaker cannot establish a safe path, it
-should stop, explain why, and leave the decision with the person at the
-keyboard.
+Icebreaker does not ask an LLM to behave securely. It **builds a system in
+which unsafe authority is unavailable.**
 
-## Start here as a developer
+## What that unlocks
 
-Icebreaker spans Rust, Python, Linux security primitives, model packaging, and
-Ubuntu ISO engineering. You do not need to understand all of it on day one.
-Pick the layer you care about, run its tests, and follow the contracts at its
-boundaries.
+| Value | Proof in the system |
+| --- | --- |
+| **Real work, not command suggestions** | 23 governed system tools for files, processes, services, packages, networking, and machine state |
+| **Desktop agency with informed consent** | 24 GUI/RPA tools, vision grounding, HiDPI-aware coordinates, AT-SPI, and annotated action previews |
+| **Reversible destruction** | Copy-on-Write staging shows the real filesystem diff before protected changes are committed |
+| **Oversight without approval fatigue** | Read-only work flows automatically; risk can only escalate; Tier 3 adds a consequence report and three-second lockout |
+| **A local privileged specialist** | `run7_cot_q4km.gguf`: 940 MB Q4_K_M, 100% adversarial refusal and 95.5% grammar-valid MCP output on the recorded evaluation |
+| **Forensics, not vibes** | Approved, denied, and rejected intents enter an append-only, `fsync`-per-line, hash-chained audit log |
+| **An OS, not an install script** | Reproducible Ubuntu images with embedded model verification, first boot, recovery mode, and ARM64/AMD64 builds |
 
-### 1. Clone and orient yourself
+## Why this is different from other “AI operating systems”
+
+“AI OS” currently describes several useful—but very different—ideas. This is a
+positioning comparison, not a security verdict on other projects.
+
+| Approach | Representative projects | What it optimizes for | Icebreaker’s difference |
+| --- | --- | --- | --- |
+| Natural-language shell and desktop agents | [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter), [NatShell](https://github.com/Barent/natshell) | Let a model plan and operate an existing computer | A typed, sandboxed boundary sits between language understanding and privileged execution |
+| Agent operating-system runtimes | [AIOS](https://github.com/agiresearch/AIOS) | Schedule agent memory, context, storage, and tools | Icebreaker governs real kernel and desktop actions as a bootable end-user OS |
+| AI-first Linux distributions | [CX Linux](https://github.com/cxlinux-ai/cx-distro), [aiOS](https://github.com/thoerner/ai-os) | Integrate inference and AI experiences into Linux | Dual-brain isolation, COW previews, graduated approval, and tamper-evident audit are the product core |
+| **Icebreaker** | This repository | **A secure intent-to-kernel control plane** | **Capability without handing untrusted model context ambient authority** |
+
+## This already goes far beyond the terminal
+
+- **OpenCode and Textual AI terminals** with streaming progress, cancellation,
+  structured execution states, and human approval.
+- **Vision-grounded desktop control** that sees interactive elements, previews
+  the target, and performs bounded mouse or keyboard actions.
+- **Native adapters for LibreOffice, Firefox, and GNOME Files**, with AT-SPI as
+  the general accessibility-tree fallback.
+- **Allowlisted Robot Framework workflows** behind a sandbox, time budget, and
+  HITL policy.
+- **Plan-and-execute orchestration** with LangGraph-compatible state and
+  persistent sessions.
+- **Pluggable cloud and local backends** through a registry and LiteLLM, while
+  privileged inference remains local through llama.cpp.
+- **GTK4/LibAdwaita control surfaces** for models, behavior, limits, tools,
+  status, themes, onboarding, errors, and audit review.
+- **One declarative tool catalogue** driving prompts, schemas, risk
+  classification, tests, and drift detection.
+
+## Proof, not promises
+
+| Surface | Evidence |
+| --- | --- |
+| Privileged model | 940 MB local Qwen 2.5 Coder fine-tune; grammar-constrained through GBNF |
+| Execution | 23 schema-validated system tools over stdio-only JSON-RPC |
+| Desktop | 20 GUI tools + 4 RPA tools exposed through the `iceui` MCP surface |
+| Defense in depth | Controller schema, escalate-only risk, Landlock, Seccomp-BPF, COW, HITL, model hashes, audit chain |
+| Regression discipline | Thousands of tests, adversarial corpora, CI gates through G25, syscall harvests, QEMU gates, and UTM test plans |
+| Distribution | Hybrid ARM64 and AMD64 Ubuntu ISOs with architecture-specific `mcpd` and `llama-server` builds |
+
+Every real guest failure is recorded with its symptom, root cause, fix, release,
+and named regression guard in
+[`incremental/GROUND_TRUTH.md`](./incremental/GROUND_TRUTH.md). That ledger is
+not cleaned up for marketing. It is how the project stops the same bug from
+shipping twice.
+
+## Download
+
+> Release placeholders: replace `OWNER/REPOSITORY` when the assets are
+> published.
+
+| Image | Runs on | ISO | Verify |
+| --- | --- | --- | --- |
+| **ARM64** | Apple silicon in UTM, ARM hardware | [Download ISO](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-arm64.iso) | [SHA-256](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-arm64.iso.sha256) |
+| **AMD64** | Intel/AMD PCs, QEMU, VirtualBox | [Download ISO](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-amd64.iso) | [SHA-256](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-amd64.iso.sha256) |
+
+```bash
+shasum -a 256 icebreaker-v1.0_OC-arm64.iso
+```
+
+## Under the hood
+
+```text
+src/mcpd/                 Rust execution daemon, schemas, Landlock, Seccomp, COW
+dual-brain/controller/    Intent pipeline, policy, HITL, verifier, audit, sessions
+dual-brain/gui_agent/     AT-SPI, app APIs, screenshots, vision, input synthesis
+dual-brain/rpa_bridge/    Sandboxed, allowlisted Robot Framework automation
+dual-brain/gui/           GTK4 chat, Control Center, onboarding, audit, HITL
+dual-brain/terminal/      Textual AI terminal and companion panel
+privileged-brain/         SFT/DPO data, training, conversion, and evaluation
+cx-distro/                Canonical Docker-based ISO builder
+incremental/              Multi-arch images, smoke gates, QEMU gates, failure log
+```
+
+The authoritative technical contracts are:
+
+1. [Architecture whitepaper](./AI_Native_OS_Whitepaper.md)
+2. [Implementation plan](./docs/implementation_plan.md)
+3. [Security and contributor rules](./CLAUDE.md)
+4. [Ground-truth failure ledger](./incremental/GROUND_TRUTH.md)
+
+## Start developing
+
+Linux is the reference environment. macOS can run static and most Python tests,
+but it cannot prove Landlock, Seccomp, live-image, or guest-boot behavior.
 
 ```bash
 git clone https://github.com/a-bhimava/icebreaker.git
 cd icebreaker
-```
 
-Read these before changing behavior:
-
-1. [`AI_Native_OS_Whitepaper.md`](./AI_Native_OS_Whitepaper.md) — the
-   architecture and its eight security invariants.
-2. [`AGENTS.md`](./AGENTS.md) — contributor rules, sensitive files, and
-   testing expectations.
-3. [`docs/IMPLEMENTATION_PLAN.md`](./docs/IMPLEMENTATION_PLAN.md) — build
-   order, release gates, and the failure-mode register.
-4. [`incremental/GROUND_TRUTH.md`](./incremental/GROUND_TRUTH.md) — the living
-   record of real ISO-build and guest-test evidence.
-
-### 2. Work on one layer at a time
-
-| If you want to work on… | Start in… | Run first… |
-| --- | --- | --- |
-| Safe tool execution and sandboxing | [`src/mcpd/`](./src/mcpd/) | `cargo test --manifest-path src/mcpd/Cargo.toml` |
-| Intent validation, orchestration, audit, and policy | [`dual-brain/controller/`](./dual-brain/controller/) | `cd dual-brain && PYTHONPATH=. python3 -m pytest controller/tests/ -x -q` |
-| PB training and evaluation | [`privileged-brain/`](./privileged-brain/) | Read its [pipeline guide](./privileged-brain/README.md) first |
-| ISO packaging and first boot | [`cx-distro/`](./cx-distro/) and [`incremental/`](./incremental/) | `bash cx-distro/tests/test_build_output.sh --static-only` |
-
-For Python work, use a virtual environment and install the controller in editable
-mode:
-
-```bash
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ./dual-brain
+
+(cd dual-brain && PYTHONPATH=. python3 -m pytest controller/tests/ -x -q)
+cargo test --manifest-path src/mcpd/Cargo.toml
+bash cx-distro/tests/test_build_output.sh --static-only
 ```
 
-The complete test suite and full ISO build need Linux. In particular, Landlock,
-Seccomp-BPF, live-image assembly, and guest boot gates cannot be meaningfully
-validated on macOS alone.
+## Build the ISO
 
-## Build an ISO
-
-The reproducible builder lives in [`cx-distro/`](./cx-distro/). It builds the
-Rust daemon, the local inference server, the Python environment, and an Ubuntu
-live image in stages. It needs Docker, a Linux host, and verified GGUF weights
-listed in [`models/checksums.sha256`](./models/checksums.sha256).
+The canonical pipeline compiles both architectures, builds `llama-server`,
+packages Python and the model, assembles Ubuntu, runs the security harvest and
+intent corpus, and emits checksummed hybrid images.
 
 ```bash
-cd cx-distro
-docker build -t icebreaker-build -f Dockerfile.build ..
-docker run --privileged -v "$(pwd)/..:/build" icebreaker-build
-```
-
-For a release-quality, multi-architecture build, use the documented incremental
-workflow and run its gates rather than improvising a one-off image:
-
-```bash
-# From the repository root on the Linux build host.
 LABEL=v1.0 VN=6 V67_EDITION=oc V67_PROFILE=xfce-frosted \
   bash cx-distro/rebuild/rebuild-v67.sh
 ```
 
-That workflow deliberately fails early when model hashes, architecture checks,
-security harvests, or intent-corpus gates are not healthy. See
-[`cx-distro/README.md`](./cx-distro/README.md) and
-[`incremental/GROUND_TRUTH.md`](./incremental/GROUND_TRUTH.md) before cutting
-an image for others.
+Read [`cx-distro/README.md`](./cx-distro/README.md) first. A clean
+multi-architecture build is intentionally expensive and fails early on an
+unhealthy hash, architecture, sandbox harvest, or corpus gate.
 
-## Safety model
+## Status
 
-Icebreaker’s architecture is not a set of aspirations; it has explicit
-invariants that code and build gates are expected to enforce.
+The architecture and major product surfaces are implemented. The latest ARM64
+and AMD64 images pass the build-time smoke gates. Hardware, installer, and
+release-signing gates remain tracked in the
+[ground-truth ledger](./incremental/GROUND_TRUTH.md).
 
-| Guardrail | What it means in practice |
-| --- | --- |
-| Brain isolation | QB has no tools; PB never receives raw user or document text. |
-| Schema enforcement | The controller rejects unknown fields and unsafe parameters before dispatch. |
-| No daemon listener | `mcpd` uses stdio JSON-RPC and must not expose TCP, UDP, or UNIX listeners. |
-| Kernel confinement | Landlock and Seccomp-BPF are applied before the execution path is available. |
-| COW for destructive changes | Operations outside a home directory are previewed before they can be committed. |
-| Model integrity | Model weights are SHA-256 checked before startup and ISO embedding. |
-| Auditable decisions | Accepted, denied, and rejected intents are append-only and hash-chained. |
-
-The complete, authoritative wording is in
-[`AI_Native_OS_Whitepaper.md`](./AI_Native_OS_Whitepaper.md) and
-[`AGENTS.md`](./AGENTS.md). If a proposed shortcut conflicts with either, the
-shortcut is not acceptable.
-
-## Repository map
-
-```text
-src/mcpd/                 Rust MCP execution daemon and sandbox
-dual-brain/controller/    Trusted Python controller and AI backends
-dual-brain/gui_agent/     AT-SPI and application-API automation
-dual-brain/rpa_bridge/    Constrained Robot Framework workflows
-privileged-brain/         PB data, training, conversion, and evaluation
-cx-distro/                Canonical Docker/live-image builder
-incremental/              Reproducible ISO workflow, gates, and failure log
-models/                   GGUF integrity manifest
-docs/                     Architecture, roadmap, and release documentation
-```
+Treat current images as release candidates: use a VM, keep backups, and do not
+trust them with irreplaceable data yet.
 
 ## Contributing
 
-We would love careful contributors. The most valuable contributions are often
-the unglamorous ones: a regression test for a real guest failure, a narrower
-sandbox rule, clearer diagnostics, or documentation that keeps the security
-model understandable.
+Make the system more capable **and** more constrained. Keep changes inside one
+module, add a regression test for every bug, and expect extra review for
+schemas, sandboxes, model hashes, the Controller boundary, and the ISO builder.
 
-- Keep a change focused on one module and one concern.
-- Add a regression guard for every bug fix, then reproduce the original failure
-  before calling it fixed.
-- Treat the controller’s schema boundary, `mcpd`, sandbox code, model hashes,
-  and ISO builder as security-sensitive. They need deliberate review.
-- Do not weaken a safety check behind a feature flag or “temporary” switch.
-
-Please open an issue to discuss substantial work before investing in a large
-patch. For security-sensitive reports, use GitHub’s private security advisory
-flow rather than publishing a working exploit in a public issue.
+Discuss large changes in an issue first. Report exploitable security problems
+through GitHub’s private security-advisory flow.
 
 ## License
 
-**License selection is still required before public publication.** Add an
-OSI-approved `LICENSE` file and replace this note before presenting the
-repository as reusable open-source software. A public repository without a
-license is visible source code, but it does not grant others permission to use,
-modify, or distribute it.
-
-## Thanks
-
-Icebreaker is an ambitious systems project, and it gets better through scrutiny.
-If you are here to test it, break it thoughtfully, improve the docs, or build a
-safer interface to your computer: welcome. We are glad you are here.
+An OSI-approved license still needs to be selected before public release. Until
+a `LICENSE` file exists, this repository is source-visible but does not grant
+permission to use, modify, or redistribute the code.
