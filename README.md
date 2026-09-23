@@ -57,7 +57,7 @@ original conversation.
 Icebreaker does not ask an LLM to behave securely. It **builds a system in
 which unsafe authority is unavailable.**
 
-## Download
+## Try it out
 | Image | Runs on | ISO |
 | --- | --- | --- |
 | **ARM64** | Apple silicon in UTM, ARM hardware | [Download ISO](https://drive.google.com/file/d/1jblgY3EkAPo4g175uxC9tHPZToQbMgc0/view?usp=sharing) |
@@ -121,12 +121,6 @@ and named regression guard in
 [`incremental/GROUND_TRUTH.md`](./incremental/GROUND_TRUTH.md). That ledger is
 not cleaned up for marketing. It is how the project stops the same bug from
 shipping twice.
-
-## Download
-| Image | Runs on | ISO | Verify |
-| --- | --- | --- | --- |
-| **ARM64** | Apple silicon in UTM, ARM hardware | [Download ISO](https://drive.google.com/file/d/1jblgY3EkAPo4g175uxC9tHPZToQbMgc0/view?usp=sharing) | [SHA-256](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-arm64.iso.sha256) |
-| **AMD64** | Intel/AMD PCs, QEMU, VirtualBox | [Download ISO](https://drive.google.com/file/d/11urUCWwKBt6YGIsA83J3eqvs9HaTw_xZ/view?usp=sharing) | [SHA-256](https://github.com/OWNER/REPOSITORY/releases/download/v1.0.0/icebreaker-v1.0_OC-amd64.iso.sha256) |
 
 ## Under the hood
 
