@@ -59,7 +59,7 @@ which unsafe authority is unavailable.**
 
 ## Download
 | Image | Runs on | ISO |
-| --- | --- | --- | --- |
+| --- | --- | --- |
 | **ARM64** | Apple silicon in UTM, ARM hardware | [Download ISO](https://drive.google.com/file/d/1jblgY3EkAPo4g175uxC9tHPZToQbMgc0/view?usp=sharing) |
 | **AMD64** | Intel/AMD PCs, QEMU, VirtualBox | [Download ISO](https://drive.google.com/file/d/11urUCWwKBt6YGIsA83J3eqvs9HaTw_xZ/view?usp=sharing) |
 ## What that unlocks
