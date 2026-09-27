@@ -198,6 +198,9 @@ through GitHub’s private security-advisory flow.
 
 ## License
 
-An OSI-approved license still needs to be selected before public release. Until
-a `LICENSE` file exists, this repository is source-visible but does not grant
-permission to use, modify, or redistribute the code.
+Unless otherwise noted, Icebreaker's original source code and documentation are
+licensed under the [Apache License 2.0](./LICENSE).
+
+Third-party components—including Ubuntu packages, model weights, datasets,
+fonts, icons, themes, and vendored dependencies—remain subject to their
+respective licenses and terms.
